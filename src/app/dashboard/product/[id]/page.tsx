@@ -149,7 +149,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                 </div>
               )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "32px", alignItems: "start" }}>
+              <div className="grid-product-detail">
                 {/* Left Side: Product Image */}
                 <div className="card" style={{ padding: "0", overflow: "hidden" }}>
                   {product.imageUrl ? (
@@ -182,14 +182,14 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     {product.description || "No description provided."}
                   </p>
 
-                  <div className="card" style={{ padding: "24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "3px solid var(--accent)" }}>
+                  <div className="card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px", borderTop: "3px solid var(--accent)" }}>
                     <div>
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
                         {product.stockCount > 0 ? `${product.stockCount} unit(s) available in stock` : "Currently out of stock"}
                       </p>
                     </div>
-                    <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
                         {formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                       </span>

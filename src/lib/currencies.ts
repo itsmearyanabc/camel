@@ -7,6 +7,10 @@ export interface CurrencyInfo {
 export const FIAT_CURRENCIES: Record<string, CurrencyInfo> = {
   USD: { code: "USD", symbol: "$", name: "US Dollar" },
   EUR: { code: "EUR", symbol: "€", name: "Euro" },
+  RUB: { code: "RUB", symbol: "₽", name: "Ruble" },
+  UAH: { code: "UAH", symbol: "₴", name: "Hryvnia" },
+  KZT: { code: "KZT", symbol: "₸", name: "Tenge" },
+  TRY: { code: "TRY", symbol: "₺", name: "Lira" },
 };
 
 export function getCurrencySymbol(code: string): string {

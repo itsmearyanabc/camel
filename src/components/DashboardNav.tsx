@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
-import { formatPrice } from "@/lib/currencies";
+import { formatPrice, FIAT_CURRENCIES } from "@/lib/currencies";
 import styles from "../app/dashboard/dashboard.module.css";
 
 type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings";
@@ -67,140 +67,196 @@ export default function DashboardNav({
 
   const username = user?.username || "USER";
   const balance = user?.wallet?.balance || 0;
+  const activeCurrency = user?.wallet?.currency || "USD";
+
+  // All supported currencies for the dropdown
+  const currencyList = Object.values(FIAT_CURRENCIES);
+
+  // Bottom tab items
+  const bottomTabs: { key: Tab; label: string; icon: string }[] = [
+    { key: "shop", label: "Shop", icon: "🛒" },
+    { key: "wallet", label: "Wallet", icon: "💳" },
+    { key: "orders", label: "Orders", icon: "📦" },
+    { key: "disputes", label: "Tickets", icon: "🎟" },
+    { key: "profile", label: "Profile", icon: "👤" },
+  ];
 
   return (
-    <header className={styles.topnav} style={{ padding: "12px 24px", justifyContent: "space-between" }}>
-      {/* Left side: Username / ID (like MASSAKA34) */}
-      <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-        <Link 
-          href="/dashboard"
-          onClick={() => setActiveTab("shop")}
-          style={{ 
-            fontWeight: "700", 
-            fontSize: "16px",
-            letterSpacing: "0.03em",
-            color: "var(--text-primary)"
-          }}
-        >
-          {username}
-        </Link>
-      </div>
-
-      {/* Right side: Actions & Profile */}
-      <div className={styles.account} style={{ gap: "8px" }}>
-        <a
-          href={`https://t.me/${botUsername}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn btn-ghost btn-sm"
-          style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", padding: "6px 12px" }}
-        >
-          <span style={{ fontSize: "16px" }}>🤖</span> Bot
-        </a>
-
-        <div className={styles.menuWrap} ref={currencyRef}>
-          <button
-            type="button"
-            onClick={() => setCurrencyOpen(!currencyOpen)}
-            className="btn btn-ghost btn-sm"
-            style={{ fontWeight: "700", padding: "6px 24px 6px 12px", fontSize: "15px", display: "flex", gap: "6px", alignItems: "center" }}
-            title="Change Currency"
-          >
-            {formatPrice(balance, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
-          </button>
-          
-          <nav
-            className={`${styles.menuPanel} ${currencyOpen ? styles.menuPanelOpen : ""}`}
-            style={{ right: 0, top: "calc(100% + 12px)", minWidth: "120px", padding: "8px 0" }}
-          >
-            <button type="button" onClick={() => handleCurrencyChange("USD")} className={styles.menuItem}>
-              <span style={{ width: "20px", fontWeight: "bold" }}>$</span> USD
-            </button>
-            <button type="button" onClick={() => handleCurrencyChange("EUR")} className={styles.menuItem}>
-              <span style={{ width: "20px", fontWeight: "bold" }}>€</span> EUR
-            </button>
-          </nav>
-        </div>
-
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
-        >
-          <span aria-hidden="true">🇬🇧</span> English
-        </button>
-
-        <ThemeToggle compact />
-
-        <div className={styles.menuWrap} ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen(!menuOpen)}
-            style={{
-              width: "36px", height: "36px",
-              borderRadius: "50%",
-              border: "2px solid var(--border)",
-              background: "linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%)",
-              color: "#fff",
-              fontWeight: "700",
-              fontSize: "14px",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer",
-              padding: 0,
-              marginLeft: "8px",
-              overflow: "hidden"
+    <>
+      <header className={styles.topnav} style={{ padding: "12px 24px", justifyContent: "space-between" }}>
+        {/* Left side: Username */}
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+          <Link 
+            href="/dashboard"
+            onClick={() => setActiveTab("shop")}
+            style={{ 
+              fontWeight: "700", 
+              fontSize: "16px",
+              letterSpacing: "0.03em",
+              color: "var(--text-primary)",
+              whiteSpace: "nowrap",
             }}
-            aria-label="Open profile menu"
-            aria-expanded={menuOpen}
           >
-            {user?.avatarUrl ? (
-              <img src={user.avatarUrl} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            ) : (
-              username.slice(0, 2).toUpperCase()
-            )}
+            {username}
+          </Link>
+        </div>
+
+        {/* Right side: Actions & Profile */}
+        <div className={styles.account} style={{ gap: "8px" }}>
+          {/* Bot link — desktop only */}
+          <a
+            href={`https://t.me/${botUsername}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`btn btn-ghost btn-sm ${styles.hideOnMobile}`}
+            style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", padding: "6px 12px" }}
+          >
+            <span style={{ fontSize: "16px" }}>🤖</span> Bot
+          </a>
+
+          {/* Currency Picker */}
+          <div className={styles.menuWrap} ref={currencyRef}>
+            <button
+              type="button"
+              onClick={() => setCurrencyOpen(!currencyOpen)}
+              className="btn btn-ghost btn-sm"
+              style={{ fontWeight: "700", padding: "6px 12px", fontSize: "14px", display: "flex", gap: "6px", alignItems: "center", whiteSpace: "nowrap" }}
+              title="Change Currency"
+            >
+              {formatPrice(balance, activeCurrency, user?.wallet?.exchangeRate || 1)}
+            </button>
+            
+            <nav
+              className={`${styles.menuPanel} ${currencyOpen ? styles.menuPanelOpen : ""}`}
+              style={{ right: 0, top: "calc(100% + 12px)", minWidth: "180px", padding: "8px 0" }}
+            >
+              {currencyList.map(cur => (
+                <button
+                  key={cur.code}
+                  type="button"
+                  onClick={() => handleCurrencyChange(cur.code)}
+                  className={`${styles.menuItem} ${activeCurrency === cur.code ? styles.currencyItemActive : ""}`}
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ width: "18px", fontWeight: "bold", fontSize: "15px", textAlign: "center" }}>{cur.symbol}</span>
+                    {cur.name}
+                  </span>
+                  {activeCurrency === cur.code && (
+                    <span style={{ fontSize: "14px", color: "var(--accent)" }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Language — desktop only */}
+          <button
+            type="button"
+            className={`btn btn-ghost btn-sm ${styles.hideOnMobile}`}
+            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
+          >
+            <span aria-hidden="true">🇬🇧</span> English
           </button>
 
-          {/* New Dropdown Layout */}
-          <nav
-            className={`${styles.menuPanel} ${menuOpen ? styles.menuPanelOpen : ""}`}
-            style={{ right: 0, top: "calc(100% + 12px)", minWidth: "220px", padding: "8px 0" }}
-          >
-            <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", marginBottom: "8px" }}>
-              <strong style={{ display: "block", fontSize: "15px", marginBottom: "2px" }}>{username}</strong>
-              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Balance: {formatPrice(balance, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
-            </div>
+          <ThemeToggle compact />
 
-            <button type="button" onClick={() => handleTabClick("profile")} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>👤</span> Profile
+          {/* Avatar / hamburger menu */}
+          <div className={styles.menuWrap} ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen(!menuOpen)}
+              style={{
+                width: "36px", height: "36px",
+                borderRadius: "50%",
+                border: "2px solid var(--border)",
+                background: "linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%)",
+                color: "#fff",
+                fontWeight: "700",
+                fontSize: "14px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+                padding: 0,
+                marginLeft: "4px",
+                overflow: "hidden"
+              }}
+              aria-label="Open profile menu"
+              aria-expanded={menuOpen}
+            >
+              {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt="Avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                username.slice(0, 2).toUpperCase()
+              )}
             </button>
-            <button type="button" onClick={() => {}} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>🤍</span> Favorites
-            </button>
-            <button type="button" onClick={() => handleTabClick("wallet")} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>💳</span> Balance
-            </button>
-            <button type="button" onClick={() => handleTabClick("orders")} className={styles.menuItem} style={{ position: "relative" }}>
-              <span style={{ width: "20px" }}>🛍️</span> Orders
-              {hasActiveOrders && <i className={styles.dot} style={{ position: "absolute", right: "12px" }} />}
-            </button>
-            <button type="button" onClick={() => handleTabClick("disputes")} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>🔍</span> Disputes
-            </button>
-            <button type="button" onClick={() => {}} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>💬</span> Reviews
-            </button>
-            <button type="button" onClick={() => handleTabClick("settings")} className={styles.menuItem}>
-              <span style={{ width: "20px" }}>⚙️</span> Settings
-            </button>
-            
-            <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
-            
-            <button type="button" onClick={onLogout} className={styles.menuItem} style={{ color: "var(--red)" }}>
-              <span style={{ width: "20px" }}>↪</span> Sign Out
-            </button>
-          </nav>
+
+            {/* Dropdown Menu */}
+            <nav
+              className={`${styles.menuPanel} ${menuOpen ? styles.menuPanelOpen : ""}`}
+              style={{ right: 0, top: "calc(100% + 12px)", minWidth: "220px", padding: "8px 0" }}
+            >
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", marginBottom: "8px" }}>
+                <strong style={{ display: "block", fontSize: "15px", marginBottom: "2px" }}>{username}</strong>
+                <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Balance: {formatPrice(balance, activeCurrency, user?.wallet?.exchangeRate || 1)}</span>
+              </div>
+
+              <button type="button" onClick={() => handleTabClick("profile")} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>👤</span> Profile
+              </button>
+              <button type="button" onClick={() => {}} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>🤍</span> Favorites
+              </button>
+              <button type="button" onClick={() => handleTabClick("wallet")} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>💳</span> Balance
+              </button>
+              <button type="button" onClick={() => handleTabClick("orders")} className={styles.menuItem} style={{ position: "relative" }}>
+                <span style={{ width: "20px" }}>🛍️</span> Orders
+                {hasActiveOrders && <i className={styles.dot} style={{ position: "absolute", right: "12px" }} />}
+              </button>
+              <button type="button" onClick={() => handleTabClick("disputes")} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>🔍</span> Disputes
+              </button>
+              <button type="button" onClick={() => {}} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>💬</span> Reviews
+              </button>
+              <button type="button" onClick={() => handleTabClick("settings")} className={styles.menuItem}>
+                <span style={{ width: "20px" }}>⚙️</span> Settings
+              </button>
+              
+              {/* Bot link inside menu — for mobile convenience */}
+              <a
+                href={`https://t.me/${botUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.menuItem}
+              >
+                <span style={{ width: "20px" }}>🤖</span> Telegram Bot
+              </a>
+              
+              <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
+              
+              <button type="button" onClick={onLogout} className={styles.menuItem} style={{ color: "var(--red)" }}>
+                <span style={{ width: "20px" }}>↪</span> Sign Out
+              </button>
+            </nav>
+          </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Mobile Bottom Tab Bar */}
+      <nav className={styles.bottomBar}>
+        {bottomTabs.map(tab => (
+          <button
+            key={tab.key}
+            type="button"
+            className={`${styles.bottomBarItem} ${activeTab === tab.key ? styles.bottomBarItemActive : ""}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            <span>{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+    </>
   );
 }

@@ -466,7 +466,7 @@ export default function Dashboard() {
                 categories.map(category => (
                   <div key={category.id}>
                     <h3 style={{ marginBottom: "16px", color: "var(--text-secondary)" }}>{category.name}</h3>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "16px" }}>
+                    <div className="product-grid">
                       {category.products.map(product => (
                         <div key={product.id} className="card card-interactive" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                           <div>
@@ -490,7 +490,7 @@ export default function Dashboard() {
                             )}
                           </div>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "14px", marginTop: "14px" }}>
-                            <span style={{ fontSize: "20px", fontWeight: "700" }}>{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
+                            <span style={{ fontSize: "clamp(16px, 4vw, 20px)", fontWeight: "700" }}>{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
                             <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
                               <Link
                                 href={`/dashboard/product/${product.id}`}
@@ -513,9 +513,9 @@ export default function Dashboard() {
                 <div style={{
                   position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
                   background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
-                  backdropFilter: "blur(4px)"
+                  backdropFilter: "blur(4px)", padding: "16px"
                 }}>
-                  <div className="card" style={{ width: "100%", maxWidth: "480px", background: "var(--bg-primary)" }}>
+                  <div className="card" style={{ width: "100%", maxWidth: "480px", background: "var(--bg-primary)", maxHeight: "90vh", overflowY: "auto" }}>
                     {cryptoStep === "select" ? (
                       <>
                         <h3 style={{ marginBottom: "8px" }}>Select Cryptocurrency</h3>
@@ -601,7 +601,7 @@ export default function Dashboard() {
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               <h2>Wallet</h2>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+              <div className="grid-2col">
                 {showDepositInstructions && pendingDeposit ? (
                   <div className="card" style={{ border: "1px solid var(--accent)", background: "rgba(0, 113, 227, 0.05)" }}>
                     <h3 style={{ marginBottom: "12px", color: "var(--accent)" }}>💵 Send Crypto Payment</h3>
@@ -671,6 +671,7 @@ export default function Dashboard() {
                 {depositRequests.length === 0 ? (
                   <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No deposit requests yet.</p>
                 ) : (
+                <div className="table-scroll-wrap">
                   <table>
                     <thead>
                       <tr>
@@ -700,6 +701,7 @@ export default function Dashboard() {
                       ))}
                     </tbody>
                   </table>
+                </div>
                 )}
               </div>
 
@@ -708,6 +710,7 @@ export default function Dashboard() {
                 {ledgers.length === 0 ? (
                   <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No transactions yet.</p>
                 ) : (
+                <div className="table-scroll-wrap">
                   <table>
                     <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Description</th></tr></thead>
                     <tbody>
@@ -723,6 +726,7 @@ export default function Dashboard() {
                       ))}
                     </tbody>
                   </table>
+                </div>
                 )}
               </div>
             </div>
@@ -747,7 +751,7 @@ export default function Dashboard() {
                       }`,
                       marginBottom: "24px"
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border)", paddingBottom: "12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid var(--border)", paddingBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                         <div>
                           <p style={{ fontSize: "12px", color: "var(--text-tertiary)", fontFamily: "monospace" }}>ORDER #{order.id.slice(0, 8)}</p>
                           <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>{new Date(order.createdAt).toLocaleString()}</span>
@@ -784,7 +788,7 @@ export default function Dashboard() {
                           const secondsLeft = item.cooldownEndAt ? Math.max(0, Math.ceil((new Date(item.cooldownEndAt).getTime() - Date.now()) / 1000)) : 0;
                           return (
                             <div key={item.id} style={{ background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                                 <div>
                                   <h4 style={{ fontSize: "16px", marginBottom: "4px" }}>{item.product.name}</h4>
                                   <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
@@ -889,7 +893,7 @@ export default function Dashboard() {
                         })}
                       </div>
 
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "12px", marginTop: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "12px", marginTop: "16px", flexWrap: "wrap", gap: "8px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                           <span style={{ fontWeight: "600" }}>Total: {formatPrice(Number(order.totalAmount), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
                           {order.paymentMethod === "DIRECT_CRYPTO" ? (
@@ -909,7 +913,7 @@ export default function Dashboard() {
           {/* DISPUTES */}
           {activeTab === "disputes" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
                 <h2>Support Tickets & Disputes</h2>
                 {!raiseTicketOpen && !selectedOrderIdForDispute && (
                   <button onClick={() => setRaiseTicketOpen(true)} className="btn btn-primary btn-sm">
@@ -968,7 +972,7 @@ export default function Dashboard() {
               ) : (
                 disputes.map(d => (
                   <div key={d.id} className="card" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "12px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                       <div>
                         <h4 style={{ marginBottom: "4px" }}>Ticket for {d.order.items?.map(i => i.product?.name).join(", ")}</h4>
                         <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Order ID: #{d.orderId.slice(0,8)}</span>
@@ -1047,8 +1051,8 @@ export default function Dashboard() {
                 <h3 style={{ marginBottom: "4px" }}>Information</h3>
                 <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "24px" }}>Basic information about your account</p>
 
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
                     <div style={{
                       width: "80px", height: "80px", borderRadius: "50%",
                       background: "linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%)",
@@ -1078,7 +1082,7 @@ export default function Dashboard() {
               </div>
 
               {/* Stats Grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              <div className="grid-3col">
                 <div className="card stat-card" style={{ borderTop: "3px solid var(--accent)" }}>
                   <p style={{ fontSize: "24px", marginBottom: "4px" }}>🛒</p>
                   <p className="stat-value">{user.totalOrders || 0}</p>
@@ -1099,7 +1103,7 @@ export default function Dashboard() {
               {/* Account Details */}
               <div className="card">
                 <h3 style={{ marginBottom: "16px" }}>Account Details</h3>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div className="grid-2col" style={{ gap: "16px" }}>
                   <div>
                     <p style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>Username</p>
                     <p style={{ fontWeight: "500" }}>{user.username}</p>
@@ -1258,7 +1262,7 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", alignItems: "start" }}>
+                <div className="grid-settings-tg">
                   <form onSubmit={handleTelegramSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label" htmlFor="telegram-username">Telegram Username</label>

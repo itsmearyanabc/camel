@@ -24,6 +24,100 @@
 .logoutItem { color:var(--red); }
 .dot{width:6px;height:6px;border-radius:50%;background:var(--orange);margin-left:auto}
 .avatar{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;color:#1a1206;background:linear-gradient(135deg,#f4d889,#b97718);font-size:11px;font-weight:800}
-.content { width:min(1180px, calc(100% - 48px)); margin:34px auto 0; flex:1; }.dashboardHero { display:grid; grid-template-columns:1fr auto; gap:28px; align-items:center; padding:34px 38px; margin-bottom:26px; border:1px solid var(--border); border-radius:26px; background:radial-gradient(circle at 85% 25%,rgba(228,173,77,.22),transparent 26%),var(--bg-elevated);box-shadow:var(--shadow-sm);overflow:hidden}.heroKicker{font-size:11px;color:var(--accent);font-weight:800;letter-spacing:.1em;text-transform:uppercase}.dashboardHero h1{margin:9px 0;font-size:clamp(28px,4vw,47px)}.dashboardHero p{color:var(--text-secondary);font-size:14px}.citySelect{min-width:210px;padding:13px 16px;border-radius:13px;color:var(--text-primary);background:var(--surface-subtle);border:1px solid var(--border);outline:none}.section{min-width:0}
-@media(max-width:900px){.topnav{width:calc(100% - 28px);min-height:64px;top:12px;margin-top:14px;padding:0 20px}.account{gap:18px}.content{width:calc(100% - 28px);margin-top:26px}.dashboardHero{padding:28px}}
-@media(max-width:560px){.dashboardHero{grid-template-columns:1fr;padding:24px 20px;gap:18px}.citySelect{width:100%}.account{gap:13px}.topnav{gap:8px;padding:0 15px}.brandButton{font-size:16px}.languageButton span:last-child{display:none}.navIconButton{font-size:20px}.content{margin-top:20px}.menuPanel{right:-8px}}
+.content { width:min(1180px, calc(100% - 48px)); margin:34px auto 0; flex:1; }
+.dashboardHero { display:grid; grid-template-columns:1fr auto; gap:28px; align-items:center; padding:34px 38px; margin-bottom:26px; border:1px solid var(--border); border-radius:26px; background:radial-gradient(circle at 85% 25%,rgba(228,173,77,.22),transparent 26%),var(--bg-elevated);box-shadow:var(--shadow-sm);overflow:hidden}
+.heroKicker{font-size:11px;color:var(--accent);font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.dashboardHero h1{margin:9px 0;font-size:clamp(28px,4vw,47px)}
+.dashboardHero p{color:var(--text-secondary);font-size:14px}
+.citySelect{min-width:210px;padding:13px 16px;border-radius:13px;color:var(--text-primary);background:var(--surface-subtle);border:1px solid var(--border);outline:none}
+.section{min-width:0}
+
+/* ─── Currency dropdown item active check ─── */
+.currencyItemActive { color:var(--accent) !important; background:var(--accent-light) !important; }
+
+/* ─── Hide on mobile / desktop helpers ─── */
+.hideOnMobile { display: flex; }
+.hideOnDesktop { display: none; }
+
+/* ─── Mobile Bottom Tab Bar ─── */
+.bottomBar { display:none; }
+
+@media(max-width:900px){
+  .topnav{width:calc(100% - 28px);min-height:64px;top:12px;margin-top:14px;padding:0 20px}
+  .account{gap:18px}
+  .content{width:calc(100% - 28px);margin-top:26px}
+  .dashboardHero{padding:28px}
+}
+
+@media(max-width:768px){
+  .hideOnMobile { display: none !important; }
+  .hideOnDesktop { display: flex !important; }
+  .topnav{width:calc(100% - 20px);min-height:56px;top:8px;margin-top:10px;padding:0 14px;gap:6px}
+  .account{gap:8px}
+  .content{width:calc(100% - 20px);margin-top:18px;padding-bottom:80px}
+  .dashboardHero{grid-template-columns:1fr;padding:20px 16px;gap:14px}
+  .citySelect{width:100%;min-width:0}
+  .menuPanel{right:-4px;width:min(260px,calc(100vw - 24px))}
+
+  /* Bottom Tab Bar — visible on mobile */
+  .bottomBar {
+    display:flex;
+    position:fixed;
+    bottom:0;
+    left:0;
+    right:0;
+    z-index:40;
+    height:64px;
+    padding:0 4px;
+    padding-bottom:env(safe-area-inset-bottom, 0px);
+    align-items:center;
+    justify-content:space-around;
+    background:rgba(255,255,255,.92);
+    border-top:1px solid var(--border);
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+    box-shadow:0 -4px 20px rgba(0,0,0,.06);
+  }
+  :global(:root[data-theme="night"]) .bottomBar {
+    background:rgba(18,19,24,.94);
+    box-shadow:0 -4px 20px rgba(0,0,0,.3);
+  }
+  .bottomBarItem {
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+    padding:6px 0;
+    border:0;
+    background:transparent;
+    color:var(--text-tertiary);
+    font-size:10px;
+    font-weight:600;
+    cursor:pointer;
+    transition:color .15s ease;
+    position:relative;
+  }
+  .bottomBarItem span:first-child { font-size:20px; line-height:1; }
+  .bottomBarItemActive { color:var(--accent); }
+  .bottomBarItemActive::after {
+    content:'';
+    position:absolute;
+    top:2px;
+    left:50%;
+    transform:translateX(-50%);
+    width:4px;
+    height:4px;
+    border-radius:50%;
+    background:var(--accent);
+  }
+}
+
+@media(max-width:560px){
+  .brandButton{font-size:16px}
+  .languageButton span:last-child{display:none}
+  .navIconButton{font-size:20px}
+  .content{margin-top:14px}
+}
+

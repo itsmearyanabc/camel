@@ -11,7 +11,7 @@ export async function POST(request: Request) {
 
     const { currency } = await request.json();
 
-    if (!['USD', 'EUR'].includes(currency)) {
+    if (!['USD', 'EUR', 'RUB', 'UAH', 'KZT', 'TRY'].includes(currency)) {
       return NextResponse.json({ error: 'Invalid currency' }, { status: 400 });
     }
 

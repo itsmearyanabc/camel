@@ -35,11 +35,15 @@ export async function getExchangeRates(): Promise<Record<string, number>> {
     console.error("Error fetching exchange rates, falling back to 1:1:", error);
   }
 
-  // Fallback if API fails
+  // Fallback if API fails — approximate rates so prices aren't shown 1:1
   return ratesCache || {
     USD: 1,
-    EUR: 1, // Fallback
-    GBP: 1,
+    EUR: 0.92,
+    GBP: 0.79,
+    RUB: 87.5,
+    UAH: 41.3,
+    KZT: 450,
+    TRY: 34.2,
   };
 }
 
