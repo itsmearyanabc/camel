@@ -90,6 +90,9 @@ export default function DashboardNav({
             href="/dashboard"
             onClick={() => setActiveTab("shop")}
             style={{ 
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
               fontWeight: "700", 
               fontSize: "16px",
               letterSpacing: "0.03em",
@@ -97,6 +100,7 @@ export default function DashboardNav({
               whiteSpace: "nowrap",
             }}
           >
+            <img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
             {username}
           </Link>
         </div>

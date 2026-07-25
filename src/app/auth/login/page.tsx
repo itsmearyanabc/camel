@@ -39,7 +39,7 @@ export default function Login() {
   };
 
   return <main className={styles.page}>
-    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>Camel971BOYZ</Link><ThemeToggle compact /></div>
+    <div className={styles.topbar}><Link href="/" className={styles.brand}><img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", marginRight: 8 }} />Camel971</Link><ThemeToggle compact /></div>
     <section className={styles.card}>
       <div className={styles.heading}><h1>Sign in</h1><p>Enter your details below to access your Camel971account.</p></div>
       {error && <div className="alert alert-error">{error}</div>}

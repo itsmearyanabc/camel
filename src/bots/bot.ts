@@ -53,7 +53,7 @@ export function createTelegramBot(token: string, botName: string) {
 
   function welcomeAuthText(user: { username: string; role: string; wallet?: { balance: number } | null }) {
     return (
-      `🧪 *Camel971Boyz* - Main Menu (${esc(botName)})\n\n` +
+      `🧪 *Camel971* - Main Menu (${esc(botName)})\n\n` +
       `User: *${esc(user.username)}* | Role: *${esc(user.role)}*\n` +
       `Wallet Balance: *$${(user.wallet?.balance ?? 0).toFixed(2)}*\n\n` +
       `Manage your orders, browse stock, or raise disputes below.`

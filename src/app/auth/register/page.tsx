@@ -33,7 +33,7 @@ export default function Register() {
   };
 
   return <main className={styles.page}>
-    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>Camel971BOYZ</Link><ThemeToggle compact /></div>
+    <div className={styles.topbar}><Link href="/" className={styles.brand}><img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", marginRight: 8 }} />Camel971</Link><ThemeToggle compact /></div>
     <section className={styles.card}>
       <div className={styles.heading}><h1>Create account</h1><p>Join Camel971to browse, order, and manage your secure wallet.</p></div>
       {error && <div className="alert alert-error">{error}</div>}

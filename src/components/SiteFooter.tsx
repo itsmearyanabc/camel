@@ -6,7 +6,7 @@ export default function SiteFooter() {
     <footer className="site-footer">
       <div className="footer-grid">
         <div className="footer-intro">
-          <Link href="/" className="brand-lockup"><span className="brand-mark">SB</span><span>Camel971BOYZ</span></Link>
+          <Link href="/" className="brand-lockup"><img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} /><span>Camel971</span></Link>
           <p>A premium, privacy-first marketplace with secure ordering and always-on Telegram access.</p>
         </div>
         <div>
@@ -31,7 +31,7 @@ export default function SiteFooter() {
           <ThemeToggle />
         </div>
       </div>
-      <div className="footer-bottom">© {new Date().getFullYear()} Camel971BOYZ. All rights reserved.</div>
+      <div className="footer-bottom">© {new Date().getFullYear()} Camel971. All rights reserved.</div>
     </footer>
   );
 }
