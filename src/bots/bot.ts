@@ -75,7 +75,7 @@ export function createTelegramBot(token: string, botName: string) {
 
     if (!user) {
       const welcomeNoAuth =
-        `👋 Welcome to *Camel971* (@Camel971\\_bot)!\n\n` +
+        `👋 Welcome to *Camel971* (${esc("@Camel971_bot")})!\n\n` +
         `We could not find an account linked to your Telegram ID: \`${telegramId}\`.\n\n` +
         `Choose an option below to get started:`;
 
