@@ -63,7 +63,7 @@ interface Dispute {
 
 type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "SafariBoys_bot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_bot";
 
 export default function Dashboard() {
   const router = useRouter();

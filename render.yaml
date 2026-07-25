@@ -4,7 +4,7 @@
 services:
   # 1. Website (Customer + Admin on the same deployment)
   - type: web
-    name: safari-web
+    name: camel971-web
     runtime: node
     plan: free
     buildCommand: npm install && npx prisma generate && npx prisma db push --accept-data-loss && npm run build
