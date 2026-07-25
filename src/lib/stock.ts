@@ -8,5 +8,5 @@ export function getStockState(count: number): string {
 
 /** Escape characters that break Telegram legacy Markdown parse_mode. */
 export function escapeTelegramMarkdown(text: string): string {
-  return String(text).replace(/([_*`\[])/g, "\\$1");
+  return String(text).replace(/([_*`\[()])/g, "\\$1");
 }

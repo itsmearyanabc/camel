@@ -20,7 +20,7 @@ export default function SiteFooter() {
         <div>
           <h3>Secure access</h3>
           <div className="footer-links">
-            <a href="https://t.me/Camel971Boys_bot" target="_blank" rel="noreferrer">Telegram Bot</a>
+            <a href="https://t.me/Camel971_bot" target="_blank" rel="noreferrer">Telegram Bot</a>
             <span>Encrypted wallet</span>
             <span>24/7 availability</span>
           </div>

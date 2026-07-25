@@ -31,6 +31,10 @@ export function createTelegramBot(token: string, botName: string) {
   // Global error handler — keeps the bot alive and logs the real cause
   bot.catch((err) => {
     const ctx = err.ctx;
+    const errText = String((err.error as any)?.message || err.error || "");
+    if (errText.includes("message is not modified")) {
+      return;
+    }
     console.error(`[${botName}] Error in update ${ctx.update.update_id}:`, err.error);
     ctx.reply("⚠️ Something went wrong. Please try again later or type /start.").catch(() => {});
   });
@@ -71,7 +75,7 @@ export function createTelegramBot(token: string, botName: string) {
 
     if (!user) {
       const welcomeNoAuth =
-        `👋 Welcome to *Camel971Bot* (${esc(botName)})!\n\n` +
+        `👋 Welcome to *Camel971* (@Camel971_bot)!\n\n` +
         `We could not find an account linked to your Telegram ID: \`${telegramId}\`.\n\n` +
         `Choose an option below to get started:`;
 
