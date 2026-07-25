@@ -397,22 +397,45 @@ export default function Dashboard() {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result;
-      if (!base64) return;
-      try {
-        const res = await fetch('/api/auth/update-avatar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64 })
-        });
-        if (res.ok) {
-          const dMe = await (await fetch('/api/auth/me')).json();
-          if (dMe.user) setUser(dMe.user);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 256;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height && width > MAX_SIZE) {
+          height *= MAX_SIZE / width;
+          width = MAX_SIZE;
+        } else if (height > MAX_SIZE) {
+          width *= MAX_SIZE / height;
+          height = MAX_SIZE;
         }
-      } catch (err) {
-        console.error("Avatar upload failed", err);
-      }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        // Compress to high quality JPEG
+        const base64 = canvas.toDataURL('image/jpeg', 0.9);
+        
+        try {
+          const res = await fetch('/api/auth/update-avatar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64 })
+          });
+          if (res.ok) {
+            const dMe = await (await fetch('/api/auth/me')).json();
+            if (dMe.user) setUser(dMe.user);
+          }
+        } catch (err) {
+          console.error("Avatar upload failed", err);
+        }
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -468,29 +491,33 @@ export default function Dashboard() {
                     <h3 style={{ marginBottom: "16px", color: "var(--text-secondary)" }}>{category.name}</h3>
                     <div className="product-grid">
                       {category.products.map(product => (
-                        <div key={product.id} className="card card-interactive" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                          <div>
+                        <div key={product.id} className="card card-interactive product-card-layout">
+                          <div className="product-card-top">
+                            <div className="product-card-info">
+                              <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
+                              <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+                                {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
+                                {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
+                              </div>
+                              <div style={{ marginBottom: "4px" }}>
+                                <span className={`badge badge-${product.stockState.toLowerCase()}`}>
+                                  {product.stockState.replace(/_/g, " ")} ({product.stockCount})
+                                </span>
+                              </div>
+                              {product.description && (
+                                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: "1.5" }}>
+                                  {product.description}
+                                </p>
+                              )}
+                            </div>
                             {product.imageUrl && (
-                              <div style={{ width: "100%", height: "160px", overflow: "hidden", borderRadius: "var(--radius-md)", marginBottom: "12px", border: "1px solid var(--border)" }}>
+                              <div className="product-card-image">
                                 <img src={product.imageUrl} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                               </div>
                             )}
-                            <h4 style={{ marginBottom: "6px" }}>{product.name}</h4>
-                            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-                              {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
-                              {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
-                            </div>
-                            <span className={`badge badge-${product.stockState.toLowerCase()}`} style={{ marginBottom: "8px" }}>
-                              {product.stockState.replace(/_/g, " ")} ({product.stockCount})
-                            </span>
-                            {product.description && (
-                              <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "8px", lineHeight: "1.5" }}>
-                                {product.description}
-                              </p>
-                            )}
                           </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "14px", marginTop: "14px" }}>
-                            <span style={{ fontSize: "clamp(16px, 4vw, 20px)", fontWeight: "700" }}>{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
+                          <div className="product-card-bottom">
+                            <span className="product-card-price">{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
                             <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
                               <Link
                                 href={`/dashboard/product/${product.id}`}
