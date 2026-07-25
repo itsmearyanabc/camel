@@ -36,7 +36,7 @@ export function createTelegramBot(token: string, botName: string) {
       return;
     }
     console.error(`[${botName}] Error in update ${ctx.update.update_id}:`, err.error);
-    ctx.reply("⚠️ Something went wrong. Please try again later or type /start.").catch(() => {});
+    ctx.reply(`⚠️ Something went wrong: ${errText}\n\nPlease try again later or type /start.`).catch(() => {});
   });
 
   async function getUserByTelegram(telegramId: number) {
