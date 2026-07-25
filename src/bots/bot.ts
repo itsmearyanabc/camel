@@ -53,7 +53,7 @@ export function createTelegramBot(token: string, botName: string) {
 
   function welcomeAuthText(user: { username: string; role: string; wallet?: { balance: number } | null }) {
     return (
-      `🧪 *SafariBoyz* - Main Menu (${esc(botName)})\n\n` +
+      `🧪 *Camel971Boyz* - Main Menu (${esc(botName)})\n\n` +
       `User: *${esc(user.username)}* | Role: *${esc(user.role)}*\n` +
       `Wallet Balance: *$${(user.wallet?.balance ?? 0).toFixed(2)}*\n\n` +
       `Manage your orders, browse stock, or raise disputes below.`
@@ -71,7 +71,7 @@ export function createTelegramBot(token: string, botName: string) {
 
     if (!user) {
       const welcomeNoAuth =
-        `👋 Welcome to *SafariBoyz Bot* (${esc(botName)})!\n\n` +
+        `👋 Welcome to *Camel971Bot* (${esc(botName)})!\n\n` +
         `We could not find an account linked to your Telegram ID: \`${telegramId}\`.\n\n` +
         `Choose an option below to get started:`;
 

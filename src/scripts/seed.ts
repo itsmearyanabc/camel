@@ -2,7 +2,7 @@ import { prisma } from "../lib/db";
 import bcrypt from "bcryptjs";
 
 async function main() {
-  console.log("Seeding SafariBoyz database...");
+  console.log("Seeding Camel971database...");
 
   // Clear existing data (in correct order for foreign key constraints)
   await prisma.dispute.deleteMany({});

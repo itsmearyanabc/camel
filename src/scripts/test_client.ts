@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 
 async function runAcceptanceTest() {
   console.log("=================================================");
-  console.log("   SAFARIBOYZ - 100 CONSECUTIVE ORDERS TEST     ");
+  console.log("   Camel971- 100 CONSECUTIVE ORDERS TEST     ");
   console.log("=================================================");
 
   try {

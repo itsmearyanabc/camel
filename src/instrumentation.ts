@@ -66,7 +66,7 @@ export async function register() {
     }
 
     console.log("=========================================");
-    console.log("   SAFARIBOYZ TELEGRAM BOTS (embedded)   ");
+    console.log("   Camel971TELEGRAM BOTS (embedded)   ");
     console.log("=========================================");
 
     try {

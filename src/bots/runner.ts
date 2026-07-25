@@ -36,7 +36,7 @@ async function startBots() {
   const token2 = process.env.TELEGRAM_BOT_2_TOKEN?.trim().replace(/^["']|["']$/g, "");
 
   console.log("=========================================");
-  console.log("   SAFARIBOYZ TELEGRAM BOTS INITIATOR   ");
+  console.log("   Camel971TELEGRAM BOTS INITIATOR   ");
   console.log("=========================================");
   console.log(`📂 Loading env from: ${envPath}`);
   console.log(`🔑 Bot #1 token: ${isUsableToken(token1, "PLACEHOLDER_BOT_1_TOKEN") ? "present" : "MISSING"}`);

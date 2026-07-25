@@ -6,7 +6,7 @@ export default function SiteFooter() {
     <footer className="site-footer">
       <div className="footer-grid">
         <div className="footer-intro">
-          <Link href="/" className="brand-lockup"><span className="brand-mark">SB</span><span>SAFARIBOYZ</span></Link>
+          <Link href="/" className="brand-lockup"><span className="brand-mark">SB</span><span>Camel971BOYZ</span></Link>
           <p>A premium, privacy-first marketplace with secure ordering and always-on Telegram access.</p>
         </div>
         <div>
@@ -20,7 +20,7 @@ export default function SiteFooter() {
         <div>
           <h3>Secure access</h3>
           <div className="footer-links">
-            <a href="https://t.me/SafariBoys_bot" target="_blank" rel="noreferrer">Telegram Bot</a>
+            <a href="https://t.me/Camel971Boys_bot" target="_blank" rel="noreferrer">Telegram Bot</a>
             <span>Encrypted wallet</span>
             <span>24/7 availability</span>
           </div>
@@ -31,7 +31,7 @@ export default function SiteFooter() {
           <ThemeToggle />
         </div>
       </div>
-      <div className="footer-bottom">© {new Date().getFullYear()} SAFARIBOYZ. All rights reserved.</div>
+      <div className="footer-bottom">© {new Date().getFullYear()} Camel971BOYZ. All rights reserved.</div>
     </footer>
   );
 }

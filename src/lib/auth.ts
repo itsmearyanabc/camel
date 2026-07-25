@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import crypto from "crypto";
 
 const SESSION_COOKIE_NAME = "safari_session";
-const SESSION_SECRET = process.env.SESSION_SECRET || "safariboyz_super_secret_key_123456789";
+const SESSION_SECRET = process.env.SESSION_SECRET || "Camel971_super_secret_key_123456789";
 
 interface SessionPayload {
   userId: string;

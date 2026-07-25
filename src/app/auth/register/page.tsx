@@ -33,9 +33,9 @@ export default function Register() {
   };
 
   return <main className={styles.page}>
-    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>SAFARIBOYZ</Link><ThemeToggle compact /></div>
+    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>Camel971BOYZ</Link><ThemeToggle compact /></div>
     <section className={styles.card}>
-      <div className={styles.heading}><h1>Create account</h1><p>Join SAFARIBOYZ to browse, order, and manage your secure wallet.</p></div>
+      <div className={styles.heading}><h1>Create account</h1><p>Join Camel971to browse, order, and manage your secure wallet.</p></div>
       {error && <div className="alert alert-error">{error}</div>}
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.field}><label htmlFor="reg-username">Login</label><input id="reg-username" className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Minimum 3 characters" required /></div>

@@ -39,9 +39,9 @@ export default function Login() {
   };
 
   return <main className={styles.page}>
-    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>SAFARIBOYZ</Link><ThemeToggle compact /></div>
+    <div className={styles.topbar}><Link href="/" className={styles.brand}><span className={styles.brandMark}>SB</span>Camel971BOYZ</Link><ThemeToggle compact /></div>
     <section className={styles.card}>
-      <div className={styles.heading}><h1>Sign in</h1><p>Enter your details below to access your SAFARIBOYZ account.</p></div>
+      <div className={styles.heading}><h1>Sign in</h1><p>Enter your details below to access your Camel971account.</p></div>
       {error && <div className="alert alert-error">{error}</div>}
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.field}><label htmlFor="login-username">Login</label><input id="login-username" className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter login" required /></div>

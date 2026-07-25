@@ -459,7 +459,7 @@ export default function Dashboard() {
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               <section className={styles.dashboardHero}>
                 <div>
-                  <p className={styles.heroKicker}>SAFARIBOYZ marketplace</p>
+                  <p className={styles.heroKicker}>Camel971marketplace</p>
                   <h1>Browse with confidence.</h1>
                   <p>Choose a city to tailor what you see, then explore products from one streamlined dashboard.</p>
                 </div>

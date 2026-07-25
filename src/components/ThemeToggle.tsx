@@ -8,7 +8,7 @@ export default function ThemeToggle({ compact = false }: { compact?: boolean }) 
   const [theme, setTheme] = useState<Theme>("night");
 
   useEffect(() => {
-    const savedTheme = window.localStorage.getItem("safariboyz-theme") as Theme | null;
+    const savedTheme = window.localStorage.getItem("Camel971-theme") as Theme | null;
     const resolvedTheme = savedTheme === "day" ? "day" : "night";
     setTheme(resolvedTheme);
     document.documentElement.dataset.theme = resolvedTheme;
@@ -18,7 +18,7 @@ export default function ThemeToggle({ compact = false }: { compact?: boolean }) 
     const nextTheme: Theme = theme === "night" ? "day" : "night";
     setTheme(nextTheme);
     document.documentElement.dataset.theme = nextTheme;
-    window.localStorage.setItem("safariboyz-theme", nextTheme);
+    window.localStorage.setItem("Camel971-theme", nextTheme);
   };
 
   return (

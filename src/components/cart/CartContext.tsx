@@ -27,7 +27,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("safariboyz_cart");
+    const saved = localStorage.getItem("Camel971_cart");
     if (saved) {
       try {
         setCart(JSON.parse(saved));
@@ -38,7 +38,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (mounted) {
-      localStorage.setItem("safariboyz_cart", JSON.stringify(cart));
+      localStorage.setItem("Camel971_cart", JSON.stringify(cart));
     }
   }, [cart, mounted]);
 

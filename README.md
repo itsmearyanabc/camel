@@ -1,4 +1,4 @@
-# SafariBoyz
+# Camel971
 
 Closed-wallet telesales shop with website checkout and dual Telegram bots.
 
@@ -43,10 +43,10 @@ npm run seed
 
 Seeded logins:
 
-| User | Password | Role |
-|------|----------|------|
-| admin | admin123 | SUPERADMIN |
-| staff | staff123 | STAFF |
+| User     | Password    | Role            |
+| -------- | ----------- | --------------- |
+| admin    | admin123    | SUPERADMIN      |
+| staff    | staff123    | STAFF           |
 | customer | customer123 | CUSTOMER ($500) |
 
 4. Run **one** process (for both web and bots):
@@ -55,19 +55,19 @@ Seeded logins:
 npm run dev    # website + telegram bots (bots start automatically)
 ```
 
-- Shop / dashboard: http://localhost:3000  
-- Admin panel: http://localhost:3000/control-panel-x7k9  
+- Shop / dashboard: http://localhost:3000
+- Admin panel: http://localhost:3000/control-panel-x7k9
 - Telegram: open your bot and send `/start`
 
 ## Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `npm run dev` | Next.js website |
-| `npm run bots` | Telegram long-polling worker |
-| `npm run seed` | Seed users, products, inventory |
-| `npm run reset-db` | Reset DB and recreate admin |
-| `npm run build` / `npm start` | Production web |
+| Script                        | Purpose                         |
+| ----------------------------- | ------------------------------- |
+| `npm run dev`                 | Next.js website                 |
+| `npm run bots`                | Telegram long-polling worker    |
+| `npm run seed`                | Seed users, products, inventory |
+| `npm run reset-db`            | Reset DB and recreate admin     |
+| `npm run build` / `npm start` | Production web                  |
 
 `render.yaml` defines:
 
