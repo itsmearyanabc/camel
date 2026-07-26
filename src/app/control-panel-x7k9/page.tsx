@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import DashboardAnalytics from "./DashboardAnalytics";
 
 type Tab = "dashboard" | "products" | "active-orders" | "all-orders" | "users" | "payments" | "disputes";
 
@@ -474,45 +475,7 @@ export default function ClientAdminPanel() {
 
         {/* Main Content */}
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }}>
-          {msg && (
-            <div className={`alert ${msg.type === "error" ? "alert-error" : "alert-success"}`} style={{ animation: "fadeIn 0.3s ease" }}>
-              {msg.text}
-            </div>
-          )}
 
-          {/* DASHBOARD */}
-          {activeTab === "dashboard" && stats && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>Dashboard Overview</h2>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "20px" }}>
-                <div className="card stat-card" style={{ padding: "32px 24px" }}>
-                  <p className="stat-label" style={{ fontSize: "14px", textTransform: "uppercase" }}>Net Sales Revenue</p>
-                  <p className="stat-value" style={{ color: "var(--green)", fontSize: "40px", marginTop: "8px" }}>${Number(stats.totalSales).toFixed(2)}</p>
-                </div>
-                <div className="card stat-card" style={{ padding: "32px 24px" }}>
-                  <p className="stat-label" style={{ fontSize: "14px", textTransform: "uppercase" }}>Active Orders</p>
-                  <p className="stat-value" style={{ fontSize: "40px", marginTop: "8px" }}>{stats.activeOrders}</p>
-                </div>
-                <div className="card stat-card" style={{ padding: "32px 24px" }}>
-                  <p className="stat-label" style={{ fontSize: "14px", textTransform: "uppercase" }}>Registered Users</p>
-                  <p className="stat-value" style={{ fontSize: "40px", marginTop: "8px" }}>{stats.totalUsers}</p>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
-                <div className="card">
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Order Sources</h3>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>🌐 Website Checkout</span>
-                    <span style={{ fontWeight: "600" }}>{stats.websiteOrdersCount}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>📱 Telegram Bot</span>
-                    <span style={{ fontWeight: "600" }}>{stats.telegramOrdersCount}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* PRODUCTS TAB */}
           {activeTab === "products" && (
