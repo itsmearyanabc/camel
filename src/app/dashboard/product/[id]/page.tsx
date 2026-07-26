@@ -218,7 +218,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             </>
           )}
           <div style={{ marginTop: "40px" }}>
-            <Reviews />
+            <Reviews productId={product?.id} isLoggedIn={!!user} />
           </div>
         </main>
       </div>

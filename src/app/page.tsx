@@ -29,7 +29,7 @@ export default async function Home() {
 
       <section className={styles.botBanner} id="access"><div className={styles.botInfo}><span className={styles.botIcon}>◌</span><div><strong>Shop 24/7 with the Camel971Bot</strong><p>Instant, secure access to your account anytime, anywhere.</p></div></div><a className="btn btn-primary btn-sm" href="https://t.me/Camel971_bot" target="_blank" rel="noreferrer">Talk to bot →</a></section>
       <section className={styles.features}><article className={styles.feature}><div className={styles.featureIcon}>◈</div><h3>Designed for clarity</h3><p>A calm, fast interface that makes products, payments, and order tracking easy to understand.</p></article><article className={styles.feature}><div className={styles.featureIcon}>◎</div><h3>Wallet confidence</h3><p>Keep your balance and transactions in one protected place, with transparent history.</p></article><article className={styles.feature}><div className={styles.featureIcon}>↗</div><h3>Access everywhere</h3><p>Move between the web dashboard and Telegram without losing your place.</p></article></section>
-      <Reviews />
+      <Reviews isLoggedIn={!!session} />
     </main>
     <SiteFooter />
   </div>;

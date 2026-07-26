@@ -21,6 +21,7 @@ model User {
   orders           Order[]
   disputes         Dispute[]
   depositRequests  DepositRequest[]
+  reviews          Review[]
 }
 
 model Wallet {
@@ -72,6 +73,7 @@ model Product {
   updatedAt   DateTime        @updatedAt
   items       InventoryItem[]
   orderItems  OrderItem[]
+  reviews     Review[]
 
   @@index([categoryId])
 }
@@ -189,4 +191,19 @@ model DepositRequest {
 
   @@index([userId])
   @@index([status])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  text      String
+  location  String?
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([userId])
 }

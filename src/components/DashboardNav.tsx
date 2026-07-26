@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import { formatPrice, FIAT_CURRENCIES } from "@/lib/currencies";
+import { useLanguage, LanguageCode } from "@/components/LanguageContext";
 import styles from "../app/dashboard/dashboard.module.css";
 
 type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings";
@@ -77,7 +78,9 @@ export default function DashboardNav({
   // All supported currencies for the dropdown
   const currencyList = Object.values(FIAT_CURRENCIES);
   
-  const languages = [
+  const { language: activeLanguage, setLanguage: setActiveLanguage, t } = useLanguage();
+  
+  const languages: { code: LanguageCode; name: string; icon: string }[] = [
     { code: "EN", name: "English", icon: "🇬🇧" },
     { code: "RU", name: "Russian", icon: "🇷🇺" },
     { code: "AR", name: "Arabic", icon: "🇦🇪" },
@@ -85,15 +88,14 @@ export default function DashboardNav({
     { code: "KK", name: "Kazakh", icon: "🇰🇿" },
     { code: "UK", name: "Ukrainian", icon: "🇺🇦" },
   ];
-  const [activeLanguage, setActiveLanguage] = useState("EN");
 
   // Bottom tab items
   const bottomTabs: { key: Tab; label: string; icon: string }[] = [
-    { key: "shop", label: "Shop", icon: "🛒" },
-    { key: "wallet", label: "Wallet", icon: "💳" },
-    { key: "orders", label: "Orders", icon: "📦" },
-    { key: "disputes", label: "Tickets", icon: "🎟" },
-    { key: "profile", label: "Profile", icon: "👤" },
+    { key: "shop", label: t("nav.shop"), icon: "🛒" },
+    { key: "wallet", label: t("nav.wallet"), icon: "💳" },
+    { key: "orders", label: t("nav.orders"), icon: "📦" },
+    { key: "disputes", label: t("nav.tickets"), icon: "🎟" },
+    { key: "profile", label: t("nav.profile"), icon: "👤" },
   ];
 
   return (
@@ -246,20 +248,20 @@ export default function DashboardNav({
               </div>
 
               <button type="button" onClick={() => handleTabClick("profile")} className={styles.menuItem}>
-                <span style={{ width: "20px" }}>👤</span> Profile
+                <span style={{ width: "20px" }}>👤</span> {t("nav.profile")}
               </button>
               <button type="button" onClick={() => {}} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>🤍</span> Favorites
               </button>
               <button type="button" onClick={() => handleTabClick("wallet")} className={styles.menuItem}>
-                <span style={{ width: "20px" }}>💳</span> Balance
+                <span style={{ width: "20px" }}>💳</span> {t("nav.wallet")}
               </button>
               <button type="button" onClick={() => handleTabClick("orders")} className={styles.menuItem} style={{ position: "relative" }}>
-                <span style={{ width: "20px" }}>🛍️</span> Orders
+                <span style={{ width: "20px" }}>🛍️</span> {t("nav.orders")}
                 {hasActiveOrders && <i className={styles.dot} style={{ position: "absolute", right: "12px" }} />}
               </button>
               <button type="button" onClick={() => handleTabClick("disputes")} className={styles.menuItem}>
-                <span style={{ width: "20px" }}>🔍</span> Disputes
+                <span style={{ width: "20px" }}>🔍</span> {t("nav.tickets")}
               </button>
               <button type="button" onClick={() => {}} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>💬</span> Reviews
