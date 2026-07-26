@@ -475,7 +475,15 @@ export default function ClientAdminPanel() {
 
         {/* Main Content */}
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }}>
+          {msg && (
+            <div className={`alert ${msg.type === "error" ? "alert-error" : "alert-success"}`} style={{ animation: "fadeIn 0.3s ease" }}>
+              {msg.text}
+            </div>
+          )}
 
+          {activeTab === "dashboard" && (
+            <DashboardAnalytics />
+          )}
 
           {/* PRODUCTS TAB */}
           {activeTab === "products" && (
