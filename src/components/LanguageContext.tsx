@@ -163,24 +163,62 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [language, setLanguageState] = useState<LanguageCode>("EN");
 
   useEffect(() => {
+    // 1. Read stored language
     const saved = localStorage.getItem("appLanguage") as LanguageCode;
     if (saved && translations[saved]) {
       setLanguageState(saved);
+    } else {
+      setLanguageState("EN");
+    }
+
+    // 2. Inject Google Translate Script
+    if (!document.getElementById("google-translate-script")) {
+      const script = document.createElement("script");
+      script.id = "google-translate-script";
+      script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+      script.async = true;
+      document.body.appendChild(script);
+
+      window.googleTranslateElementInit = () => {
+        new window.google.translate.TranslateElement(
+          { pageLanguage: 'en', autoDisplay: false },
+          'google_translate_element'
+        );
+      };
     }
   }, []);
 
   const setLanguage = (lang: LanguageCode) => {
     setLanguageState(lang);
     localStorage.setItem("appLanguage", lang);
+
+    // Set Google Translate cookie
+    const gLang = lang.toLowerCase();
+    document.cookie = `googtrans=/en/${gLang}; path=/`;
+    document.cookie = `googtrans=/en/${gLang}; domain=.${window.location.hostname}; path=/`;
+    
+    // Reload to apply translation safely without React hydration conflicts
+    window.location.reload();
   };
 
   const t = (key: string) => {
+    // We still provide the old t() for any static strings that rely on it, 
+    // but Google Translate will translate the actual text node anyway.
     return translations[language][key] || translations["EN"][key] || key;
   };
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t }}>
+      {/* Hidden element required by Google Translate API */}
+      <div id="google_translate_element" style={{ display: "none" }}></div>
       {children}
     </LanguageContext.Provider>
   );
 };
+
+declare global {
+  interface Window {
+    googleTranslateElementInit: () => void;
+    google: any;
+  }
+}

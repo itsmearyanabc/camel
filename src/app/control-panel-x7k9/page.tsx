@@ -12,6 +12,7 @@ export default function ClientAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [msg, setMsg] = useState<{ type: "success" | "error", text: string } | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Data states
   const [stats, setStats] = useState<any>(null);
@@ -425,33 +426,48 @@ export default function ClientAdminPanel() {
   const activeOrders = orders.filter(o => !["COMPLETED", "REFUNDED", "FAILED"].includes(o.status));
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)" }}>
+    <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
       {/* Header */}
       <header style={{
-        padding: "16px 32px", display: "flex", justifyContent: "space-between",
+        padding: "16px 24px", display: "flex", justifyContent: "space-between",
         alignItems: "center", background: "var(--bg-primary)",
         borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100,
         boxShadow: "var(--shadow-sm)"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Mobile Menu Toggle */}
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+            className="btn btn-ghost btn-sm" 
+            style={{ display: "none", padding: "8px" }} 
+            id="mobile-menu-btn"
+          >
+            ☰
+          </button>
           <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>Control Panel</span>
           <span className="badge badge-red" style={{ fontSize: "11px", letterSpacing: "0.5px" }}>ROOT</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+          <span style={{ fontSize: "14px", color: "var(--text-secondary)", display: "none" }} className="hide-mobile">
             Admin: <strong style={{ color: "var(--text-primary)" }}>{user.username}</strong>
           </span>
           <button onClick={() => { fetch("/api/auth/logout", { method: "POST" }); router.push("/control-panel-x7k9/login"); }} className="btn btn-ghost btn-sm">Log Out</button>
         </div>
       </header>
 
-      <div style={{ display: "flex", flex: 1, maxWidth: "1400px", width: "100%", margin: "0 auto", padding: "32px 24px", gap: "32px" }}>
+      <div className="admin-layout" style={{ display: "flex", flex: 1, maxWidth: "1600px", width: "100%", margin: "0 auto", padding: "24px", gap: "32px", position: "relative" }}>
         {/* Sidebar */}
-        <aside style={{ width: "240px", flexShrink: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+        <aside 
+          className={`admin-sidebar ${isSidebarOpen ? 'open' : ''}`}
+          style={{ 
+            width: "240px", flexShrink: 0, display: "flex", flexDirection: "column", gap: "8px",
+            background: "var(--bg-secondary)", zIndex: 90
+          }}
+        >
           {tabs.map(tab => (
             <button
               key={tab.key}
-              onClick={() => { setActiveTab(tab.key); setMsg(null); }}
+              onClick={() => { setActiveTab(tab.key); setMsg(null); setIsSidebarOpen(false); }}
               style={{
                 display: "flex", alignItems: "center", gap: "12px",
                 padding: "12px 16px", border: "none", borderRadius: "var(--radius-md)",
@@ -473,6 +489,21 @@ export default function ClientAdminPanel() {
           ))}
         </aside>
 
+        <style dangerouslySetInnerHTML={{__html: `
+          @media (max-width: 900px) {
+            .admin-layout { flex-direction: column !important; padding: 16px !important; gap: 16px !important; }
+            #mobile-menu-btn { display: inline-flex !important; }
+            .hide-mobile { display: none !important; }
+            .admin-sidebar { 
+              display: none !important; 
+              position: absolute; top: 0; left: 0; right: 0; 
+              background: var(--bg-primary) !important; padding: 16px; 
+              border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); 
+            }
+            .admin-sidebar.open { display: flex !important; }
+          }
+        `}} />
+
         {/* Main Content */}
         <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }}>
           {msg && (
@@ -491,7 +522,7 @@ export default function ClientAdminPanel() {
               <h2 style={{ fontSize: "28px" }}>Product Management</h2>
               
               {/* Category & Inventory Forms */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
                 <div className="card">
                   <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Category</h3>
                   <form onSubmit={handleAddCategory} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -538,7 +569,7 @@ export default function ClientAdminPanel() {
               {/* Product Form */}
               <div className="card">
                 <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add New Product</h3>
-                <form onSubmit={handleAddProduct} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <form onSubmit={handleAddProduct} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <input className="form-input" placeholder="Product Name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
                   </div>
@@ -581,7 +612,7 @@ export default function ClientAdminPanel() {
               </div>
 
               {/* Products List */}
-              <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+              <div className="card" style={{ padding: 0, overflowX: "auto" }}>
                 <table>
                   <thead>
                     <tr>
@@ -612,7 +643,7 @@ export default function ClientAdminPanel() {
                         {editingProductId === p.id && (
                           <tr style={{ background: "var(--bg-secondary)" }}>
                             <td colSpan={6} style={{ padding: "16px" }}>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
                                 <div style={{ display: "flex", gap: "8px" }}>
                                   <select className="form-input" style={{ width: "140px" }} value={editProductData.stockState} onChange={e => setEditProductData({...editProductData, stockState: e.target.value})}>
@@ -705,7 +736,7 @@ export default function ClientAdminPanel() {
                       {/* Expanded Details */}
                       {expandedOrderId === order.id && (
                         <div style={{ padding: "24px", borderTop: "1px solid var(--border)", background: "var(--bg-primary)" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "32px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "32px" }}>
                             <div>
                               <h4 style={{ marginBottom: "12px", color: "var(--text-secondary)", fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Customer Details</h4>
                               <p style={{ marginBottom: "8px" }}><strong>Username:</strong> {order.user.username}</p>
@@ -908,7 +939,7 @@ export default function ClientAdminPanel() {
                 <h2 style={{ fontSize: "28px" }}>Payment Configuration</h2>
                 <button onClick={handleUpdateCrypto} className="btn btn-primary">Save Changes</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", alignItems: "start" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px", alignItems: "start" }}>
                 
                 {/* Crypto Wallet Configuration */}
                 <div className="card" style={{ gridColumn: "span 2" }}>
