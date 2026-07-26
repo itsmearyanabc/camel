@@ -11,6 +11,8 @@ export const metadata: Metadata = {
   },
 };
 
+import CursorAnimation from "@/components/CursorAnimation";
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body>{children}</body></html>;
+  return <html lang="en"><body><CursorAnimation />{children}</body></html>;
 }

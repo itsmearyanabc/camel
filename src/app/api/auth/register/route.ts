@@ -6,7 +6,11 @@ import { decryptAnswer } from "../captcha/route";
 
 export async function POST(req: Request) {
   try {
-    const { username, password, telegramUsername, telegramId, captchaAnswer, captchaToken } = await req.json();
+    const { username, password, confirmPassword, telegramUsername, telegramId, captchaAnswer, captchaToken } = await req.json();
+
+    if (password !== confirmPassword) {
+      return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
+    }
 
     // 1. CAPTCHA Validation
     if (!captchaToken || !captchaAnswer) {

@@ -10,6 +10,7 @@ import styles from "../../dashboard.module.css";
 import { useCart } from "@/components/cart/CartContext";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
+import Reviews from "@/components/Reviews";
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_bot";
 
@@ -216,6 +217,9 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
               </div>
             </>
           )}
+          <div style={{ marginTop: "40px" }}>
+            <Reviews />
+          </div>
         </main>
       </div>
       <SiteFooter />

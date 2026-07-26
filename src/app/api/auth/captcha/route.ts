@@ -30,12 +30,25 @@ export function decryptAnswer(token: string): string {
 }
 
 export async function GET() {
-  const num1 = Math.floor(Math.random() * 9) + 1;
-  const num2 = Math.floor(Math.random() * 9) + 1;
-  const sum = num1 + num2;
+  let num1 = Math.floor(Math.random() * 9) + 1;
+  let num2 = Math.floor(Math.random() * 9) + 1;
+  const isSubtraction = Math.random() > 0.5;
+  let question, answer;
+
+  if (isSubtraction) {
+    if (num2 > num1) {
+      const temp = num1;
+      num1 = num2;
+      num2 = temp;
+    }
+    answer = num1 - num2;
+    question = `What is ${num1} - ${num2}?`;
+  } else {
+    answer = num1 + num2;
+    question = `What is ${num1} + ${num2}?`;
+  }
   
-  const question = `What is ${num1} + ${num2}?`;
-  const token = encryptAnswer(JSON.stringify({ answer: sum.toString(), expiresAt: Date.now() + 5 * 60 * 1000 })); // 5 min expiry
+  const token = encryptAnswer(JSON.stringify({ answer: answer.toString(), expiresAt: Date.now() + 5 * 60 * 1000 })); // 5 min expiry
   
   return NextResponse.json({ question, token });
 }

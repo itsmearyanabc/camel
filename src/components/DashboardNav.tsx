@@ -29,6 +29,8 @@ export default function DashboardNav({
   const menuRef = useRef<HTMLDivElement>(null);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const currencyRef = useRef<HTMLDivElement>(null);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const languageRef = useRef<HTMLDivElement>(null);
 
   // Close menus when clicking outside
   useEffect(() => {
@@ -38,6 +40,9 @@ export default function DashboardNav({
       }
       if (currencyRef.current && !currencyRef.current.contains(event.target as Node)) {
         setCurrencyOpen(false);
+      }
+      if (languageRef.current && !languageRef.current.contains(event.target as Node)) {
+        setLanguageOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -71,6 +76,16 @@ export default function DashboardNav({
 
   // All supported currencies for the dropdown
   const currencyList = Object.values(FIAT_CURRENCIES);
+  
+  const languages = [
+    { code: "EN", name: "English", icon: "🇬🇧" },
+    { code: "RU", name: "Russian", icon: "🇷🇺" },
+    { code: "AR", name: "Arabic", icon: "🇦🇪" },
+    { code: "TR", name: "Turkish", icon: "🇹🇷" },
+    { code: "KK", name: "Kazakh", icon: "🇰🇿" },
+    { code: "UK", name: "Ukrainian", icon: "🇺🇦" },
+  ];
+  const [activeLanguage, setActiveLanguage] = useState("EN");
 
   // Bottom tab items
   const bottomTabs: { key: Tab; label: string; icon: string }[] = [
@@ -155,13 +170,39 @@ export default function DashboardNav({
           </div>
 
           {/* Language — desktop only */}
-          <button
-            type="button"
-            className={`btn btn-ghost btn-sm ${styles.hideOnMobile}`}
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
-          >
-            <span aria-hidden="true">🇬🇧</span> English
-          </button>
+          <div className={`${styles.menuWrap} ${styles.hideOnMobile}`} ref={languageRef}>
+            <button
+              type="button"
+              onClick={() => setLanguageOpen(!languageOpen)}
+              className="btn btn-ghost btn-sm"
+              style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
+            >
+              <span aria-hidden="true">{languages.find(l => l.code === activeLanguage)?.icon || "🇬🇧"}</span> 
+              {languages.find(l => l.code === activeLanguage)?.name || "English"}
+            </button>
+            <nav
+              className={`${styles.menuPanel} ${languageOpen ? styles.menuPanelOpen : ""}`}
+              style={{ right: 0, top: "calc(100% + 12px)", minWidth: "160px", padding: "8px 0" }}
+            >
+              {languages.map(lang => (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => { setActiveLanguage(lang.code); setLanguageOpen(false); }}
+                  className={`${styles.menuItem} ${activeLanguage === lang.code ? styles.currencyItemActive : ""}`}
+                  style={{ justifyContent: "space-between" }}
+                >
+                  <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ width: "18px", fontSize: "15px", textAlign: "center" }}>{lang.icon}</span>
+                    {lang.name}
+                  </span>
+                  {activeLanguage === lang.code && (
+                    <span style={{ fontSize: "14px", color: "var(--accent)" }}>✓</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          </div>
 
           <ThemeToggle compact />
 
