@@ -116,6 +116,18 @@ export async function POST(req: Request) {
         lockDurationMs = 5 * 60 * 1000; // 5 mins
       }
 
+      let remainingAttempts = 0;
+      if (newAttempts < 5) remainingAttempts = 5 - newAttempts;
+      else if (newAttempts < 8) remainingAttempts = 8 - newAttempts;
+      else if (newAttempts < 11) remainingAttempts = 11 - newAttempts;
+
+      let msg = "Invalid username or password.";
+      if (lockDurationMs > 0) {
+        msg = `Account locked due to too many failed attempts. Try again later.`;
+      } else if (remainingAttempts > 0) {
+        msg += ` You have ${remainingAttempts} attempt(s) remaining before a temporary lock.`;
+      }
+
       await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -124,7 +136,7 @@ export async function POST(req: Request) {
         }
       });
 
-      return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
+      return NextResponse.json({ error: msg }, { status: 401 });
     }
 
     // Reset attempts on successful login
