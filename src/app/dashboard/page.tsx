@@ -31,6 +31,7 @@ interface OrderItem {
   adminMessageFileUrl: string | null;
   adminMessageFileType: string | null;
   adminMessageSentAt: string | null;
+  cancellationReason: string | null;
 }
 
 interface Order {
