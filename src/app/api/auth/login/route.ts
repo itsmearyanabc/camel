@@ -35,16 +35,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
 
-    // 3. Check for Env Admin Override
+    // 3. Check DB User and Lock Status
+    const user = await prisma.user.findUnique({
+      where: { username },
+    });
+
+    if (user && user.lockUntil && user.lockUntil > new Date()) {
+      const remainingMs = user.lockUntil.getTime() - Date.now();
+      const remainingMins = Math.ceil(remainingMs / 60000);
+      return NextResponse.json({ error: `Account locked. Try again in ${remainingMins} minutes.` }, { status: 403 });
+    }
+
+    // 4. Check for Env Admin Override
     const envAdminId = process.env.ADMIN_ID;
     const envAdminPassword = process.env.ADMIN_PASSWORD;
 
     if (envAdminId && envAdminPassword && username === envAdminId && password === envAdminPassword) {
+      // Reset attempts if needed
+      if (user && (user.failedLoginAttempts > 0 || user.lockUntil)) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { failedLoginAttempts: 0, lockUntil: null }
+        });
+      }
+
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(envAdminPassword, salt);
       
-      // Upsert the user based on the envAdminId to ensure no unique constraint violations
-      // if someone registered 'admin' as a normal customer.
       const superAdmin = await prisma.user.upsert({
         where: { username: envAdminId },
         update: {
@@ -60,7 +77,6 @@ export async function POST(req: Request) {
         },
       });
       
-      // Ensure they have a wallet too
       const wallet = await prisma.wallet.findUnique({ where: { userId: superAdmin.id } });
       if (!wallet) {
         await prisma.wallet.create({
@@ -85,35 +101,23 @@ export async function POST(req: Request) {
       });
     }
 
-    // 4. Fallback to normal DB login
-    const user = await prisma.user.findUnique({
-      where: { username },
-    });
-
+    // 5. Fallback to normal DB login
     if (!user) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
-    }
-
-    // Check if account is locked
-    if (user.lockUntil && user.lockUntil > new Date()) {
-      const remainingMs = user.lockUntil.getTime() - Date.now();
-      const remainingMins = Math.ceil(remainingMs / 60000);
-      return NextResponse.json({ error: `Account locked. Try again in ${remainingMins} minutes.` }, { status: 403 });
     }
 
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
     
     if (!passwordMatch) {
-      // Handle failed attempt
       const newAttempts = user.failedLoginAttempts + 1;
       let lockDurationMs = 0;
       
       if (newAttempts >= 11) {
-        lockDurationMs = 24 * 60 * 60 * 1000; // 24 hours
+        lockDurationMs = 24 * 60 * 60 * 1000;
       } else if (newAttempts >= 8) {
-        lockDurationMs = 15 * 60 * 1000; // 15 mins
+        lockDurationMs = 15 * 60 * 1000;
       } else if (newAttempts >= 5) {
-        lockDurationMs = 5 * 60 * 1000; // 5 mins
+        lockDurationMs = 5 * 60 * 1000;
       }
 
       let remainingAttempts = 0;
@@ -139,7 +143,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: msg }, { status: 401 });
     }
 
-    // Reset attempts on successful login
+    // Reset attempts on successful DB login
     if (user.failedLoginAttempts > 0 || user.lockUntil) {
       await prisma.user.update({
         where: { id: user.id },
