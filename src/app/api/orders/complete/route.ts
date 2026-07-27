@@ -43,7 +43,7 @@ export async function POST(req: Request) {
         data: { status: "COMPLETED" },
         include: {
           items: {
-            include: { product: true, inventoryItem: true }
+            include: { product: true }
           },
         },
       });

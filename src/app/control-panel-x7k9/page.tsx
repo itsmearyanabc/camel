@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardAnalytics from "./DashboardAnalytics";
 
-type Tab = "dashboard" | "products" | "active-orders" | "all-orders" | "users" | "payments" | "disputes";
+type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes";
 
 export default function ClientAdminPanel() {
   const router = useRouter();
@@ -25,6 +25,7 @@ export default function ClientAdminPanel() {
   // Product states
   const [categories, setCategories] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
 
   // Local UI states
   const [adminMessages, setAdminMessages] = useState<Record<string, string>>({});
@@ -32,15 +33,21 @@ export default function ClientAdminPanel() {
   const [adminFiles, setAdminFiles] = useState<Record<string, { base64: string; name: string; type: string }>>({});
   const [cryptoAddress, setCryptoAddress] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [activeOrderFilter, setActiveOrderFilter] = useState("ALL");
 
   // Product management UI states
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockState: "OUT_OF_STOCK" });
-  const [newInventory, setNewInventory] = useState({ productId: "", data: "", locationData: "" });
+  const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
+  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, categoryId: string, imageUrl: string, stockQuantity: number, cityIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [] });
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editProductData, setEditProductData] = useState({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockState: "OUT_OF_STOCK", availableStock: "0" });
+  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [] });
+  
+  // Location UI states
+  const [newCityName, setNewCityName] = useState("");
+  const [newAreaName, setNewAreaName] = useState("");
+  const [selectedCityForArea, setSelectedCityForArea] = useState("");
   const [disputeMessageTexts, setDisputeMessageTexts] = useState<Record<string, string>>({});
 
   const [cryptoSettings, setCryptoSettings] = useState({
@@ -64,7 +71,7 @@ export default function ClientAdminPanel() {
 
   const fetchAll = async () => {
     try {
-      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes] = await Promise.all([
+      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes, locationsRes] = await Promise.all([
         fetch("/api/client-admin/stats"),
         fetch("/api/client-admin/orders"),
         fetch("/api/client-admin/users"),
@@ -72,10 +79,11 @@ export default function ClientAdminPanel() {
         fetch("/api/disputes/list"),
         fetch("/api/client-admin/deposits"),
         fetch("/api/admin/categories"),
-        fetch("/api/admin/products")
+        fetch("/api/admin/products"),
+        fetch("/api/admin/locations")
       ]);
-      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData] = await Promise.all([
-        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json()
+      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData, locData] = await Promise.all([
+        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json(), locationsRes.json()
       ]);
       if (statsData.stats) setStats(statsData.stats);
       if (ordersData.orders) setOrders(ordersData.orders);
@@ -95,6 +103,7 @@ export default function ClientAdminPanel() {
       if (depositsData.deposits) setDeposits(depositsData.deposits);
       if (catData.categories) setCategories(catData.categories);
       if (prodData.products) setProducts(prodData.products);
+      if (locData.cities) setLocations(locData.cities);
     } catch (e) {
       console.error(e);
     }
@@ -204,11 +213,11 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/categories", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCategoryName, description: newCategoryDesc })
+        body: JSON.stringify({ name: newCategoryName, description: newCategoryDesc, prefixCode: newCategoryPrefix })
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Category added!" });
-        setNewCategoryName(""); setNewCategoryDesc("");
+        setNewCategoryName(""); setNewCategoryDesc(""); setNewCategoryPrefix("");
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -236,7 +245,7 @@ export default function ClientAdminPanel() {
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Product added!" });
-        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockState: "OUT_OF_STOCK" });
+        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [] });
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -254,8 +263,8 @@ export default function ClientAdminPanel() {
       formula: p.formula || "",
       casNumber: p.casNumber || "",
       imageUrl: p.imageUrl || "",
-      stockState: p.stockState || "OUT_OF_STOCK",
-      availableStock: (p.availableItems || 0).toString()
+      stockQuantity: p.stockQuantity?.toString() || "0",
+      cityIds: p.cities?.map((c: any) => c.id) || []
     });
   };
 
@@ -264,7 +273,7 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/products", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), availableStock: parseInt(editProductData.availableStock) })
+        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity) })
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Product updated!" });
@@ -304,24 +313,39 @@ export default function ClientAdminPanel() {
     }
   };
 
-  const handleAddInventory = async (e: React.FormEvent) => {
+  const handleAddCity = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch("/api/admin/inventory", {
+      const res = await fetch("/api/admin/locations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: newInventory.productId,
-          items: [{ data: newInventory.data, locationData: newInventory.locationData }]
-        })
+        body: JSON.stringify({ type: "city", name: newCityName })
       });
-      if (res.ok) {
-        setMsg({ type: "success", text: "Inventory item added!" });
-        setNewInventory({ productId: "", data: "", locationData: "" });
-        fetchAll();
-      } else {
-        const d = await res.json(); setMsg({ type: "error", text: d.error });
-      }
-    } catch (e) { setMsg({ type: "error", text: "Error adding inventory" }); }
+      if (res.ok) { setMsg({ type: "success", text: "City added!" }); setNewCityName(""); fetchAll(); }
+      else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
+    } catch (e) { setMsg({ type: "error", text: "Error adding city" }); }
+  };
+
+  const handleAddArea = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/admin/locations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "area", name: newAreaName, cityId: selectedCityForArea })
+      });
+      if (res.ok) { setMsg({ type: "success", text: "Area added!" }); setNewAreaName(""); fetchAll(); }
+      else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
+    } catch (e) { setMsg({ type: "error", text: "Error adding area" }); }
+  };
+
+  const handleDeleteLocation = async (id: string, type: "city" | "area") => {
+    if (!confirm(`Delete this ${type}?`)) return;
+    try {
+      const res = await fetch("/api/admin/locations", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, type })
+      });
+      if (res.ok) { setMsg({ type: "success", text: "Location deleted!" }); fetchAll(); }
+    } catch (e) { setMsg({ type: "error", text: "Error deleting location" }); }
   };
 
   const handleSendDisputeMessage = async (disputeId: string) => {
@@ -415,7 +439,8 @@ export default function ClientAdminPanel() {
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
-    { key: "products", label: "Products", icon: "📦" },
+    { key: "products", label: "Inventory", icon: "📦" },
+    { key: "locations", label: "Locations", icon: "📍" },
     { key: "active-orders", label: "Active Orders", icon: "🚚" },
     { key: "all-orders", label: "All Orders", icon: "📋" },
     { key: "users", label: "Users", icon: "👥" },
@@ -424,6 +449,9 @@ export default function ClientAdminPanel() {
   ];
 
   const activeOrders = orders.filter(o => !["COMPLETED", "REFUNDED", "FAILED"].includes(o.status));
+  const filteredActiveOrders = activeOrderFilter === "ALL" 
+    ? activeOrders 
+    : activeOrders.filter(o => o.status === activeOrderFilter);
 
   return (
     <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
@@ -444,7 +472,7 @@ export default function ClientAdminPanel() {
           >
             ☰
           </button>
-          <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>Control Panel</span>
+          <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>Inventory Management</span>
           <span className="badge badge-red" style={{ fontSize: "11px", letterSpacing: "0.5px" }}>ROOT</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -521,7 +549,6 @@ export default function ClientAdminPanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <h2 style={{ fontSize: "28px" }}>Product Management</h2>
               
-              {/* Category & Inventory Forms */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
                 <div className="card">
                   <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Category</h3>
@@ -532,6 +559,9 @@ export default function ClientAdminPanel() {
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <input className="form-input" placeholder="Description (Optional)" value={newCategoryDesc} onChange={e => setNewCategoryDesc(e.target.value)} />
                     </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <input className="form-input" placeholder="Prefix Code (e.g. A, B)" value={newCategoryPrefix} onChange={e => setNewCategoryPrefix(e.target.value)} required />
+                    </div>
                     <button type="submit" className="btn btn-primary btn-sm">Add Category</button>
                   </form>
                   
@@ -539,30 +569,11 @@ export default function ClientAdminPanel() {
                   <ul style={{ listStyle: "none", padding: 0 }}>
                     {categories.map(c => (
                       <li key={c.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span>{c.name} ({c.productCount})</span>
+                        <span><strong>{c.prefixCode || "?"}</strong> - {c.name} ({c.productCount})</span>
                         <button onClick={() => handleDeleteCategory(c.id)} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Del</button>
                       </li>
                     ))}
                   </ul>
-                </div>
-                
-                <div className="card">
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Inventory Item</h3>
-                  <form onSubmit={handleAddInventory} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <select className="form-input" value={newInventory.productId} onChange={e => setNewInventory({...newInventory, productId: e.target.value})} required>
-                        <option value="">Select Product...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Batch Code / Key Data" value={newInventory.data} onChange={e => setNewInventory({...newInventory, data: e.target.value})} required />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Location Data (Optional)" value={newInventory.locationData} onChange={e => setNewInventory({...newInventory, locationData: e.target.value})} />
-                    </div>
-                    <button type="submit" className="btn btn-primary btn-sm">Add Item</button>
-                  </form>
                 </div>
               </div>
               
@@ -595,6 +606,9 @@ export default function ClientAdminPanel() {
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <input className="form-input" placeholder="CAS Number (Optional)" value={newProduct.casNumber} onChange={e => setNewProduct({...newProduct, casNumber: e.target.value})} />
                   </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <input className="form-input" placeholder="Stock Quantity" type="number" min="0" value={newProduct.stockQuantity} onChange={e => setNewProduct({...newProduct, stockQuantity: parseInt(e.target.value)})} required />
+                  </div>
                   <div className="form-group" style={{ marginBottom: 0, display: "flex", gap: "8px", alignItems: "center" }}>
                     <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0, flex: 1, textAlign: "center" }}>
                       Upload Image
@@ -604,6 +618,20 @@ export default function ClientAdminPanel() {
                   </div>
                   <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
                     <textarea className="form-input" placeholder="Description" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} rows={3}></textarea>
+                  </div>
+                  <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Available in Cities:</label>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                      {locations.map(city => (
+                        <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                          <input type="checkbox" checked={newProduct.cityIds.includes(city.id)} onChange={e => {
+                            if (e.target.checked) setNewProduct({...newProduct, cityIds: [...newProduct.cityIds, city.id]});
+                            else setNewProduct({...newProduct, cityIds: newProduct.cityIds.filter(id => id !== city.id)});
+                          }} />
+                          {city.name}
+                        </label>
+                      ))}
+                    </div>
                   </div>
                   <div style={{ gridColumn: "span 2" }}>
                     <button type="submit" className="btn btn-primary">Create Product</button>
@@ -631,8 +659,8 @@ export default function ClientAdminPanel() {
                           <td><strong>{p.name}</strong></td>
                           <td>{p.categoryName}</td>
                           <td style={{ fontWeight: "600", color: "var(--green)" }}>{p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "$"}{Number(p.price).toFixed(2)}</td>
-                          <td><span className={`badge badge-${p.stockState.toLowerCase()}`}>{p.stockState}</span></td>
-                          <td>{p.availableItems} / {p.totalItems}</td>
+                          <td><span className={`badge badge-${p.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>{p.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"}</span></td>
+                          <td>{p.stockQuantity}</td>
                           <td>
                             <div style={{ display: "flex", gap: "8px" }}>
                               <button onClick={() => startEditingProduct(p)} className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }}>Edit</button>
@@ -646,13 +674,7 @@ export default function ClientAdminPanel() {
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
                                 <div style={{ display: "flex", gap: "8px" }}>
-                                  <select className="form-input" style={{ width: "140px" }} value={editProductData.stockState} onChange={e => setEditProductData({...editProductData, stockState: e.target.value})}>
-                                    <option value="IN_STOCK">IN_STOCK</option>
-                                    <option value="LOW_STOCK">LOW_STOCK</option>
-                                    <option value="CRITICAL_STOCK">CRITICAL_STOCK</option>
-                                    <option value="OUT_OF_STOCK">OUT_OF_STOCK</option>
-                                  </select>
-                                  <input className="form-input" style={{ width: "80px" }} type="number" min="0" placeholder="Qty" value={editProductData.availableStock} onChange={e => setEditProductData({...editProductData, availableStock: e.target.value})} title="Available Quantity" />
+                                  <input className="form-input" style={{ width: "100px" }} type="number" min="0" placeholder="Qty" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} title="Stock Quantity" />
                                   <select className="form-input" style={{ width: "80px" }} value={editProductData.currency} onChange={e => setEditProductData({...editProductData, currency: e.target.value})}>
                                     <option value="USD">USD</option>
                                     <option value="EUR">EUR</option>
@@ -661,6 +683,20 @@ export default function ClientAdminPanel() {
                                     <option value="CAD">CAD</option>
                                   </select>
                                   <input className="form-input" placeholder="Price" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} />
+                                </div>
+                                <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "12px" }}>Available in Cities:</label>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                                    {locations.map(city => (
+                                      <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px" }}>
+                                        <input type="checkbox" checked={editProductData.cityIds.includes(city.id)} onChange={e => {
+                                          if (e.target.checked) setEditProductData({...editProductData, cityIds: [...editProductData.cityIds, city.id]});
+                                          else setEditProductData({...editProductData, cityIds: editProductData.cityIds.filter(id => id !== city.id)});
+                                        }} />
+                                        {city.name}
+                                      </label>
+                                    ))}
+                                  </div>
                                 </div>
                                 <div style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
                                   <textarea className="form-input" placeholder="Description" rows={3} style={{ flex: 1 }} value={editProductData.description} onChange={e => setEditProductData({...editProductData, description: e.target.value})} />
@@ -690,6 +726,64 @@ export default function ClientAdminPanel() {
             </div>
           )}
 
+          {/* LOCATIONS TAB */}
+          {activeTab === "locations" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
+              <h2 style={{ fontSize: "28px" }}>Locations Management</h2>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+                <div className="card">
+                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add City</h3>
+                  <form onSubmit={handleAddCity} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <input className="form-input" placeholder="City Name" value={newCityName} onChange={e => setNewCityName(e.target.value)} required />
+                    </div>
+                    <button type="submit" className="btn btn-primary btn-sm">Add City</button>
+                  </form>
+                </div>
+
+                <div className="card">
+                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Area</h3>
+                  <form onSubmit={handleAddArea} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <select className="form-input" value={selectedCityForArea} onChange={e => setSelectedCityForArea(e.target.value)} required>
+                        <option value="">Select City...</option>
+                        {locations.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <input className="form-input" placeholder="Area Name" value={newAreaName} onChange={e => setNewAreaName(e.target.value)} required />
+                    </div>
+                    <button type="submit" className="btn btn-primary btn-sm">Add Area</button>
+                  </form>
+                </div>
+              </div>
+
+              <div className="card">
+                <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Existing Locations</h3>
+                <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {locations.map(city => (
+                    <div key={city.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                        <h4 style={{ fontSize: "18px", color: "var(--text-primary)" }}>{city.name}</h4>
+                        <button onClick={() => handleDeleteLocation(city.id, "city")} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Delete City</button>
+                      </div>
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                        {city.areas?.length === 0 && <li style={{ color: "var(--text-secondary)", fontSize: "13px" }}>No areas added.</li>}
+                        {city.areas?.map((area: any) => (
+                          <li key={area.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
+                            <span>{area.name}</span>
+                            <button onClick={() => handleDeleteLocation(area.id, "area")} className="btn btn-ghost btn-sm" style={{ padding: "0 8px", color: "var(--red)" }}>Del</button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ACTIVE ORDERS */}
           {activeTab === "active-orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
@@ -697,16 +791,29 @@ export default function ClientAdminPanel() {
                 <h2 style={{ fontSize: "28px" }}>Active Orders ({activeOrders.length})</h2>
                 <button onClick={fetchAll} className="btn btn-secondary btn-sm">🔄 Refresh</button>
               </div>
+
+              {/* Horizontal Status Tabs */}
+              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
+                {["ALL", "PENDING_PAYMENT", "PAID", "PROCESSING", "COOLDOWN_ACTIVE", "READY"].map(status => (
+                  <button 
+                    key={status}
+                    onClick={() => setActiveOrderFilter(status)}
+                    className={`btn btn-sm ${status === activeOrderFilter ? "btn-primary" : "btn-secondary"}`}
+                  >
+                    {status.replace("_", " ")}
+                  </button>
+                ))}
+              </div>
               
-              {activeOrders.length === 0 ? (
+              {filteredActiveOrders.length === 0 ? (
                 <div className="card" style={{ textAlign: "center", padding: "64px 24px", color: "var(--text-secondary)" }}>
                   <span style={{ fontSize: "48px", display: "block", marginBottom: "16px" }}>🎉</span>
                   <h3 style={{ color: "var(--text-primary)", marginBottom: "8px" }}>All Caught Up!</h3>
-                  <p>There are no active orders waiting for coordinates.</p>
+                  <p>There are no active orders matching this status.</p>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                  {activeOrders.map(order => (
+                  {filteredActiveOrders.map(order => (
                     <div key={order.id} className="card" style={{ padding: "0", overflow: "hidden", border: expandedOrderId === order.id ? "1px solid var(--accent)" : "1px solid var(--border)" }}>
                       {/* Order Row Header */}
                       <div 

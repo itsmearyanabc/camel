@@ -7,21 +7,23 @@ generator client {
 }
 
 model User {
-  id               String           @id @default(uuid())
-  username         String           @unique
-  passwordHash     String
-  passwordPlain    String?
-  avatarUrl        String?
-  telegramUsername String?
-  telegramId       String?          @unique
-  role             String           @default("CUSTOMER") // CUSTOMER, STAFF, ADMIN, SUPERADMIN
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  wallet           Wallet?
-  orders           Order[]
-  disputes         Dispute[]
-  depositRequests  DepositRequest[]
-  reviews          Review[]
+  id                  String           @id @default(uuid())
+  username            String           @unique
+  passwordHash        String
+  passwordPlain       String?
+  avatarUrl           String?
+  telegramUsername    String?
+  telegramId          String?          @unique
+  role                String           @default("CUSTOMER") // CUSTOMER, STAFF, ADMIN, SUPERADMIN
+  failedLoginAttempts Int              @default(0)
+  lockUntil           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  wallet              Wallet?
+  orders              Order[]
+  disputes            Dispute[]
+  depositRequests     DepositRequest[]
+  reviews             Review[]
 }
 
 model Wallet {
@@ -52,46 +54,48 @@ model WalletLedger {
 model Category {
   id          String    @id @default(uuid())
   name        String    @unique
+  prefixCode  String?   @unique // e.g. 'A', 'B'
   description String?
   products    Product[]
   createdAt   DateTime  @default(now())
 }
 
-model Product {
-  id          String          @id @default(uuid())
-  categoryId  String
-  category    Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  name        String          @unique
-  description String?
-  price       Decimal         @db.Decimal(12, 2)
-  currency    String          @default("USD")
-  formula     String?         // Chemical formula (e.g. NaCl, H2SO4)
-  casNumber   String?         // CAS Registry Number for chemicals
-  imageUrl    String?         // URL of the product picture
-  stockState  String          @default("OUT_OF_STOCK") // IN_STOCK, LOW_STOCK, CRITICAL_STOCK, OUT_OF_STOCK
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  items       InventoryItem[]
-  orderItems  OrderItem[]
-  reviews     Review[]
-
-  @@index([categoryId])
+model City {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  areas     Area[]
+  products  Product[]
 }
 
-model InventoryItem {
-  id           String    @id @default(uuid())
-  productId    String
-  product      Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  data         String    // Batch key, lab locker code, serial, or pickup instructions
-  mediaUrl     String?   // URL to image or diagram
-  locationData String?   // Coordinates or lab bench pickup location details
-  isAllocated  Boolean   @default(false)
-  allocatedAt  DateTime?
-  createdAt    DateTime  @default(now())
-  orderItems   OrderItem[]
+model Area {
+  id        String    @id @default(uuid())
+  name      String
+  cityId    String
+  city      City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  products  Product[]
+}
 
-  @@index([productId])
-  @@index([isAllocated])
+model Product {
+  id            String          @id @default(uuid())
+  categoryId    String
+  category      Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  code          String?         @unique // e.g. 'A1', 'A2'
+  name          String          @unique
+  description   String?
+  price         Decimal         @db.Decimal(12, 2)
+  currency      String          @default("USD")
+  formula       String?         // Chemical formula (e.g. NaCl, H2SO4)
+  casNumber     String?         // CAS Registry Number for chemicals
+  imageUrl      String?         // URL of the product picture
+  stockQuantity Int             @default(0)
+  cities        City[]
+  areas         Area[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  orderItems    OrderItem[]
+  reviews       Review[]
+
+  @@index([categoryId])
 }
 
 model Order {
@@ -126,8 +130,6 @@ model OrderItem {
   order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId       String
   product         Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
-  inventoryItemId String?
-  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
   priceAtPurchase Decimal        @db.Decimal(12, 2)
   status          String         @default("PENDING_PAYMENT") // PENDING_PAYMENT, PAID, COOLDOWN_ACTIVE, READY, COMPLETED, REFUNDED, FAILED
   cooldownEndAt   DateTime?

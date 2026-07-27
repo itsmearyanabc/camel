@@ -88,25 +88,24 @@ export async function POST(req: Request) {
       } else if (resolutionType === "REPLACEMENT") {
         // We need to replace every item in the order
         for (const item of dispute.order.items) {
-          const nextItem = await tx.inventoryItem.findFirst({
-            where: { productId: item.productId, isAllocated: false },
-            orderBy: { createdAt: "asc" },
+          const product = await tx.product.findUnique({
+            where: { id: item.productId }
           });
 
-          if (!nextItem) {
+          if (!product || product.stockQuantity < 1) {
             throw new Error(`No replacement items in stock for product ${item.productId}. Please resolve with REFUND instead.`);
           }
 
-          // Allocate replacement item
-          await tx.inventoryItem.update({
-            where: { id: nextItem.id },
-            data: { isAllocated: true, allocatedAt: new Date() },
+          // Deduct stock for replacement
+          await tx.product.update({
+            where: { id: product.id },
+            data: { stockQuantity: { decrement: 1 } },
           });
 
-          // Update order item with new inventory item and reset status to READY
+          // Update order item status to READY
           await tx.orderItem.update({
             where: { id: item.id },
-            data: { inventoryItemId: nextItem.id, status: "READY" },
+            data: { status: "READY" },
           });
         }
 

@@ -174,11 +174,7 @@ export function createTelegramBot(token: string, botName: string) {
     const category = await prisma.category.findUnique({
       where: { id: catId },
       include: {
-        products: {
-          include: {
-            items: { where: { isAllocated: false } },
-          },
-        },
+        products: true,
       },
     });
 
@@ -191,7 +187,7 @@ export function createTelegramBot(token: string, botName: string) {
     let text = `🧪 *${esc(category.name)} Catalog*:\n\n`;
 
     category.products.forEach((prod) => {
-      const stockCount = prod.items.length;
+      const stockCount = prod.stockQuantity;
       const state = getStockState(stockCount);
       text +=
         `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
@@ -237,12 +233,8 @@ export function createTelegramBot(token: string, botName: string) {
           throw new Error(`This item is priced in ${product.currency}, but your wallet uses ${wallet.currency}. Currency conversion is not available.`);
         }
 
-        const item = await tx.inventoryItem.findFirst({
-          where: { productId, isAllocated: false },
-          orderBy: { createdAt: "asc" },
-        });
-
-        if (!item) {
+        const dbProduct = await tx.product.findUnique({ where: { id: productId } });
+        if (!dbProduct || dbProduct.stockQuantity < 1) {
           throw new Error("This compound is currently out of stock.");
         }
 
@@ -260,21 +252,9 @@ export function createTelegramBot(token: string, botName: string) {
           },
         });
 
-        const claimed = await tx.inventoryItem.updateMany({
-          where: { id: item.id, isAllocated: false },
-          data: { isAllocated: true, allocatedAt: new Date() },
-        });
-        if (claimed.count !== 1) {
-          throw new Error("This item was just purchased by another customer. Please try again.");
-        }
-
-        const unallocatedCount = await tx.inventoryItem.count({
-          where: { productId, isAllocated: false },
-        });
-
         await tx.product.update({
           where: { id: productId },
-          data: { stockState: getStockState(unallocatedCount) },
+          data: { stockQuantity: { decrement: 1 } },
         });
 
         return tx.order.create({
@@ -288,7 +268,6 @@ export function createTelegramBot(token: string, botName: string) {
               create: [
                 {
                   productId: product.id,
-                  inventoryItemId: item.id,
                   priceAtPurchase: product.price,
                   status: "COOLDOWN_ACTIVE",
                   cooldownEndAt: new Date(Date.now() + 30 * 1000),
@@ -417,7 +396,7 @@ export function createTelegramBot(token: string, botName: string) {
     const orderId = ctx.match[1];
     let order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true, inventoryItem: true } } },
+      include: { items: { include: { product: true } } },
     });
 
     if (!order || order.userId !== user.id) {
@@ -441,13 +420,13 @@ export function createTelegramBot(token: string, botName: string) {
     if (itemsUpdated) {
       order = await prisma.order.findUnique({
         where: { id: orderId },
-        include: { items: { include: { product: true, inventoryItem: true } } },
+        include: { items: { include: { product: true } } },
       });
       if (order && order.items.every(i => i.status === "READY" || i.status === "COMPLETED")) {
         order = await prisma.order.update({
           where: { id: orderId },
           data: { status: "READY" },
-          include: { items: { include: { product: true, inventoryItem: true } } },
+          include: { items: { include: { product: true } } },
         });
       }
     }
@@ -470,9 +449,7 @@ export function createTelegramBot(token: string, botName: string) {
         const secLeft = Math.max(0, Math.ceil((new Date(item.cooldownEndAt!).getTime() - Date.now()) / 1000));
         text += `⚠️ *Cooldown Timer Active.*\nEstimated delivery details in: *${secLeft} seconds*.\n`;
       } else if (item.status === "READY" || item.status === "COMPLETED") {
-        text += `📍 *FIFO Batch Pickup Details*:\n`;
-        text += `🔑 *Locker/Serial Code:* \`${item.inventoryItem?.data ?? "N/A"}\`\n`;
-        text += `📌 *Coordinates/Location:* \`${item.inventoryItem?.locationData || "N/A"}\`\n`;
+        text += `📍 *Ready for collection*\n`;
         if (item.status === "READY") canComplete = true;
       } else if (item.status === "REFUNDED") {
         text += `ℹ️ *Refund credited.*\n`;
@@ -533,7 +510,7 @@ export function createTelegramBot(token: string, botName: string) {
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true, inventoryItem: true } } },
+      include: { items: { include: { product: true } } },
     });
 
     if (!order) return;
@@ -546,9 +523,7 @@ export function createTelegramBot(token: string, botName: string) {
     order.items.forEach((item) => {
       text += `🧪 *${esc(item.product.name)}*\n`;
       text += `Status: *${esc(item.status)}*\n`;
-      text += `📍 *FIFO Batch Pickup Details*:\n`;
-      text += `🔑 *Locker/Serial Code:* \`${item.inventoryItem?.data ?? "N/A"}\`\n`;
-      text += `📌 *Coordinates/Location:* \`${item.inventoryItem?.locationData || "N/A"}\`\n\n`;
+      text += `📍 *Ready for collection*\n\n`;
     });
 
     const keyboard = new InlineKeyboard().text("⬅️ Back to Orders List", "orders_menu");

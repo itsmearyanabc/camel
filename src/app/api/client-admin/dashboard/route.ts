@@ -109,17 +109,13 @@ export async function GET(req: Request) {
 
     // 4. INVENTORY
     const products = await prisma.product.findMany();
-    const inStock = products.filter(p => p.stockState === "IN_STOCK").length;
-    const lowStock = products.filter(p => p.stockState === "LOW_STOCK").length;
-    const outOfStock = products.filter(p => ["OUT_OF_STOCK", "CRITICAL_STOCK"].includes(p.stockState)).length;
-    const productsNeedingRestock = products.filter(p => ["LOW_STOCK", "CRITICAL_STOCK", "OUT_OF_STOCK"].includes(p.stockState)).length;
+    const inStock = products.filter(p => p.stockQuantity >= 10).length;
+    const lowStock = products.filter(p => p.stockQuantity > 0 && p.stockQuantity < 10).length;
+    const outOfStock = products.filter(p => p.stockQuantity === 0).length;
+    const productsNeedingRestock = lowStock + outOfStock;
 
     // Inventory Value
-    const unallocatedItems = await prisma.inventoryItem.findMany({
-      where: { isAllocated: false },
-      include: { product: true }
-    });
-    const inventoryValue = unallocatedItems.reduce((sum, item) => sum + Number(item.product.price), 0);
+    const inventoryValue = products.reduce((sum, item) => sum + (Number(item.price) * item.stockQuantity), 0);
 
     // 5. TOP PRODUCTS
     const allOrderItems = await prisma.orderItem.findMany({

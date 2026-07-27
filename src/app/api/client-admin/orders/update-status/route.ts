@@ -22,7 +22,10 @@ export async function POST(req: Request) {
 
     const orderItem = await prisma.orderItem.findUnique({
       where: { id: orderItemId },
-      include: { order: true },
+      include: { 
+        product: true,
+        order: { include: { user: true } } 
+      },
     });
 
     if (!orderItem) {
@@ -49,7 +52,56 @@ export async function POST(req: Request) {
       return item;
     });
 
-    return NextResponse.json({ success: true, orderItem: updatedOrderItem });
+    let telegramSent = false;
+    let telegramError: string | null = null;
+    const user = orderItem.order.user;
+
+    // Telegram Bot Integration - send message if user has linked their Telegram
+    if (user.telegramId) {
+      const botToken = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
+      if (botToken && botToken !== "PLACEHOLDER_BOT_1_TOKEN") {
+        try {
+          const telegramMessage =
+            `📦 *Order Update for ${orderItem.product.name}*\n\n` +
+            `Your item status has been updated to: *${status.replace(/_/g, " ")}*`;
+
+          const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: user.telegramId,
+              text: telegramMessage,
+              parse_mode: "Markdown",
+            }),
+          });
+
+          const tgBody = (await tgRes.json().catch(() => null)) as {
+            ok?: boolean;
+            description?: string;
+          } | null;
+
+          if (tgRes.ok && tgBody?.ok) {
+            telegramSent = true;
+          } else {
+            telegramError = tgBody?.description || `Telegram HTTP ${tgRes.status}`;
+          }
+        } catch (err) {
+          telegramError = err instanceof Error ? err.message : "Telegram request failed";
+          console.error("Telegram sendMessage error:", err);
+        }
+      } else {
+        telegramError = "TELEGRAM_BOT_1_TOKEN is not configured";
+      }
+    } else {
+      telegramError = "User has no linked Telegram ID";
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      orderItem: updatedOrderItem,
+      telegramSent,
+      telegramError: telegramSent ? null : telegramError
+    });
   } catch (err) {
     console.error("update-status error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

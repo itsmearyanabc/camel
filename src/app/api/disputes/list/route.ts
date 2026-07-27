@@ -20,7 +20,6 @@ export async function GET() {
               items: {
                 include: {
                   product: true,
-                  inventoryItem: true,
                 }
               },
             },

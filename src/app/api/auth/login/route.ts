@@ -94,9 +94,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      const remainingMs = user.lockUntil.getTime() - Date.now();
+      const remainingMins = Math.ceil(remainingMs / 60000);
+      return NextResponse.json({ error: `Account locked. Try again in ${remainingMins} minutes.` }, { status: 403 });
+    }
+
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+    
     if (!passwordMatch) {
+      // Handle failed attempt
+      const newAttempts = user.failedLoginAttempts + 1;
+      let lockDurationMs = 0;
+      
+      if (newAttempts >= 11) {
+        lockDurationMs = 24 * 60 * 60 * 1000; // 24 hours
+      } else if (newAttempts >= 8) {
+        lockDurationMs = 15 * 60 * 1000; // 15 mins
+      } else if (newAttempts >= 5) {
+        lockDurationMs = 5 * 60 * 1000; // 5 mins
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedLoginAttempts: newAttempts,
+          lockUntil: lockDurationMs > 0 ? new Date(Date.now() + lockDurationMs) : null,
+        }
+      });
+
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
+    }
+
+    // Reset attempts on successful login
+    if (user.failedLoginAttempts > 0 || user.lockUntil) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: 0, lockUntil: null }
+      });
     }
 
     // 5. Create Session

@@ -15,9 +15,10 @@ interface Product {
   id: string; name: string; description: string; price: number;
   currency: string;
   formula: string | null; casNumber: string | null; imageUrl: string | null;
-  stockState: string; stockCount: number;
+  stockQuantity: number;
+  cities: { id: string; name: string }[];
 }
-interface Category { id: string; name: string; description: string | null; products: Product[]; }
+interface Category { id: string; name: string; prefixCode: string; description: string | null; products: Product[]; }
 interface WalletLedger { id: string; type: string; amount: number; description: string; createdAt: string; }
 interface OrderItem {
   id: string;
@@ -26,7 +27,6 @@ interface OrderItem {
   status: string;
   cooldownEndAt: string | null;
   product: Product;
-  inventoryItem: { id: string; mediaUrl: string | null; locationData: string | null; data: string } | null;
   adminMessage: string | null;
   adminMessageFileUrl: string | null;
   adminMessageFileType: string | null;
@@ -68,9 +68,12 @@ const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_
 export default function Dashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("shop");
+  const [userOrderFilter, setUserOrderFilter] = useState("ALL");
   const [user, setUser] = useState<any>(null);
 
   const [categories, setCategories] = useState<Category[]>([]);
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCityId, setSelectedCityId] = useState<string>("ALL");
   const [ledgers, setLedgers] = useState<WalletLedger[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
@@ -136,6 +139,10 @@ export default function Dashboard() {
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (!data.user) { router.push("/auth/login"); return; }
+      if (data.user.role === "ADMIN" || data.user.role === "SUPERADMIN") {
+        router.push("/control-panel-x7k9");
+        return;
+      }
       setUser(data.user);
       if (opts?.seedTelegram || !tgInputsSeeded.current) {
         setTgIdInput(data.user.telegramId || "");
@@ -145,7 +152,13 @@ export default function Dashboard() {
     } catch { router.push("/auth/login"); }
   };
 
-  const loadShopData = async () => { try { const r = await fetch("/api/inventory/products"); const d = await r.json(); if (r.ok) setCategories(d.categories); } catch {} };
+  const loadShopData = async () => { 
+    try { 
+      const [rProd, rLoc] = await Promise.all([fetch("/api/inventory/products"), fetch("/api/admin/locations")]);
+      if (rProd.ok) { const d = await rProd.json(); setCategories(d.categories); }
+      if (rLoc.ok) { const d = await rLoc.json(); setLocations(d.cities); }
+    } catch {} 
+  };
   const loadWalletData = async () => { try { const r = await fetch("/api/wallet/ledger"); const d = await r.json(); if (r.ok) setLedgers(d.ledgers); } catch {} };
   const loadOrdersData = async () => { try { const r = await fetch("/api/orders/list"); const d = await r.json(); if (r.ok) setOrders(d.orders); } catch {} };
   const loadDisputesData = async () => { try { const r = await fetch("/api/disputes/list"); const d = await r.json(); if (r.ok) setDisputes(d.disputes); } catch {} };
@@ -396,6 +409,15 @@ export default function Dashboard() {
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 5MB.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new Image();
@@ -465,11 +487,16 @@ export default function Dashboard() {
                 </div>
                 <label>
                   <span className="form-label">Delivery city</span>
-                  <select className={styles.citySelect} defaultValue="any" aria-label="Select delivery city">
-                    <option value="any">Any city</option>
-                    <option value="dubai">Dubai</option>
-                    <option value="abu-dhabi">Abu Dhabi</option>
-                    <option value="sharjah">Sharjah</option>
+                  <select 
+                    className={styles.citySelect} 
+                    value={selectedCityId}
+                    onChange={e => setSelectedCityId(e.target.value)}
+                    aria-label="Select delivery city"
+                  >
+                    <option value="ALL">Any city</option>
+                    {locations.map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
                   </select>
                 </label>
               </section>
@@ -486,25 +513,37 @@ export default function Dashboard() {
                   <p style={{ color: "var(--text-secondary)" }}>No products available yet. Check back soon!</p>
                 </div>
               ) : (
-                categories.map(category => (
-                  <div key={category.id}>
-                    <h3 style={{ marginBottom: "16px", color: "var(--text-secondary)" }}>{category.name}</h3>
-                    <div className="product-grid">
-                      {category.products.map(product => (
-                        <div key={product.id} className="card card-interactive product-card-layout">
-                          <div className="product-card-top">
-                            <div className="product-card-info">
-                              <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
-                              <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
-                                {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
-                                {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
-                              </div>
-                              <div style={{ marginBottom: "4px" }}>
-                                <span className={`badge badge-${product.stockState.toLowerCase()}`}>
-                                  {product.stockState.replace(/_/g, " ")} ({product.stockCount})
-                                </span>
-                              </div>
-                              {product.description && (
+                categories.map(category => {
+                  const visibleProducts = selectedCityId === "ALL" 
+                    ? category.products 
+                    : category.products.filter(p => p.cities.some(c => c.id === selectedCityId));
+                  
+                  if (visibleProducts.length === 0) return null;
+
+                  return (
+                    <div key={category.id}>
+                      <h3 style={{ marginBottom: "16px", color: "var(--text-secondary)" }}>{category.prefixCode ? `${category.prefixCode} - ` : ""}{category.name}</h3>
+                      <div className="product-grid">
+                        {visibleProducts.map(product => (
+                          <div key={product.id} className="card card-interactive product-card-layout">
+                            <div className="product-card-top">
+                              <div className="product-card-info">
+                                <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
+                                <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+                                  {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
+                                  {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
+                                </div>
+                                <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                                  <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                                    {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
+                                  </span>
+                                  {selectedCityId !== "ALL" && (
+                                    <span className="badge badge-purple" style={{ opacity: 0.8 }}>
+                                      📍 Available in {locations.find(l => l.id === selectedCityId)?.name}
+                                    </span>
+                                  )}
+                                </div>
+                                {product.description && (
                                 <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: "1.5" }}>
                                   {product.description}
                                 </p>
@@ -532,7 +571,8 @@ export default function Dashboard() {
                       ))}
                     </div>
                   </div>
-                ))
+                );
+              })
               )}
 
               {/* Crypto Payment Modal */}
@@ -763,12 +803,26 @@ export default function Dashboard() {
           {activeTab === "orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               <h2>My Orders</h2>
-              {orders.length === 0 ? (
+              
+              {/* Horizontal Status Tabs */}
+              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
+                {["ALL", "PENDING_PAYMENT", "PAID", "PROCESSING", "COOLDOWN_ACTIVE", "READY", "COMPLETED"].map(status => (
+                  <button 
+                    key={status}
+                    onClick={() => setUserOrderFilter(status)}
+                    className={`btn btn-sm ${status === userOrderFilter ? "btn-primary" : "btn-secondary"}`}
+                  >
+                    {status.replace("_", " ")}
+                  </button>
+                ))}
+              </div>
+
+              {orders.filter(o => userOrderFilter === "ALL" || o.status === userOrderFilter).length === 0 ? (
                 <div className="card" style={{ textAlign: "center", padding: "60px" }}>
-                  <p style={{ color: "var(--text-secondary)" }}>No orders yet. Visit Products to make your first purchase.</p>
+                  <p style={{ color: "var(--text-secondary)" }}>No orders match this status.</p>
                 </div>
               ) : (
-                orders.map(order => {
+                orders.filter(o => userOrderFilter === "ALL" || o.status === userOrderFilter).map(order => {
                   return (
                     <div key={order.id} className="card" style={{
                       borderLeft: `4px solid ${
@@ -843,28 +897,6 @@ export default function Dashboard() {
                                     </span>
                                     <button onClick={() => checkOrderStatus(order.id)} className="btn btn-secondary btn-sm">Check</button>
                                   </div>
-                                </div>
-                              )}
-
-                              {item.inventoryItem && (
-                                <div style={{
-                                  background: "var(--green-bg)", padding: "12px",
-                                  borderRadius: "var(--radius-sm)", marginBottom: "12px",
-                                }}>
-                                  <p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginBottom: "6px" }}>ALLOCATED BATCH DATA</p>
-                                  <p style={{
-                                    background: "var(--bg-primary)", padding: "8px 12px",
-                                    borderRadius: "var(--radius-sm)", fontFamily: "monospace",
-                                    fontSize: "13px", color: "var(--green)", marginBottom: "6px",
-                                    border: "1px solid var(--border)",
-                                  }}>
-                                    {item.inventoryItem.data}
-                                  </p>
-                                  {item.inventoryItem.locationData && (
-                                    <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                                      📍 <strong>Location:</strong> {item.inventoryItem.locationData}
-                                    </p>
-                                  )}
                                 </div>
                               )}
 

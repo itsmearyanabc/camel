@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getStockState } from "@/lib/stock";
 
 export async function POST(req: Request) {
   try {
@@ -27,7 +26,6 @@ export async function POST(req: Request) {
 
       let totalAmountDue = 0;
       const orderItemsData = [];
-      const claimedInventoryIds: string[] = [];
       const updatedProductIds: string[] = [];
 
       // 2. Validate inventory and calculate total price
@@ -40,25 +38,16 @@ export async function POST(req: Request) {
 
         if (!product) throw new Error(`Product not found: ${productId}`);
 
-        // Fetch oldest unallocated items for this product
-        const items = await tx.inventoryItem.findMany({
-          where: { productId, isAllocated: false },
-          orderBy: { createdAt: "asc" }, // FIFO ordering
-          take: quantity,
-        });
-
-        if (items.length < quantity) {
-          throw new Error(`Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${items.length}`);
+        if (product.stockQuantity < quantity) {
+          throw new Error(`Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}`);
         }
 
         const itemCost = Number(product.price);
         totalAmountDue += itemCost * quantity;
 
-        for (const item of items) {
-          claimedInventoryIds.push(item.id);
+        for (let i = 0; i < quantity; i++) {
           orderItemsData.push({
             productId: product.id,
-            inventoryItemId: item.id,
             priceAtPurchase: product.price,
             status: "COOLDOWN_ACTIVE",
             cooldownEndAt: new Date(Date.now() + 30 * 1000), // 30 sec cooldown
@@ -68,6 +57,12 @@ export async function POST(req: Request) {
         if (!updatedProductIds.includes(product.id)) {
           updatedProductIds.push(product.id);
         }
+        
+        // Deduct stock
+        await tx.product.update({
+          where: { id: product.id },
+          data: { stockQuantity: { decrement: quantity } }
+        });
       }
 
       // 3. Handle Wallet Payment
@@ -93,29 +88,7 @@ export async function POST(req: Request) {
         });
       }
 
-      // 4. Mark items as allocated
-      const claimed = await tx.inventoryItem.updateMany({
-        where: { id: { in: claimedInventoryIds }, isAllocated: false },
-        data: { isAllocated: true, allocatedAt: new Date() },
-      });
-      
-      if (claimed.count !== claimedInventoryIds.length) {
-        throw new Error("Some items were just purchased by another customer. Please try again.");
-      }
-
-      // 5. Recalculate and update stock state for affected products
-      for (const pid of updatedProductIds) {
-        const unallocatedCount = await tx.inventoryItem.count({
-          where: { productId: pid, isAllocated: false },
-        });
-
-        await tx.product.update({
-          where: { id: pid },
-          data: { stockState: getStockState(unallocatedCount) },
-        });
-      }
-
-      // 6. Create Master Order and OrderItems
+      // 4. Create Master Order and OrderItems
       const createdOrder = await tx.order.create({
         data: {
           userId: session.userId,

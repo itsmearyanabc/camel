@@ -10,8 +10,9 @@ export async function GET() {
 
   const products = await prisma.product.findMany({
     include: {
-      category: { select: { id: true, name: true } },
-      items: { select: { id: true, isAllocated: true } },
+      category: { select: { id: true, name: true, prefixCode: true } },
+      cities: { select: { id: true, name: true } },
+      areas: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -19,6 +20,7 @@ export async function GET() {
   return NextResponse.json({
     products: products.map((p: any) => ({
       id: p.id,
+      code: p.code,
       name: p.name,
       description: p.description,
       price: p.price,
@@ -26,12 +28,11 @@ export async function GET() {
       formula: p.formula,
       casNumber: p.casNumber,
       imageUrl: p.imageUrl,
-      stockState: p.stockState,
+      stockQuantity: p.stockQuantity,
       categoryId: p.category.id,
       categoryName: p.category.name,
-      totalItems: p.items.length,
-      availableItems: p.items.filter((i: any) => !i.isAllocated).length,
-      allocatedItems: p.items.filter((i: any) => i.isAllocated).length,
+      cities: p.cities,
+      areas: p.areas,
       createdAt: p.createdAt,
     })),
   });
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { name, description, price, formula, casNumber, imageUrl, categoryId, currency, stockState } = await req.json();
+  const { name, description, price, formula, casNumber, imageUrl, categoryId, currency, stockQuantity, cityIds, areaIds } = await req.json();
 
   if (!name || name.trim().length < 2) {
     return NextResponse.json({ error: "Product name must be at least 2 characters" }, { status: 400 });
@@ -60,9 +61,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Product with this name already exists" }, { status: 400 });
   }
 
+  const category = await prisma.category.findUnique({ where: { id: categoryId }, include: { products: true } });
+  if (!category) {
+    return NextResponse.json({ error: "Category not found" }, { status: 404 });
+  }
+
+  let code = null;
+  if (category.prefixCode) {
+    code = `${category.prefixCode}${category.products.length + 1}`;
+  }
+
   const product = await prisma.product.create({
     data: {
       name: name.trim(),
+      code,
       description: description?.trim() || null,
       price: parseFloat(price),
       currency: currency || "USD",
@@ -70,21 +82,22 @@ export async function POST(req: NextRequest) {
       casNumber: casNumber?.trim() || null,
       imageUrl: imageUrl?.trim() || null,
       categoryId,
-      stockState: stockState || "OUT_OF_STOCK",
+      stockQuantity: parseInt(stockQuantity || "0", 10),
+      cities: cityIds && cityIds.length > 0 ? { connect: cityIds.map((id: string) => ({ id })) } : undefined,
+      areas: areaIds && areaIds.length > 0 ? { connect: areaIds.map((id: string) => ({ id })) } : undefined,
     },
   });
 
   return NextResponse.json({ product });
 }
 
-// UPDATE product (price, name, description, etc.)
 export async function PUT(req: NextRequest) {
   const session = await getSession();
   if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockState, availableStock } = await req.json();
+  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds } = await req.json();
 
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
@@ -95,7 +108,6 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
-  // Check name uniqueness if name changed
   if (name && name.trim() !== existingProduct.name) {
     const nameConflict = await prisma.product.findUnique({ where: { name: name.trim() } });
     if (nameConflict) {
@@ -115,42 +127,18 @@ export async function PUT(req: NextRequest) {
   if (formula !== undefined) updateData.formula = formula?.trim() || null;
   if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
-  if (stockState !== undefined) updateData.stockState = stockState;
+  if (stockQuantity !== undefined) updateData.stockQuantity = parseInt(stockQuantity, 10);
+  
+  if (cityIds !== undefined) {
+    updateData.cities = { set: cityIds.map((id: string) => ({ id })) };
+  }
+  if (areaIds !== undefined) {
+    updateData.areas = { set: areaIds.map((id: string) => ({ id })) };
+  }
 
-  const targetStock = availableStock !== undefined ? parseInt(availableStock, 10) : undefined;
-
-  const updatedProduct = await prisma.$transaction(async (tx) => {
-    const updated = await tx.product.update({
-      where: { id: productId },
-      data: updateData,
-    });
-
-    if (targetStock !== undefined && !isNaN(targetStock) && targetStock >= 0) {
-      const currentUnallocated = await tx.inventoryItem.findMany({
-        where: { productId, isAllocated: false },
-        orderBy: { createdAt: "asc" }
-      });
-
-      const currentCount = currentUnallocated.length;
-
-      if (targetStock > currentCount) {
-        const diff = targetStock - currentCount;
-        const newItems = Array.from({ length: diff }).map(() => ({
-          productId,
-          data: "Generic Stock (Admin)",
-          isAllocated: false,
-        }));
-        await tx.inventoryItem.createMany({ data: newItems });
-      } else if (targetStock < currentCount) {
-        const diff = currentCount - targetStock;
-        const itemsToDelete = currentUnallocated.slice(0, diff).map(i => i.id);
-        await tx.inventoryItem.deleteMany({
-          where: { id: { in: itemsToDelete } }
-        });
-      }
-    }
-
-    return updated;
+  const updatedProduct = await prisma.product.update({
+    where: { id: productId },
+    data: updateData,
   });
 
   return NextResponse.json({ product: updatedProduct });

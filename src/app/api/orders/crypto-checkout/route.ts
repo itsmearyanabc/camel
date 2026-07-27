@@ -43,12 +43,8 @@ export async function POST(req: Request) {
       if (i === 0) firstProductName = product.name;
 
       // Check stock availability
-      const unallocatedCount = await prisma.inventoryItem.count({
-        where: { productId, isAllocated: false },
-      });
-
-      if (unallocatedCount < quantity) {
-        return NextResponse.json({ error: `Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${unallocatedCount}` }, { status: 400 });
+      if (product.stockQuantity < quantity) {
+        return NextResponse.json({ error: `Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}` }, { status: 400 });
       }
 
       const itemCost = Number(product.price);

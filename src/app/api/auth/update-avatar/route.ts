@@ -12,8 +12,11 @@ export async function POST(request: Request) {
     }
 
     const { image } = await request.json();
-    if (!image || !image.startsWith('data:image/')) {
+    if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
       return NextResponse.json({ error: 'Invalid image data' }, { status: 400 });
+    }
+    if (image.length > 500000) { // roughly 375KB max after compression
+      return NextResponse.json({ error: 'Image too large. Please upload a smaller image.' }, { status: 400 });
     }
 
     // Save the base64 string directly to the database

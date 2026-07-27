@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { name, description } = await req.json();
+  const { name, description, prefixCode } = await req.json();
   if (!name || name.trim().length < 2) {
     return NextResponse.json({ error: "Category name must be at least 2 characters" }, { status: 400 });
   }
@@ -40,8 +40,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Category already exists" }, { status: 400 });
   }
 
+  if (prefixCode) {
+    const existingPrefix = await prisma.category.findUnique({ where: { prefixCode: prefixCode.trim().toUpperCase() } });
+    if (existingPrefix) {
+      return NextResponse.json({ error: "Category prefix code already exists" }, { status: 400 });
+    }
+  }
+
   const category = await prisma.category.create({
-    data: { name: name.trim(), description: description?.trim() || null },
+    data: { 
+      name: name.trim(), 
+      description: description?.trim() || null,
+      prefixCode: prefixCode ? prefixCode.trim().toUpperCase() : null
+    },
   });
 
   return NextResponse.json({ category });

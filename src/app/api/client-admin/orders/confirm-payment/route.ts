@@ -38,13 +38,12 @@ export async function POST(req: Request) {
       const cooldownEndAt = new Date(Date.now() + cooldownSeconds * 1000);
 
       for (const orderItem of order.items) {
-        // 1. Fetch oldest unallocated item for the product (FIFO)
-        const inventoryItem = await tx.inventoryItem.findFirst({
-          where: { productId: orderItem.productId, isAllocated: false },
-          orderBy: { createdAt: "asc" },
+        // 1. Fetch product
+        const product = await tx.product.findUnique({
+          where: { id: orderItem.productId }
         });
 
-        if (!inventoryItem) {
+        if (!product || product.stockQuantity < 1) {
           anyOutOfStock = true;
           await tx.orderItem.update({
             where: { id: orderItem.id },
@@ -54,40 +53,21 @@ export async function POST(req: Request) {
             },
           });
         } else {
-          // 2. Mark item as allocated
-          const claimed = await tx.inventoryItem.updateMany({
-            where: { id: inventoryItem.id, isAllocated: false },
-            data: { isAllocated: true, allocatedAt: new Date() },
+          // 2. Deduct stock
+          await tx.product.update({
+            where: { id: product.id },
+            data: { stockQuantity: { decrement: 1 } },
           });
-          if (claimed.count !== 1) {
-            throw new Error(`Inventory item for ${orderItem.product.name} is no longer available. Refresh and try again.`);
-          }
-
-          if (!updatedProductIds.includes(orderItem.productId)) {
-            updatedProductIds.push(orderItem.productId);
-          }
 
           // 3. Update order item to COOLDOWN_ACTIVE
           await tx.orderItem.update({
             where: { id: orderItem.id },
             data: {
-              inventoryItemId: inventoryItem.id,
               status: "COOLDOWN_ACTIVE",
               cooldownEndAt,
             },
           });
         }
-      }
-
-      // 4. Recalculate stock state
-      for (const pid of updatedProductIds) {
-        const unallocatedCount = await tx.inventoryItem.count({
-          where: { productId: pid, isAllocated: false },
-        });
-        await tx.product.update({
-          where: { id: pid },
-          data: { stockState: getStockState(unallocatedCount) },
-        });
       }
 
       // 5. Update master order status

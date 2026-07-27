@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       where: { id: orderId },
       include: {
         items: {
-          include: { product: true, inventoryItem: true }
+          include: { product: true }
         }
       },
     });
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         where: { id: orderId },
         include: {
           items: {
-            include: { product: true, inventoryItem: true }
+            include: { product: true }
           }
         },
       });
@@ -64,32 +64,16 @@ export async function POST(req: Request) {
           data: { status: "READY" },
           include: {
             items: {
-              include: { product: true, inventoryItem: true }
+              include: { product: true }
             }
           },
         });
       }
     }
 
-    // Clean sensitive data if still in cooldown per item
-    const formattedItems = order!.items.map((item) => {
-      const isCooldownActive = item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt && new Date(item.cooldownEndAt).getTime() > Date.now();
-      const cleanInventoryItem = isCooldownActive || !item.inventoryItem ? null : {
-        id: item.inventoryItem.id,
-        mediaUrl: item.inventoryItem.mediaUrl,
-        locationData: item.inventoryItem.locationData,
-        data: item.status === "READY" || item.status === "COMPLETED" ? item.inventoryItem.data : "[Available after Cooldown]",
-      };
-      return {
-        ...item,
-        inventoryItem: cleanInventoryItem,
-      };
-    });
-
     return NextResponse.json({
       order: {
         ...order,
-        items: formattedItems,
       },
     });
   } catch (error) {
