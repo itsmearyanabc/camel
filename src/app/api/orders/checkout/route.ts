@@ -49,8 +49,7 @@ export async function POST(req: Request) {
           orderItemsData.push({
             productId: product.id,
             priceAtPurchase: product.price,
-            status: "COOLDOWN_ACTIVE",
-            cooldownEndAt: new Date(Date.now() + 30 * 1000), // 30 sec cooldown
+            status: "ORDERED",
           });
         }
         
@@ -93,11 +92,14 @@ export async function POST(req: Request) {
         data: {
           userId: session.userId,
           totalAmount: totalAmountDue,
-          status: paymentMethod === "WALLET" ? "COOLDOWN_ACTIVE" : "PENDING_PAYMENT",
+          status: "ORDERED",
           orderSource: "WEBSITE",
           paymentMethod: paymentMethod || "WALLET",
           items: {
-            create: orderItemsData,
+            create: orderItemsData.map(item => ({
+              ...item,
+              status: "ORDERED"
+            })),
           },
         },
         include: {

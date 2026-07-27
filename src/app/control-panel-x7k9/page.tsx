@@ -29,6 +29,10 @@ export default function ClientAdminPanel() {
 
   // Local UI states
   const [adminMessages, setAdminMessages] = useState<Record<string, string>>({});
+  const [locationLinks, setLocationLinks] = useState<Record<string, string>>({});
+  const [pickupVideos, setPickupVideos] = useState<Record<string, string>>({});
+  const [cancellationReasons, setCancellationReasons] = useState<Record<string, string>>({});
+  
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [adminFiles, setAdminFiles] = useState<Record<string, { base64: string; name: string; type: string }>>({});
   const [cryptoAddress, setCryptoAddress] = useState("");
@@ -120,7 +124,12 @@ export default function ClientAdminPanel() {
 
   const handleSendMessage = async (orderItemId: string, fallbackMessage?: string) => {
     const message = (adminMessages[orderItemId] ?? fallbackMessage ?? "").trim();
-    if (!message) return;
+    const link = (locationLinks[orderItemId] ?? "").trim();
+    const videoUrl = (pickupVideos[orderItemId] ?? "").trim();
+    const cReason = (cancellationReasons[orderItemId] ?? "").trim();
+    
+    // We'll still send if there's any of these
+    if (!message && !link && !videoUrl && !cReason && !adminFiles[orderItemId]) return;
 
     const fileData = adminFiles[orderItemId];
 
@@ -131,6 +140,9 @@ export default function ClientAdminPanel() {
         body: JSON.stringify({
           orderItemId,
           message,
+          locationLink: link,
+          pickupVideoUrl: videoUrl,
+          cancellationReason: cReason,
           file: fileData ? fileData.base64 : undefined,
           fileName: fileData ? fileData.name : undefined,
           fileType: fileData ? fileData.type : undefined
@@ -140,20 +152,23 @@ export default function ClientAdminPanel() {
       if (!res.ok) { setMsg({ type: "error", text: data.error }); return; }
 
       if (data.telegramSent) {
-        setMsg({ type: "success", text: "Coordinates saved and delivered to user's Telegram!" });
+        setMsg({ type: "success", text: "Details saved and delivered to user's Telegram!" });
       } else {
         const warningSuffix = data.telegramError ? ` (Telegram skipped: ${data.telegramError})` : "";
-        setMsg({ type: "success", text: `Coordinates saved and updated on user's dashboard!${warningSuffix}` });
+        setMsg({ type: "success", text: `Details saved and updated on user's dashboard!${warningSuffix}` });
       }
       fetchAll();
       setAdminMessages(prev => ({ ...prev, [orderItemId]: "" }));
+      setLocationLinks(prev => ({ ...prev, [orderItemId]: "" }));
+      setPickupVideos(prev => ({ ...prev, [orderItemId]: "" }));
+      setCancellationReasons(prev => ({ ...prev, [orderItemId]: "" }));
       setAdminFiles(prev => {
         const next = { ...prev };
         delete next[orderItemId];
         return next;
       });
     } catch (e) {
-      setMsg({ type: "error", text: "Failed to send message" });
+      setMsg({ type: "error", text: "Failed to save details" });
     }
   };
 
@@ -318,7 +333,7 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/locations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "city", name: newCityName })
+        body: JSON.stringify({ type: "CITY", name: newCityName })
       });
       if (res.ok) { setMsg({ type: "success", text: "City added!" }); setNewCityName(""); fetchAll(); }
       else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
@@ -330,7 +345,7 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/locations", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "area", name: newAreaName, cityId: selectedCityForArea })
+        body: JSON.stringify({ type: "AREA", name: newAreaName, cityId: selectedCityForArea })
       });
       if (res.ok) { setMsg({ type: "success", text: "Area added!" }); setNewAreaName(""); fetchAll(); }
       else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
@@ -342,7 +357,7 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/locations", {
         method: "DELETE", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, type })
+        body: JSON.stringify({ id, type: type === "city" ? "CITY" : "AREA" })
       });
       if (res.ok) { setMsg({ type: "success", text: "Location deleted!" }); fetchAll(); }
     } catch (e) { setMsg({ type: "error", text: "Error deleting location" }); }
@@ -448,7 +463,7 @@ export default function ClientAdminPanel() {
     { key: "disputes", label: "Disputes", icon: "⚖️" },
   ];
 
-  const activeOrders = orders.filter(o => !["COMPLETED", "REFUNDED", "FAILED"].includes(o.status));
+  const activeOrders = orders.filter(o => !["COMPLETED", "CANCELLED"].includes(o.status));
   const filteredActiveOrders = activeOrderFilter === "ALL" 
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
@@ -540,9 +555,9 @@ export default function ClientAdminPanel() {
             </div>
           )}
 
-          {activeTab === "dashboard" && (
-            <DashboardAnalytics />
-          )}
+          <div style={{ display: activeTab === "dashboard" ? "block" : "none" }}>
+            <DashboardAnalytics onNavigate={(tab) => { setActiveTab(tab as Tab); setIsSidebarOpen(false); }} />
+          </div>
 
           {/* PRODUCTS TAB */}
           {activeTab === "products" && (
@@ -614,7 +629,9 @@ export default function ClientAdminPanel() {
                       Upload Image
                       <input type="file" accept="image/*" onChange={(e) => handleProductImageUpload(e, false)} style={{ display: "none" }} />
                     </label>
-                    {newProduct.imageUrl && <span style={{ fontSize: "12px", color: "var(--green)" }}>✓ Uploaded</span>}
+                    {newProduct.imageUrl && (
+                      <img src={newProduct.imageUrl} alt="Preview" style={{ width: "60px", height: "40px", objectFit: "cover", borderRadius: "var(--radius-sm)" }} />
+                    )}
                   </div>
                   <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
                     <textarea className="form-input" placeholder="Description" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} rows={3}></textarea>
@@ -656,7 +673,12 @@ export default function ClientAdminPanel() {
                     {products.map(p => (
                       <React.Fragment key={p.id}>
                         <tr>
-                          <td><strong>{p.name}</strong></td>
+                          <td>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              {p.imageUrl && <img src={p.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover" }} />}
+                              <strong>{p.name}</strong>
+                            </div>
+                          </td>
                           <td>{p.categoryName}</td>
                           <td style={{ fontWeight: "600", color: "var(--green)" }}>{p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "$"}{Number(p.price).toFixed(2)}</td>
                           <td><span className={`badge badge-${p.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>{p.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"}</span></td>
@@ -794,7 +816,7 @@ export default function ClientAdminPanel() {
 
               {/* Horizontal Status Tabs */}
               <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
-                {["ALL", "PENDING_PAYMENT", "PAID", "PROCESSING", "COOLDOWN_ACTIVE", "READY"].map(status => (
+                {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP"].map(status => (
                   <button 
                     key={status}
                     onClick={() => setActiveOrderFilter(status)}
@@ -823,15 +845,11 @@ export default function ClientAdminPanel() {
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                             <span style={{ fontWeight: "600", fontSize: "16px" }}>{order.user.username}</span>
-                            <span className={`badge ${order.status === "COOLDOWN_ACTIVE" ? "badge-orange" : order.status === "READY" ? "badge-blue" : "badge-in_stock"}`}>{order.status}</span>
+                            <span className={`badge ${order.status === "ON_PICKUP" ? "badge-blue" : "badge-in_stock"}`}>{order.status}</span>
                             <span className="badge" style={{ background: order.orderSource === "TELEGRAM" ? "#0088cc" : "var(--bg-secondary)", color: order.orderSource === "TELEGRAM" ? "white" : "var(--text-secondary)" }}>
                               {order.orderSource === "TELEGRAM" ? "📱 Telegram" : "🌐 Website"}
                             </span>
-                            {order.paymentMethod === "DIRECT_CRYPTO" ? (
-                              <span className="badge badge-purple">₿ Crypto ({order.cryptoCurrency})</span>
-                            ) : (
-                              <span className="badge badge-green">💳 Wallet</span>
-                            )}
+                            <span className="badge badge-green">💳 Wallet</span>
                           </div>
                           <span style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>Ordered {order.items.map((i: any) => `${i.product.name}`).join(", ")} • ${Number(order.totalAmount).toFixed(2)} • {new Date(order.createdAt).toLocaleString()}</span>
                         </div>
@@ -910,10 +928,42 @@ export default function ClientAdminPanel() {
                                       </div>
                                     </div>
                                     
+                                    {item.status === "CANCELLED" && (
+                                      <input 
+                                        className="form-input" 
+                                        type="text" 
+                                        placeholder="Reason for cancellation..."
+                                        value={cancellationReasons[item.id] !== undefined ? cancellationReasons[item.id] : (item.cancellationReason || "")}
+                                        onChange={(e) => setCancellationReasons(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                        style={{ marginBottom: "12px", border: "1px solid var(--red)" }}
+                                      />
+                                    )}
+
+                                    {item.status === "ON_PICKUP" && (
+                                      <div style={{ display: "flex", gap: "12px", marginBottom: "12px" }}>
+                                        <input 
+                                          className="form-input" 
+                                          type="url" 
+                                          placeholder="Google Maps / Location Link"
+                                          value={locationLinks[item.id] !== undefined ? locationLinks[item.id] : (item.locationLink || "")}
+                                          onChange={(e) => setLocationLinks(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                          style={{ flex: 1 }}
+                                        />
+                                        <input 
+                                          className="form-input" 
+                                          type="url" 
+                                          placeholder="Video URL (Optional)"
+                                          value={pickupVideos[item.id] !== undefined ? pickupVideos[item.id] : (item.pickupVideoUrl || "")}
+                                          onChange={(e) => setPickupVideos(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                          style={{ flex: 1 }}
+                                        />
+                                      </div>
+                                    )}
+
                                     <textarea 
                                       className="form-input" 
                                       rows={3} 
-                                      placeholder="GPS coordinates, locker code, bench pickup instructions..."
+                                      placeholder="Extra instructions, message to customer..."
                                       value={adminMessages[item.id] !== undefined ? adminMessages[item.id] : (item.adminMessage || "")}
                                       onChange={(e) => setAdminMessages(prev => ({ ...prev, [item.id]: e.target.value }))}
                                       style={{ marginBottom: "12px" }}
@@ -922,21 +972,22 @@ export default function ClientAdminPanel() {
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                         <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0 }}>
-                                          📎 File
+                                          📎 Photo
                                           <input 
                                             type="file" 
+                                            accept="image/*"
                                             onChange={(e) => handleFileChange(item.id, e)} 
                                             style={{ display: "none" }} 
                                           />
                                         </label>
-                                        {adminFiles[item.id] && (
+                                        {(adminFiles[item.id] || item.adminMessageFileUrl) && (
                                           <span style={{ fontSize: "12px", color: "var(--green)", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            ✓ {adminFiles[item.id].name}
+                                            ✓ {adminFiles[item.id] ? adminFiles[item.id].name : "Photo Uploaded"}
                                           </span>
                                         )}
                                       </div>
-                                      <button onClick={() => handleSendMessage(item.id, item.adminMessage || undefined)} className="btn btn-primary btn-sm" disabled={!(adminMessages[item.id] ?? item.adminMessage)?.trim()}>
-                                        Send Coordinates
+                                      <button onClick={() => handleSendMessage(item.id, item.adminMessage || undefined)} className="btn btn-primary btn-sm">
+                                        Save & Notify
                                       </button>
                                     </div>
                                   </div>
@@ -980,7 +1031,7 @@ export default function ClientAdminPanel() {
                         <td>
                           {o.paymentMethod === "DIRECT_CRYPTO" ? `Crypto (${o.cryptoCurrency || "N/A"})` : "Wallet"}
                         </td>
-                        <td><span className={`badge ${o.status === "COMPLETED" ? "badge-green" : o.status === "READY" ? "badge-blue" : o.status === "COOLDOWN_ACTIVE" ? "badge-orange" : o.status === "PENDING_PAYMENT" ? "badge-red" : "badge-in_stock"}`}>{o.status}</span></td>
+                        <td><span className={`badge ${o.status === "COMPLETED" ? "badge-green" : o.status === "ON_PICKUP" ? "badge-blue" : o.status === "CANCELLED" ? "badge-red" : "badge-in_stock"}`}>{o.status}</span></td>
                         <td style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>{new Date(o.createdAt).toLocaleString()}</td>
                       </tr>
                     ))}

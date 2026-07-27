@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 
-export default function DashboardAnalytics() {
+export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const [timeFilter, setTimeFilter] = useState("last30");
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -61,9 +61,9 @@ export default function DashboardAnalytics() {
             <option value="thisMonth">This Month</option>
             <option value="all">All Time</option>
           </select>
-          <button className="btn btn-primary btn-sm" style={{ padding: "8px 16px" }}>+ Add Product</button>
-          <button className="btn btn-secondary btn-sm" style={{ padding: "8px 16px" }}>Manage Orders</button>
-          <button className="btn btn-ghost btn-sm" style={{ padding: "8px 16px" }}>Export Report</button>
+          <button onClick={() => onNavigate("products")} className="btn btn-primary btn-sm" style={{ padding: "8px 16px" }}>+ Add Product</button>
+          <button onClick={() => onNavigate("active-orders")} className="btn btn-secondary btn-sm" style={{ padding: "8px 16px" }}>Manage Orders</button>
+          <button onClick={() => window.print()} className="btn btn-ghost btn-sm" style={{ padding: "8px 16px" }}>Export Report</button>
         </div>
       </div>
 

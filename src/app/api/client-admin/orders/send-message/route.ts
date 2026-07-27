@@ -12,10 +12,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { orderItemId, message, file, fileName, fileType } = await req.json();
+    const { orderItemId, message, locationLink, pickupVideoUrl, cancellationReason, file, fileName, fileType } = await req.json();
 
-    if (!orderItemId || !message) {
-      return NextResponse.json({ error: "Order Item ID and message are required" }, { status: 400 });
+    if (!orderItemId) {
+      return NextResponse.json({ error: "Order Item ID is required" }, { status: 400 });
     }
 
     const orderItem = await prisma.orderItem.findUnique({
@@ -55,33 +55,27 @@ export async function POST(req: Request) {
       localFileType = fileType;
     }
 
-    // Determine new status. If COOLDOWN_ACTIVE or PAID, progress to READY.
-    let newStatus = orderItem.status;
-    if (["COOLDOWN_ACTIVE", "PAID", "PENDING_PAYMENT"].includes(orderItem.status)) {
-      newStatus = "READY";
-    }
-
     const updatedOrderItem = await prisma.$transaction(async (tx) => {
       const item = await tx.orderItem.update({
         where: { id: orderItemId },
         data: {
-          adminMessage: message,
-          adminMessageFileUrl: fileUrl,
-          adminMessageFileType: localFileType,
+          adminMessage: message || orderItem.adminMessage,
+          locationLink: locationLink || orderItem.locationLink,
+          pickupVideoUrl: pickupVideoUrl || orderItem.pickupVideoUrl,
+          cancellationReason: cancellationReason || orderItem.cancellationReason,
+          adminMessageFileUrl: fileUrl || orderItem.adminMessageFileUrl,
+          adminMessageFileType: localFileType || orderItem.adminMessageFileType,
           adminMessageSentAt: new Date(),
-          status: newStatus,
         },
       });
 
-      // Check if all items in order are ready
+      // Check if all items in order are ON_PICKUP, COMPLETED, or CANCELLED
       const allItems = await tx.orderItem.findMany({ where: { orderId: orderItem.orderId } });
-      const allReady = allItems.every(i => i.status === "READY" || i.status === "COMPLETED");
+      const allCompleted = allItems.every(i => i.status === "COMPLETED");
+      const anyCancelled = allItems.some(i => i.status === "CANCELLED");
       
-      if (allReady) {
-        await tx.order.update({
-          where: { id: orderItem.orderId },
-          data: { status: "READY" },
-        });
+      if (allCompleted) {
+        await tx.order.update({ where: { id: orderItem.orderId }, data: { status: "COMPLETED" } });
       }
 
       return item;
@@ -97,11 +91,21 @@ export async function POST(req: Request) {
       const botToken = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
       if (botToken && botToken !== "PLACEHOLDER_BOT_1_TOKEN") {
         try {
-          const telegramMessage =
-            `📦 *Order Update for ${escapeTelegramMarkdown(orderItem.product.name)}*\n\n` +
-            `Admin sent coordinates/details:\n` +
-            `\`${String(message).replace(/`/g, "'")}\`\n\n` +
-            `Item Status updated to: *${escapeTelegramMarkdown(newStatus)}*`;
+          let telegramMessage = `📦 *Order Update for ${escapeTelegramMarkdown(orderItem.product.name)}*\n\n`;
+          if (updatedOrderItem.status === "ON_PICKUP") {
+            telegramMessage += `📍 *Your order is ready for pickup!*\n\n`;
+          } else if (updatedOrderItem.status === "CANCELLED") {
+            telegramMessage += `❌ *Your order was cancelled.*\n\n`;
+          } else {
+            telegramMessage += `Admin sent an update:\n\n`;
+          }
+
+          if (message) telegramMessage += `📝 ${String(message)}\n\n`;
+          if (locationLink) telegramMessage += `🗺️ *Location:* [View on Map](${escapeTelegramMarkdown(locationLink)})\n`;
+          if (pickupVideoUrl) telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(pickupVideoUrl)})\n`;
+          if (cancellationReason) telegramMessage += `\n*Reason:* ${escapeTelegramMarkdown(cancellationReason)}\n`;
+
+          telegramMessage += `\nItem Status is now: *${escapeTelegramMarkdown(updatedOrderItem.status)}*`;
 
           if (fileBuffer && fileName && localFileType) {
             // Send as file attachment using multipart FormData

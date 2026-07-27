@@ -806,7 +806,7 @@ export default function Dashboard() {
               
               {/* Horizontal Status Tabs */}
               <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
-                {["ALL", "PENDING_PAYMENT", "PAID", "PROCESSING", "COOLDOWN_ACTIVE", "READY", "COMPLETED"].map(status => (
+                {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"].map(status => (
                   <button 
                     key={status}
                     onClick={() => setUserOrderFilter(status)}
@@ -839,9 +839,9 @@ export default function Dashboard() {
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                           <span className={`badge ${
-                            order.status === "PAID" ? "badge-green" :
-                            order.status === "PENDING_PAYMENT" ? "badge-red" :
-                            order.status === "COMPLETED" ? "badge-blue" : ""
+                            order.status === "COMPLETED" ? "badge-green" :
+                            order.status === "CANCELLED" ? "badge-red" :
+                            order.status === "ON_PICKUP" ? "badge-blue" : ""
                           }`}>{order.status.replace(/_/g, " ")}</span>
                         </div>
                       </div>
@@ -877,12 +877,23 @@ export default function Dashboard() {
                                   </p>
                                 </div>
                                 <span className={`badge ${
-                                  item.status === "READY" ? "badge-green" :
-                                  item.status === "COOLDOWN_ACTIVE" ? "badge-orange" :
-                                  item.status === "PENDING_PAYMENT" ? "badge-red" :
-                                  item.status === "COMPLETED" ? "badge-blue" : ""
+                                  item.status === "COMPLETED" ? "badge-green" :
+                                  item.status === "ON_PICKUP" ? "badge-blue" :
+                                  item.status === "CANCELLED" ? "badge-red" :
+                                  item.status === "PROCESSING" ? "badge-orange" : ""
                                 }`}>{item.status.replace(/_/g, " ")}</span>
                               </div>
+
+                              {item.status === "CANCELLED" && item.cancellationReason && (
+                                <div style={{
+                                  background: "var(--red-bg)", padding: "10px 14px",
+                                  borderRadius: "var(--radius-sm)", marginBottom: "12px",
+                                  border: "1px solid rgba(255, 59, 48, 0.2)"
+                                }}>
+                                  <p style={{ fontSize: "13px", color: "var(--red)", fontWeight: "600", marginBottom: "4px" }}>Order Cancelled</p>
+                                  <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>{item.cancellationReason}</p>
+                                </div>
+                              )}
 
                               {isCooldown && (
                                 <div style={{
@@ -900,18 +911,33 @@ export default function Dashboard() {
                                 </div>
                               )}
 
-                              {item.adminMessage && (
+                              {item.status === "ON_PICKUP" && (
                                 <div style={{
                                   background: "var(--blue-bg)", padding: "14px",
                                   borderRadius: "var(--radius-md)", marginBottom: "12px",
                                   border: "1px solid rgba(0, 122, 255, 0.2)"
                                 }}>
                                   <p style={{ fontSize: "12px", color: "var(--blue)", marginBottom: "6px", fontWeight: "600", textTransform: "uppercase" }}>
-                                    📍 Delivery Coordinates / Message
+                                    📍 Ready for Pickup
                                   </p>
-                                  <p style={{ fontSize: "14px", color: "var(--text-primary)", whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
-                                    {item.adminMessage}
-                                  </p>
+                                  {item.adminMessage && (
+                                    <p style={{ fontSize: "14px", color: "var(--text-primary)", whiteSpace: "pre-wrap", fontFamily: "monospace", marginBottom: "12px" }}>
+                                      {item.adminMessage}
+                                    </p>
+                                  )}
+                                  
+                                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "12px" }}>
+                                    {item.locationLink && (
+                                      <a href={item.locationLink} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">
+                                        🗺️ View Location on Map
+                                      </a>
+                                    )}
+                                    {item.pickupVideoUrl && (
+                                      <a href={item.pickupVideoUrl} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm">
+                                        🎥 Watch Video Guide
+                                      </a>
+                                    )}
+                                  </div>
                                   {item.adminMessageFileUrl && (
                                     <div style={{ marginTop: "12px" }}>
                                       {item.adminMessageFileType?.startsWith("image/") ? (
@@ -933,20 +959,20 @@ export default function Dashboard() {
                                 </div>
                               )}
 
-                              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
-                                {item.status === "READY" && (
-                                  <button onClick={() => completeOrder(order.id)} className="btn btn-primary btn-sm">Confirm Received</button>
-                                )}
-                                {(item.status === "READY" || item.status === "COMPLETED") && (
-                                  <button
-                                    onClick={() => { setSelectedOrderIdForDispute(order.id); setActiveTab("disputes"); }}
-                                    className="btn btn-ghost btn-sm"
-                                    style={{ color: "var(--orange)" }}
-                                  >
-                                    File Dispute
-                                  </button>
-                                )}
-                              </div>
+                                <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px" }}>
+                                  {item.status === "ON_PICKUP" && (
+                                    <button onClick={() => completeOrder(order.id)} className="btn btn-primary btn-sm">Confirm Received</button>
+                                  )}
+                                  {(item.status === "ON_PICKUP" || item.status === "COMPLETED") && (
+                                    <button
+                                      onClick={() => { setSelectedOrderIdForDispute(order.id); setActiveTab("disputes"); }}
+                                      className="btn btn-ghost btn-sm"
+                                      style={{ color: "var(--orange)" }}
+                                    >
+                                      File Dispute
+                                    </button>
+                                  )}
+                                </div>
                             </div>
                           );
                         })}

@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Order Item ID and status are required" }, { status: 400 });
     }
 
-    const validStatuses = ["PENDING_PAYMENT", "PAID", "PROCESSING", "COOLDOWN_ACTIVE", "READY", "COMPLETED", "REFUNDED", "FAILED"];
+    const validStatuses = ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"];
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status provided" }, { status: 400 });
     }
@@ -38,15 +38,15 @@ export async function POST(req: Request) {
         data: { status },
       });
 
-      // Simple sync to master order: if all items are completed/ready, update master
+      // Simple sync to master order: if all items are completed, update master
       const allItems = await tx.orderItem.findMany({ where: { orderId: orderItem.orderId } });
       const allCompleted = allItems.every(i => i.status === "COMPLETED");
-      const allReadyOrCompleted = allItems.every(i => ["READY", "COMPLETED"].includes(i.status));
+      const anyCancelled = allItems.some(i => i.status === "CANCELLED");
 
       if (allCompleted) {
         await tx.order.update({ where: { id: orderItem.orderId }, data: { status: "COMPLETED" } });
-      } else if (allReadyOrCompleted) {
-        await tx.order.update({ where: { id: orderItem.orderId }, data: { status: "READY" } });
+      } else if (anyCancelled && allItems.every(i => ["COMPLETED", "CANCELLED"].includes(i.status))) {
+        await tx.order.update({ where: { id: orderItem.orderId }, data: { status: "CANCELLED" } });
       }
 
       return item;
