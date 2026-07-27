@@ -32,6 +32,8 @@ interface OrderItem {
   adminMessageFileType: string | null;
   adminMessageSentAt: string | null;
   cancellationReason: string | null;
+  locationLink: string | null;
+  pickupVideoUrl: string | null;
 }
 
 interface Order {
