@@ -8,6 +8,12 @@ export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: s
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Export Report Modal State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState("orders");
+  const [exportStart, setExportStart] = useState("");
+  const [exportEnd, setExportEnd] = useState("");
+
   useEffect(() => {
     fetchData();
   }, [timeFilter]);
@@ -38,8 +44,16 @@ export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: s
 
   const formatMoney = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val || 0);
 
+  const handleExport = () => {
+    let url = `/api/admin/export?type=${exportType}`;
+    if (exportStart) url += `&start=${exportStart}`;
+    if (exportEnd) url += `&end=${exportEnd}`;
+    window.open(url, "_blank");
+    setShowExportModal(false);
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "32px", animation: "fadeIn 0.5s ease" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "32px", animation: "fadeIn 0.5s ease", position: "relative" }}>
       
       {/* Header & Quick Actions */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "16px" }}>
@@ -63,7 +77,7 @@ export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: s
           </select>
           <button onClick={() => onNavigate("products")} className="btn btn-primary btn-sm" style={{ padding: "8px 16px" }}>+ Add Product</button>
           <button onClick={() => onNavigate("active-orders")} className="btn btn-secondary btn-sm" style={{ padding: "8px 16px" }}>Manage Orders</button>
-          <button onClick={() => window.print()} className="btn btn-ghost btn-sm" style={{ padding: "8px 16px" }}>Export Report</button>
+          <button onClick={() => setShowExportModal(true)} className="btn btn-ghost btn-sm" style={{ padding: "8px 16px" }}>Export Report</button>
         </div>
       </div>
 
@@ -289,6 +303,41 @@ export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: s
         </div>
       </div>
 
+      {showExportModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="card" style={{ width: "100%", maxWidth: "450px", animation: "popIn 0.3s ease" }}>
+            <h2 style={{ fontSize: "20px", marginBottom: "20px" }}>Export Report</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Report Type</label>
+                <select className="form-input" value={exportType} onChange={e => setExportType(e.target.value)}>
+                  <option value="orders">Orders (Detailed)</option>
+                  <option value="products">Products Inventory</option>
+                  <option value="payments">Payments & Transactions</option>
+                  <option value="users">Registered Users</option>
+                </select>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Start Date</label>
+                  <input type="date" className="form-input" value={exportStart} onChange={e => setExportStart(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>End Date</label>
+                  <input type="date" className="form-input" value={exportEnd} onChange={e => setExportEnd(e.target.value)} />
+                </div>
+              </div>
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                Note: Leaving dates empty will export all time data for the selected report type.
+              </p>
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "8px" }}>
+                <button onClick={() => setShowExportModal(false)} className="btn btn-ghost">Cancel</button>
+                <button onClick={handleExport} className="btn btn-primary">Download CSV</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

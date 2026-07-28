@@ -43,10 +43,11 @@ export default function ClientAdminPanel() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
-  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, categoryId: string, imageUrl: string, stockQuantity: number, cityIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [] });
+  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, categoryId: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [] });
+  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [], areaIds: [] });
+  const [showLocationsModal, setShowLocationsModal] = useState<"new" | "edit" | null>(null);
   
   // Location UI states
   const [newCityName, setNewCityName] = useState("");
@@ -260,7 +261,7 @@ export default function ClientAdminPanel() {
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Product added!" });
-        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [] });
+        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -279,7 +280,8 @@ export default function ClientAdminPanel() {
       casNumber: p.casNumber || "",
       imageUrl: p.imageUrl || "",
       stockQuantity: p.stockQuantity?.toString() || "0",
-      cityIds: p.cities?.map((c: any) => c.id) || []
+      cityIds: p.cities?.map((c: any) => c.id) || [],
+      areaIds: p.areas?.map((a: any) => a.id) || []
     });
   };
 
@@ -467,6 +469,7 @@ export default function ClientAdminPanel() {
   const filteredActiveOrders = activeOrderFilter === "ALL" 
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
+  const newOrdersCount = orders.filter(o => ["ORDERED", "PENDING_PAYMENT", "PROCESSING"].includes(o.status)).length;
 
   return (
     <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
@@ -529,9 +532,9 @@ export default function ClientAdminPanel() {
               }}
             >
               <span style={{ fontSize: "18px" }}>{tab.icon}</span> {tab.label}
-              {tab.key === "active-orders" && activeOrders.length > 0 && (
+              {tab.key === "active-orders" && newOrdersCount > 0 && (
                 <span style={{ marginLeft: "auto", background: "var(--red)", color: "white", padding: "2px 8px", borderRadius: "100px", fontSize: "12px", fontWeight: "bold" }}>
-                  {activeOrders.length}
+                  {newOrdersCount}
                 </span>
               )}
             </button>
@@ -605,9 +608,12 @@ export default function ClientAdminPanel() {
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <input className="form-input" placeholder="Product Name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
                   </div>
-                  <div className="form-group" style={{ marginBottom: 0, display: "flex", gap: "8px" }}>
-                    <div className="form-input" style={{ width: "64px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: "bold" }}>USD</div>
-                    <input className="form-input" placeholder="Price (USD)" type="number" min="0.01" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required style={{ flex: 1 }} />
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Unit Price (USD)</label>
+                    <div style={{ position: "relative" }}>
+                      <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "bold", color: "var(--text-secondary)" }}>$</span>
+                      <input className="form-input" placeholder="0.00" type="number" min="0.01" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required style={{ paddingLeft: "32px", width: "100%" }} />
+                    </div>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <select className="form-input" value={newProduct.categoryId} onChange={e => setNewProduct({...newProduct, categoryId: e.target.value})} required>
@@ -622,7 +628,8 @@ export default function ClientAdminPanel() {
                     <input className="form-input" placeholder="CAS Number (Optional)" value={newProduct.casNumber} onChange={e => setNewProduct({...newProduct, casNumber: e.target.value})} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <input className="form-input" placeholder="Stock Quantity" type="number" min="0" value={newProduct.stockQuantity} onChange={e => setNewProduct({...newProduct, stockQuantity: parseInt(e.target.value)})} required />
+                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Stock Quantity</label>
+                    <input className="form-input" placeholder="0" type="number" min="0" value={newProduct.stockQuantity} onChange={e => setNewProduct({...newProduct, stockQuantity: parseInt(e.target.value) || 0})} required />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0, display: "flex", gap: "8px", alignItems: "center" }}>
                     <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0, flex: 1, textAlign: "center" }}>
@@ -637,17 +644,12 @@ export default function ClientAdminPanel() {
                     <textarea className="form-input" placeholder="Description" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} rows={3}></textarea>
                   </div>
                   <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Available in Cities:</label>
-                    <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid var(--border)", padding: "12px", borderRadius: "var(--radius-sm)", display: "flex", flexWrap: "wrap", gap: "12px", background: "var(--bg-primary)" }}>
-                      {locations.map(city => (
-                        <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", width: "calc(33% - 12px)", minWidth: "120px" }}>
-                          <input type="checkbox" checked={newProduct.cityIds.includes(city.id)} onChange={e => {
-                            if (e.target.checked) setNewProduct({...newProduct, cityIds: [...newProduct.cityIds, city.id]});
-                            else setNewProduct({...newProduct, cityIds: newProduct.cityIds.filter(id => id !== city.id)});
-                          }} />
-                          {city.name}
-                        </label>
-                      ))}
+                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
+                      <span style={{ fontSize: "14px", color: "var(--text-secondary)", flex: 1 }}>
+                        {newProduct.cityIds.length === 0 ? "No locations selected" : `${newProduct.cityIds.length} Cities, ${newProduct.areaIds.length} Areas selected`}
+                      </span>
+                      <button type="button" onClick={() => setShowLocationsModal("new")} className="btn btn-secondary btn-sm">Manage Locations</button>
                     </div>
                   </div>
                   <div style={{ gridColumn: "span 2" }}>
@@ -695,23 +697,26 @@ export default function ClientAdminPanel() {
                             <td colSpan={6} style={{ padding: "16px" }}>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
-                                <div style={{ display: "flex", gap: "8px" }}>
-                                  <input className="form-input" style={{ width: "100px" }} type="number" min="0" placeholder="Qty" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} title="Stock Quantity" />
-                                  <div className="form-input" style={{ width: "64px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: "bold" }}>USD</div>
-                                  <input className="form-input" placeholder="Price (USD)" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} />
+                                <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty</label>
+                                    <input className="form-input" style={{ width: "100px" }} type="number" min="0" placeholder="0" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} title="Stock Quantity" />
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Unit Price (USD)</label>
+                                    <div style={{ position: "relative" }}>
+                                      <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "bold", color: "var(--text-secondary)" }}>$</span>
+                                      <input className="form-input" placeholder="0.00" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} style={{ paddingLeft: "32px", width: "100%" }} />
+                                    </div>
+                                  </div>
                                 </div>
                                 <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "12px" }}>Available in Cities:</label>
-                                  <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid var(--border)", padding: "12px", borderRadius: "var(--radius-sm)", display: "flex", flexWrap: "wrap", gap: "12px", background: "var(--bg-primary)" }}>
-                                    {locations.map(city => (
-                                      <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", width: "calc(33% - 12px)", minWidth: "120px" }}>
-                                        <input type="checkbox" checked={editProductData.cityIds.includes(city.id)} onChange={e => {
-                                          if (e.target.checked) setEditProductData({...editProductData, cityIds: [...editProductData.cityIds, city.id]});
-                                          else setEditProductData({...editProductData, cityIds: editProductData.cityIds.filter(id => id !== city.id)});
-                                        }} />
-                                        {city.name}
-                                      </label>
-                                    ))}
+                                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
+                                    <span style={{ fontSize: "14px", color: "var(--text-secondary)", flex: 1 }}>
+                                      {editProductData.cityIds.length === 0 ? "No locations selected" : `${editProductData.cityIds.length} Cities, ${editProductData.areaIds.length} Areas selected`}
+                                    </span>
+                                    <button type="button" onClick={() => setShowLocationsModal("edit")} className="btn btn-secondary btn-sm">Manage Locations</button>
                                   </div>
                                 </div>
                                 <div style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
@@ -1289,6 +1294,85 @@ export default function ClientAdminPanel() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Locations Modal */}
+          {showLocationsModal && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div className="card" style={{ width: "90%", maxWidth: "600px", maxHeight: "80vh", display: "flex", flexDirection: "column", animation: "popIn 0.3s ease" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                  <h2 style={{ fontSize: "20px" }}>Manage Product Availability</h2>
+                  <button onClick={() => setShowLocationsModal(null)} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: "var(--text-secondary)" }}>&times;</button>
+                </div>
+                
+                <div style={{ flex: 1, overflowY: "auto", padding: "4px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {locations.length === 0 ? (
+                    <p style={{ color: "var(--text-secondary)" }}>No cities available. Add them in the Locations tab first.</p>
+                  ) : locations.map(city => {
+                    const isNew = showLocationsModal === "new";
+                    const currentState = isNew ? newProduct : editProductData;
+                    const setState = isNew ? setNewProduct : setEditProductData;
+                    
+                    const isCitySelected = currentState.cityIds.includes(city.id);
+                    
+                    const toggleCity = (checked: boolean) => {
+                      let nextCityIds = [...currentState.cityIds];
+                      let nextAreaIds = [...currentState.areaIds];
+                      
+                      if (checked) {
+                        nextCityIds.push(city.id);
+                      } else {
+                        nextCityIds = nextCityIds.filter(id => id !== city.id);
+                        const cityAreaIds = city.areas?.map((a:any) => a.id) || [];
+                        nextAreaIds = nextAreaIds.filter(id => !cityAreaIds.includes(id));
+                      }
+                      
+                      setState({ ...currentState, cityIds: nextCityIds, areaIds: nextAreaIds } as any);
+                    };
+                    
+                    const toggleArea = (areaId: string, checked: boolean) => {
+                      let nextAreaIds = [...currentState.areaIds];
+                      let nextCityIds = [...currentState.cityIds];
+                      if (checked) {
+                        nextAreaIds.push(areaId);
+                        if (!nextCityIds.includes(city.id)) nextCityIds.push(city.id);
+                      } else {
+                        nextAreaIds = nextAreaIds.filter(id => id !== areaId);
+                      }
+                      setState({ ...currentState, cityIds: nextCityIds, areaIds: nextAreaIds } as any);
+                    };
+
+                    return (
+                      <div key={city.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                        <div style={{ background: "var(--bg-secondary)", padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <input type="checkbox" checked={isCitySelected} onChange={e => toggleCity(e.target.checked)} style={{ transform: "scale(1.2)" }} />
+                          <strong style={{ fontSize: "16px" }}>{city.name}</strong>
+                        </div>
+                        {isCitySelected && city.areas && city.areas.length > 0 && (
+                          <div style={{ padding: "12px 16px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "12px" }}>
+                            {city.areas.map((area: any) => (
+                              <label key={area.id} style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                                <input type="checkbox" checked={currentState.areaIds.includes(area.id)} onChange={e => toggleArea(area.id, e.target.checked)} />
+                                <span style={{ fontSize: "14px" }}>{area.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                        {isCitySelected && (!city.areas || city.areas.length === 0) && (
+                          <div style={{ padding: "12px 16px", fontSize: "13px", color: "var(--text-secondary)" }}>
+                            No areas defined for this city.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{ padding: "16px 0 0", marginTop: "16px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "flex-end", gap: "12px" }}>
+                  <button onClick={() => setShowLocationsModal(null)} className="btn btn-primary">Done</button>
+                </div>
               </div>
             </div>
           )}
