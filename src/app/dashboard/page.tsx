@@ -180,14 +180,15 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Poll cooldowns
+  // Poll active orders for live data
   useEffect(() => {
-    const hasActive = orders.some(o => o.status === "COOLDOWN_ACTIVE");
+    const activeStatuses = ["COOLDOWN_ACTIVE", "PROCESSING", "ON_PICKUP", "PENDING_PAYMENT"];
+    const hasActive = orders.some(o => activeStatuses.includes(o.status));
     if (!hasActive) return;
     const interval = setInterval(async () => {
       const updated = await Promise.all(
         orders.map(async (order) => {
-          if (order.status === "COOLDOWN_ACTIVE") {
+          if (activeStatuses.includes(order.status)) {
             const r = await fetch("/api/orders/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: order.id }) });
             const d = await r.json();
             if (r.ok) return d.order;
@@ -199,7 +200,7 @@ export default function Dashboard() {
       const rMe = await fetch("/api/auth/me");
       const dMe = await rMe.json();
       if (dMe.user) setUser(dMe.user);
-    }, 4000);
+    }, 2500);
     return () => clearInterval(interval);
   }, [orders]);
 
@@ -940,16 +941,35 @@ export default function Dashboard() {
                       )}
 
                       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                        {order.items.map(item => {
+                        {order.items.reduce((acc: any[], item: any) => {
+                          const existing = acc.find(x => 
+                            x.productId === item.productId &&
+                            x.areaId === item.areaId &&
+                            x.status === item.status &&
+                            x.locationLink === item.locationLink &&
+                            x.pickupVideoUrl === item.pickupVideoUrl &&
+                            x.adminMessage === item.adminMessage &&
+                            x.cancellationReason === item.cancellationReason
+                          );
+                          if (existing) {
+                            existing.groupQuantity += 1;
+                            existing.groupTotal += Number(item.priceAtPurchase);
+                          } else {
+                            acc.push({ ...item, groupQuantity: 1, groupTotal: Number(item.priceAtPurchase) });
+                          }
+                          return acc;
+                        }, []).map((item: any) => {
                           const isCooldown = item.status === "COOLDOWN_ACTIVE";
                           const secondsLeft = item.cooldownEndAt ? Math.max(0, Math.ceil((new Date(item.cooldownEndAt).getTime() - Date.now()) / 1000)) : 0;
                           return (
                             <div key={item.id} style={{ background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                                 <div>
-                                  <h4 style={{ fontSize: "16px", marginBottom: "4px" }}>{item.product.name}</h4>
+                                  <h4 style={{ fontSize: "16px", marginBottom: "4px" }}>
+                                    {item.groupQuantity > 1 ? `${item.groupQuantity}x ` : ""}{item.product.name}
+                                  </h4>
                                   <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                                    Price: {formatPrice(Number(item.priceAtPurchase), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                                    {item.groupQuantity > 1 ? "Total " : ""}Price: {formatPrice(item.groupTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                                   </p>
                                 </div>
                                 <span className={`badge ${

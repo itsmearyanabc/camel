@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const now = new Date();
     let processedCount = 0;
     let autoCompletedCount = 0;
-    const botToken = process.env.TELEGRAM_BOT_1_TOKEN;
+    const botToken = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
 
     // ============================================================
     // PASS 1: COOLDOWN_ACTIVE → ON_PICKUP (cooldown expired)
@@ -27,6 +27,8 @@ export async function GET(req: Request) {
         product: true,
       },
     });
+
+    const telegramMessagesToGroup: any[] = [];
 
     for (const item of readyItems) {
       // Fetch product area detail for this item's area
@@ -64,34 +66,27 @@ export async function GET(req: Request) {
         },
       });
 
-      // Send Telegram message if user has Telegram ID
+      // Aggregate Telegram message for grouping
       const user = item.order.user;
       if (user.telegramId && botToken) {
-        let telegramMessage = `📦 *Automated Delivery for ${escapeTelegramMarkdown(item.product.name)}*\\n\\n`;
-        telegramMessage += `📝 ${escapeTelegramMarkdown(adminMessage)}\\n\\n`;
-        
-        if (locationLink) {
-          telegramMessage += `🗺️ *Location:* [View on Map](${escapeTelegramMarkdown(locationLink)})\\n`;
-        }
-        if (pickupVideoUrl) {
-          telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(pickupVideoUrl)})\\n`;
-        }
-
-        telegramMessage += `\\nStatus: *READY FOR PICKUP*`;
-
-        try {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: user.telegramId,
-              text: telegramMessage,
-              parse_mode: "MarkdownV2",
-              disable_web_page_preview: false,
-            }),
+        const existingMsg = telegramMessagesToGroup.find(m => 
+          m.telegramId === user.telegramId && 
+          m.productId === item.productId &&
+          m.locationLink === locationLink &&
+          m.pickupVideoUrl === pickupVideoUrl &&
+          m.adminMessage === adminMessage
+        );
+        if (existingMsg) {
+          existingMsg.quantity += 1;
+        } else {
+          telegramMessagesToGroup.push({
+            telegramId: user.telegramId,
+            productId: item.productId,
+            productName: item.product.name,
+            locationLink,
+            pickupVideoUrl,
+            adminMessage,
           });
-        } catch (err) {
-          console.error("Failed to send telegram message for item", item.id, err);
         }
       }
 
@@ -102,6 +97,36 @@ export async function GET(req: Request) {
       });
 
       processedCount++;
+    } // End of readyItems loop
+
+    // Send grouped Telegram messages
+    for (const msg of telegramMessagesToGroup) {
+      let telegramMessage = `📦 *Automated Delivery for ${msg.quantity > 1 ? `${msg.quantity}x ` : ""}${escapeTelegramMarkdown(msg.productName)}*\\n\\n`;
+      telegramMessage += `📝 ${escapeTelegramMarkdown(msg.adminMessage)}\\n\\n`;
+      
+      if (msg.locationLink) {
+        telegramMessage += `🗺️ *Location:* [View on Map](${escapeTelegramMarkdown(msg.locationLink)})\\n`;
+      }
+      if (msg.pickupVideoUrl) {
+        telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(msg.pickupVideoUrl)})\\n`;
+      }
+
+      telegramMessage += `\\nStatus: *READY FOR PICKUP*`;
+
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: msg.telegramId,
+            text: telegramMessage,
+            parse_mode: "MarkdownV2",
+            disable_web_page_preview: false,
+          }),
+        });
+      } catch (err) {
+        console.error("Failed to send telegram message for grouped items", err);
+      }
     }
 
     // ============================================================
