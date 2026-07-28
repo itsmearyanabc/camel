@@ -26,21 +26,29 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    if (order.status !== "READY") {
-      return NextResponse.json({ error: "Only orders in READY state can be marked as COMPLETED" }, { status: 400 });
+    // Allow completion if order is PROCESSING, READY, or ON_PICKUP
+    if (!["PROCESSING", "READY", "ON_PICKUP"].includes(order.status)) {
+      return NextResponse.json({ error: "Order is not in a valid state to be completed" }, { status: 400 });
     }
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
-      // Update all items
+      // Update all items that are ON_PICKUP or READY
       await tx.orderItem.updateMany({
-        where: { orderId: orderId, status: "READY" },
+        where: { orderId: orderId, status: { in: ["READY", "ON_PICKUP"] } },
         data: { status: "COMPLETED" },
       });
 
-      // Update master order
-      return await tx.order.update({
+      // Update master order if all items are now COMPLETED
+      const allItems = await tx.orderItem.findMany({ where: { orderId: orderId } });
+      if (allItems.every(i => i.status === "COMPLETED")) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: "COMPLETED" },
+        });
+      }
+
+      return await tx.order.findUnique({
         where: { id: orderId },
-        data: { status: "COMPLETED" },
         include: {
           items: {
             include: { product: true }

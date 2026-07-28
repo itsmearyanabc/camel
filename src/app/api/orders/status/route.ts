@@ -61,7 +61,7 @@ export async function POST(req: Request) {
           await prisma.orderItem.update({
             where: { id: item.id },
             data: { 
-              status: "COMPLETED",
+              status: "ON_PICKUP",
               locationLink,
               pickupVideoUrl,
               adminMessage,

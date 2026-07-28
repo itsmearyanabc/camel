@@ -60,7 +60,7 @@ export async function GET(req: Request) {
       await prisma.orderItem.update({
         where: { id: item.id },
         data: {
-          status: "COMPLETED",
+          status: "ON_PICKUP",
           locationLink,
           pickupVideoUrl,
           adminMessage,
@@ -82,7 +82,7 @@ export async function GET(req: Request) {
           telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(pickupVideoUrl)})\\n`;
         }
 
-        telegramMessage += `\\nStatus: *COMPLETED*`;
+        telegramMessage += `\\nStatus: *READY FOR PICKUP*`;
 
         try {
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
