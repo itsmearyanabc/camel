@@ -101,17 +101,17 @@ export async function GET(req: Request) {
 
     // Send grouped Telegram messages
     for (const msg of telegramMessagesToGroup) {
-      let telegramMessage = `📦 *Automated Delivery for ${msg.quantity > 1 ? `${msg.quantity}x ` : ""}${escapeTelegramMarkdown(msg.productName)}*\\n\\n`;
-      telegramMessage += `📝 ${escapeTelegramMarkdown(msg.adminMessage)}\\n\\n`;
+      let telegramMessage = `📦 *Automated Delivery for ${msg.quantity > 1 ? `${msg.quantity}x ` : ""}${escapeTelegramMarkdown(msg.productName)}*\n\n`;
+      telegramMessage += `📝 ${escapeTelegramMarkdown(msg.adminMessage)}\n\n`;
       
       if (msg.locationLink) {
-        telegramMessage += `🗺️ *Location:* [View on Map](${escapeTelegramMarkdown(msg.locationLink)})\\n`;
+        telegramMessage += `🗺️ *Location:* [View on Map](${msg.locationLink})\n`;
       }
       if (msg.pickupVideoUrl) {
-        telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(msg.pickupVideoUrl)})\\n`;
+        telegramMessage += `🎥 *Video Guide:* [Watch Video](${msg.pickupVideoUrl})\n`;
       }
 
-      telegramMessage += `\\nStatus: *READY FOR PICKUP*`;
+      telegramMessage += `\nStatus: *READY FOR PICKUP*`;
 
       try {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
       // Send Telegram auto-complete notification
       const user = item.order.user;
       if (user.telegramId && botToken) {
-        const telegramMessage = `✅ *Order Auto\\-Completed*\\n\\nYour order for *${escapeTelegramMarkdown(item.product.name)}* has been automatically marked as completed after 2 days\\.\\n\\nIf you have any issues, please file a dispute from your dashboard\\.`;
+        const telegramMessage = `✅ *Order Auto\\-Completed*\n\nYour order for *${escapeTelegramMarkdown(item.product.name)}* has been automatically marked as completed after 2 days\\.\n\nIf you have any issues, please file a dispute from your dashboard\\.`;
 
         try {
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {

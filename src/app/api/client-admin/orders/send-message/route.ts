@@ -100,9 +100,9 @@ export async function POST(req: Request) {
             telegramMessage += `Admin sent an update:\n\n`;
           }
 
-          if (message) telegramMessage += `📝 ${String(message)}\n\n`;
-          if (locationLink) telegramMessage += `🗺️ *Location:* [View on Map](${escapeTelegramMarkdown(locationLink)})\n`;
-          if (pickupVideoUrl) telegramMessage += `🎥 *Video Guide:* [Watch Video](${escapeTelegramMarkdown(pickupVideoUrl)})\n`;
+          if (message) telegramMessage += `📝 ${escapeTelegramMarkdown(String(message))}\n\n`;
+          if (locationLink) telegramMessage += `🗺️ *Location:* [View on Map](${locationLink})\n`;
+          if (pickupVideoUrl) telegramMessage += `🎥 *Video Guide:* [Watch Video](${pickupVideoUrl})\n`;
           if (cancellationReason) telegramMessage += `\n*Reason:* ${escapeTelegramMarkdown(cancellationReason)}\n`;
 
           telegramMessage += `\nItem Status is now: *${escapeTelegramMarkdown(updatedOrderItem.status)}*`;
