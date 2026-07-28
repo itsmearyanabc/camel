@@ -13,6 +13,7 @@ export async function GET() {
       category: { select: { id: true, name: true, prefixCode: true } },
       cities: { select: { id: true, name: true } },
       areas: { select: { id: true, name: true } },
+      areaDetails: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -33,6 +34,7 @@ export async function GET() {
       categoryName: p.category.name,
       cities: p.cities,
       areas: p.areas,
+      areaDetails: p.areaDetails,
       createdAt: p.createdAt,
     })),
   });
@@ -93,7 +95,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -122,8 +124,8 @@ export async function PUT(req: NextRequest) {
   const updateData: any = {};
   if (name !== undefined) updateData.name = name.trim();
   if (description !== undefined) updateData.description = description?.trim() || null;
-  if (price !== undefined) updateData.price = parseFloat(price);
-  if (currency !== undefined) updateData.currency = currency;
+  if (price !== undefined && session.role !== "STAFF") updateData.price = parseFloat(price);
+  if (currency !== undefined && session.role !== "STAFF") updateData.currency = currency;
   if (formula !== undefined) updateData.formula = formula?.trim() || null;
   if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;

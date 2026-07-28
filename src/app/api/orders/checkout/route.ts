@@ -9,7 +9,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { cart, paymentMethod } = await req.json();
+    const { cart, paymentMethod, areaId } = await req.json();
     
     if (!cart || !Array.isArray(cart) || cart.length === 0) {
       return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
@@ -45,11 +45,22 @@ export async function POST(req: Request) {
         const itemCost = Number(product.price);
         totalAmountDue += itemCost * quantity;
 
+        const areaDetail = await tx.productAreaDetail.findUnique({
+          where: { productId_areaId: { productId: product.id, areaId } }
+        });
+        
+        let cooldownEndAt: Date = new Date(); // Default to now (immediate delivery)
+        if (areaDetail && areaDetail.cooldownMinutes > 0) {
+          cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + areaDetail.cooldownMinutes);
+        }
+
         for (let i = 0; i < quantity; i++) {
           orderItemsData.push({
             productId: product.id,
             priceAtPurchase: product.price,
-            status: "ORDERED",
+            status: "COOLDOWN_ACTIVE",
+            areaId: areaId,
+            cooldownEndAt,
           });
         }
         
@@ -92,13 +103,13 @@ export async function POST(req: Request) {
         data: {
           userId: session.userId,
           totalAmount: totalAmountDue,
-          status: "ORDERED",
+          status: "COOLDOWN_ACTIVE",
           orderSource: "WEBSITE",
           paymentMethod: paymentMethod || "WALLET",
           items: {
             create: orderItemsData.map(item => ({
               ...item,
-              status: "ORDERED"
+              status: "COOLDOWN_ACTIVE"
             })),
           },
         },

@@ -52,7 +52,7 @@ export default function ClientAdminPanel() {
   const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, categoryId: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [], areaIds: [] });
+  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[], areaIds: string[], areaDetails: any[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [], areaIds: [], areaDetails: [] });
   const [showLocationsModal, setShowLocationsModal] = useState<"new" | "edit" | null>(null);
   
   // Location UI states
@@ -314,7 +314,8 @@ export default function ClientAdminPanel() {
       imageUrl: p.imageUrl || "",
       stockQuantity: p.stockQuantity?.toString() || "0",
       cityIds: p.cities?.map((c: any) => c.id) || [],
-      areaIds: p.areas?.map((a: any) => a.id) || []
+      areaIds: p.areas?.map((a: any) => a.id) || [],
+      areaDetails: p.areaDetails || []
     });
   };
 
@@ -326,6 +327,12 @@ export default function ClientAdminPanel() {
         body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity) })
       });
       if (res.ok) {
+        if (editProductData.areaDetails && editProductData.areaDetails.length > 0) {
+          await fetch(`/api/admin/products/${editingProductId}/area-details`, {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ areaDetails: editProductData.areaDetails })
+          });
+        }
         setMsg({ type: "success", text: "Product updated!" });
         setEditingProductId(null);
         fetchAll();
@@ -501,7 +508,7 @@ export default function ClientAdminPanel() {
 
   const tabs = allTabs.filter(t => {
     if (user?.role === "STAFF") {
-      return ["active-orders", "all-orders", "disputes"].includes(t.key);
+      return ["active-orders", "all-orders", "disputes", "products"].includes(t.key);
     }
     return true;
   });
@@ -659,7 +666,8 @@ export default function ClientAdminPanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <h2 style={{ fontSize: "28px" }}>Product Management</h2>
               
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+              {user?.role !== "STAFF" && (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
                 <div className="card">
                   <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Category</h3>
                   <form onSubmit={handleAddCategory} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -686,8 +694,10 @@ export default function ClientAdminPanel() {
                   </ul>
                 </div>
               </div>
+              )}
               
               {/* Product Form */}
+              {user?.role !== "STAFF" && (
               <div className="card">
                 <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add New Product</h3>
                 <form onSubmit={handleAddProduct} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
@@ -743,6 +753,7 @@ export default function ClientAdminPanel() {
                   </div>
                 </form>
               </div>
+              )}
 
               {/* Products List */}
               <div className="card" style={{ padding: 0, overflowX: "auto" }}>
@@ -774,7 +785,9 @@ export default function ClientAdminPanel() {
                           <td>
                             <div style={{ display: "flex", gap: "8px" }}>
                               <button onClick={() => startEditingProduct(p)} className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }}>Edit</button>
-                              <button onClick={() => handleDeleteProduct(p.id)} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Del</button>
+                              {user?.role !== "STAFF" && (
+                                <button onClick={() => handleDeleteProduct(p.id)} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Del</button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -792,7 +805,7 @@ export default function ClientAdminPanel() {
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Unit Price (USD)</label>
                                     <div style={{ position: "relative" }}>
                                       <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "bold", color: "var(--text-secondary)" }}>$</span>
-                                      <input className="form-input" placeholder="0.00" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} style={{ paddingLeft: "32px", width: "100%" }} />
+                                      <input className="form-input" placeholder="0.00" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} disabled={user?.role === "STAFF"} style={{ paddingLeft: "32px", width: "100%", opacity: user?.role === "STAFF" ? 0.6 : 1 }} />
                                     </div>
                                   </div>
                                 </div>
@@ -805,6 +818,50 @@ export default function ClientAdminPanel() {
                                     <button type="button" onClick={() => setShowLocationsModal("edit")} className="btn btn-secondary btn-sm">Manage Locations</button>
                                   </div>
                                 </div>
+                                
+                                {editProductData.areaIds.length > 0 && (
+                                  <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Area Delivery Details (Auto-Delivery)</label>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)", maxHeight: "300px", overflowY: "auto" }}>
+                                      {editProductData.areaIds.map(areaId => {
+                                        // Find area name
+                                        let areaName = "Unknown Area";
+                                        for (const city of locations) {
+                                          const a = city.areas?.find((x: any) => x.id === areaId);
+                                          if (a) { areaName = a.name; break; }
+                                        }
+                                        
+                                        const detailIndex = editProductData.areaDetails.findIndex(d => d.areaId === areaId);
+                                        const detail = detailIndex >= 0 ? editProductData.areaDetails[detailIndex] : { areaId, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0 };
+                                        
+                                        const updateDetail = (key: string, value: any) => {
+                                          const newDetails = [...editProductData.areaDetails];
+                                          const dIdx = newDetails.findIndex(d => d.areaId === areaId);
+                                          if (dIdx >= 0) {
+                                            newDetails[dIdx] = { ...newDetails[dIdx], [key]: value };
+                                          } else {
+                                            newDetails.push({ areaId, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0, [key]: value });
+                                          }
+                                          setEditProductData({ ...editProductData, areaDetails: newDetails });
+                                        };
+
+                                        return (
+                                          <div key={areaId} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px", background: "var(--bg-primary)" }}>
+                                            <h4 style={{ marginBottom: "12px", fontSize: "14px", color: "var(--accent)" }}>{areaName}</h4>
+                                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
+                                              <input className="form-input" placeholder="Location/Maps URL" value={detail.locationUrl || ""} onChange={e => updateDetail("locationUrl", e.target.value)} />
+                                              <input className="form-input" placeholder="Video URL" value={detail.videoUrl || ""} onChange={e => updateDetail("videoUrl", e.target.value)} />
+                                            </div>
+                                            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: "12px" }}>
+                                              <input className="form-input" placeholder="Message / Instructions" value={detail.message || ""} onChange={e => updateDetail("message", e.target.value)} />
+                                              <input className="form-input" type="number" placeholder="Cooldown (mins)" title="Cooldown Minutes" value={detail.cooldownMinutes || 0} onChange={e => updateDetail("cooldownMinutes", e.target.value)} />
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
                                 <div style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
                                   <textarea className="form-input" placeholder="Description" rows={3} style={{ flex: 1 }} value={editProductData.description} onChange={e => setEditProductData({...editProductData, description: e.target.value})} />
                                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "200px" }}>
@@ -954,17 +1011,19 @@ export default function ClientAdminPanel() {
                                 <strong>Telegram:</strong> {order.user.telegramUsername ? `@${order.user.telegramUsername}` : "Not linked"} 
                                 {order.user.telegramId && <span style={{ color: "var(--green)", marginLeft: "8px", fontSize: "12px" }}>(Bot Connected)</span>}
                               </p>
-                              <p style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <strong>Password:</strong> 
-                                <span style={{ fontFamily: "monospace", color: "var(--text-secondary)" }}>
-                                  {visiblePasswords[order.user.id] ? (order.user.passwordPlain || "N/A") : "••••••••"}
-                                </span>
-                                {order.user.passwordPlain && (
-                                  <button onClick={(e) => { e.stopPropagation(); setVisiblePasswords(prev => ({ ...prev, [order.user.id]: !prev[order.user.id] })) }} className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }}>
-                                    {visiblePasswords[order.user.id] ? "Hide" : "Show"}
-                                  </button>
-                                )}
-                              </p>
+                              {user?.role !== "STAFF" && (
+                                <p style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  <strong>Password:</strong> 
+                                  <span style={{ fontFamily: "monospace", color: "var(--text-secondary)" }}>
+                                    {visiblePasswords[order.user.id] ? (order.user.passwordPlain || "N/A") : "••••••••"}
+                                  </span>
+                                  {order.user.passwordPlain && (
+                                    <button onClick={(e) => { e.stopPropagation(); setVisiblePasswords(prev => ({ ...prev, [order.user.id]: !prev[order.user.id] })) }} className="btn btn-ghost btn-sm" style={{ padding: "2px 6px" }}>
+                                      {visiblePasswords[order.user.id] ? "Hide" : "Show"}
+                                    </button>
+                                  )}
+                                </p>
+                              )}
                               <p style={{ marginBottom: "8px", marginTop: "12px" }}>
                                 <strong>Payment Method:</strong> {order.paymentMethod === "DIRECT_CRYPTO" ? `Crypto (${order.cryptoCurrency})` : "Wallet Balance"}
                               </p>
@@ -1167,7 +1226,7 @@ export default function ClientAdminPanel() {
                           {u.role === "STAFF" ? "NA" : u.telegramUsername ? `@${u.telegramUsername}` : "—"}
                         </td>
                         <td>
-                          {u.passwordPlain ? (
+                          {user?.role === "STAFF" ? "—" : u.passwordPlain ? (
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={e => e.stopPropagation()}>
                               <span style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-secondary)" }}>
                                 {visiblePasswords[u.id] ? u.passwordPlain : "••••••••"}

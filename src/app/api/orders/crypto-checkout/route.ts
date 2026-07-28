@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { cart, cryptoCurrency } = await req.json();
+    const { cart, cryptoCurrency, areaId } = await req.json();
     if (!cart || !Array.isArray(cart) || cart.length === 0 || !cryptoCurrency) {
       return NextResponse.json({ error: "Cart and crypto currency are required" }, { status: 400 });
     }
@@ -50,11 +50,22 @@ export async function POST(req: Request) {
       const itemCost = Number(product.price);
       totalAmountDue += itemCost * quantity;
 
+      const areaDetail = await prisma.productAreaDetail.findUnique({
+        where: { productId_areaId: { productId: product.id, areaId } }
+      });
+      
+      let cooldownEndAt: Date = new Date();
+      if (areaDetail && areaDetail.cooldownMinutes > 0) {
+        cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + areaDetail.cooldownMinutes);
+      }
+
       for (let j = 0; j < quantity; j++) {
         orderItemsData.push({
           productId: product.id,
           priceAtPurchase: product.price,
           status: "PENDING_PAYMENT",
+          areaId,
+          cooldownEndAt,
         });
       }
     }

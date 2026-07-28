@@ -39,9 +39,34 @@ export async function POST(req: Request) {
       if (item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt) {
         const now = new Date();
         if (now >= item.cooldownEndAt) {
+          
+          let locationLink = null;
+          let pickupVideoUrl = null;
+          let adminMessage = "Your product is ready for pickup!";
+
+          if (item.areaId) {
+            const areaDetail = await prisma.productAreaDetail.findUnique({
+              where: {
+                productId_areaId: { productId: item.productId, areaId: item.areaId }
+              }
+            });
+            
+            if (areaDetail) {
+              locationLink = areaDetail.locationUrl || null;
+              pickupVideoUrl = areaDetail.videoUrl || null;
+              if (areaDetail.message) adminMessage = areaDetail.message;
+            }
+          }
+
           await prisma.orderItem.update({
             where: { id: item.id },
-            data: { status: "READY" },
+            data: { 
+              status: "COMPLETED",
+              locationLink,
+              pickupVideoUrl,
+              adminMessage,
+              adminMessageSentAt: new Date()
+            },
           });
           itemsUpdated = true;
         }
@@ -57,11 +82,11 @@ export async function POST(req: Request) {
           }
         },
       });
-      // If all items are READY or COMPLETED, update master order status
-      if (order && order.items.every(i => i.status === "READY" || i.status === "COMPLETED")) {
+      // If all items are COMPLETED, update master order status
+      if (order && order.items.every(i => i.status === "COMPLETED")) {
         order = await prisma.order.update({
           where: { id: orderId },
-          data: { status: "READY" },
+          data: { status: "COMPLETED" },
           include: {
             items: {
               include: { product: true }

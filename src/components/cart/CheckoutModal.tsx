@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useCart } from "./CartContext";
 import { formatPrice } from "@/lib/currencies";
 
@@ -18,6 +18,15 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cryptoPending, setCryptoPending] = useState<any>(null);
+  const [locations, setLocations] = useState<any[]>([]);
+  const [selectedCityId, setSelectedCityId] = useState<string>("");
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("");
+
+  useEffect(() => {
+    fetch("/api/locations").then(r => r.json()).then(d => {
+      if (d.cities) setLocations(d.cities);
+    }).catch(() => {});
+  }, []);
 
   const cryptoOptions = [
     { code: "BTC", name: "Bitcoin" },
@@ -31,13 +40,17 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
   const handleCheckout = async () => {
     setError(null);
+    if (!selectedAreaId) {
+      setError("Please select a delivery area.");
+      return;
+    }
     setIsProcessing(true);
 
     try {
       const endpoint = paymentMethod === "WALLET" ? "/api/orders/checkout" : "/api/orders/crypto-checkout";
       const payload = paymentMethod === "WALLET"
-        ? { cart, paymentMethod: "WALLET" }
-        : { cart, cryptoCurrency };
+        ? { cart, paymentMethod: "WALLET", areaId: selectedAreaId }
+        : { cart, cryptoCurrency, areaId: selectedAreaId };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -139,6 +152,22 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                   </span>
                 </div>
 
+                <div style={{ marginBottom: "24px", background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+                  <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Delivery Area</h3>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <select className="form-input" value={selectedCityId} onChange={(e) => { setSelectedCityId(e.target.value); setSelectedAreaId(""); }} style={{ flex: 1 }}>
+                      <option value="">Select City...</option>
+                      {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <select className="form-input" value={selectedAreaId} onChange={(e) => setSelectedAreaId(e.target.value)} disabled={!selectedCityId} style={{ flex: 1 }}>
+                      <option value="">Select Area...</option>
+                      {locations.find(c => c.id === selectedCityId)?.areas?.map((a: any) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div style={{ marginBottom: "24px" }}>
                   <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Payment Method</h3>
                   <div style={{ display: "flex", gap: "12px" }}>
@@ -184,9 +213,9 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
                 <button
                   className="btn btn-primary"
-                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal) ? 0.5 : 1 }}
+                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal) ? 0.5 : 1 }}
                   onClick={handleCheckout}
-                  disabled={isProcessing || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal)}
+                  disabled={isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal)}
                 >
                   {isProcessing ? "Processing..." : `Pay ${formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}`}
                 </button>

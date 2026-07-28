@@ -16,7 +16,7 @@ export async function GET() {
             username: true, 
             telegramUsername: true,
             telegramId: true,
-            passwordPlain: true,
+            passwordPlain: session.role !== "STAFF",
           } 
         },
         items: {

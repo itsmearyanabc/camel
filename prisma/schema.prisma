@@ -72,7 +72,9 @@ model Area {
   name      String
   cityId    String
   city      City      @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  products  Product[]
+  products        Product[]
+  areaDetails     ProductAreaDetail[]
+  orderItems      OrderItem[]
 }
 
 model Product {
@@ -90,12 +92,29 @@ model Product {
   stockQuantity Int             @default(0)
   cities        City[]
   areas         Area[]
+  areaDetails   ProductAreaDetail[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   orderItems    OrderItem[]
   reviews       Review[]
 
   @@index([categoryId])
+}
+
+model ProductAreaDetail {
+  id              String   @id @default(uuid())
+  productId       String
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  areaId          String
+  area            Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  locationUrl     String?
+  videoUrl        String?
+  message         String?
+  cooldownMinutes Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([productId, areaId])
 }
 
 model Order {
@@ -138,10 +157,14 @@ model OrderItem {
   adminMessageFileUrl  String? // Used for Photo
   adminMessageFileType String?
   adminMessageSentAt DateTime?
+  automatedMessageSent Boolean @default(false)
   
   locationLink    String?
   pickupVideoUrl  String?
   cancellationReason String?
+
+  areaId          String?
+  area            Area?          @relation(fields: [areaId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([productId])

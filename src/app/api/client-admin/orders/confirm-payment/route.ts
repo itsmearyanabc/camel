@@ -34,14 +34,25 @@ export async function POST(req: Request) {
       let anyOutOfStock = false;
       const updatedProductIds: string[] = [];
 
-      const cooldownSeconds = 30;
-      const cooldownEndAt = new Date(Date.now() + cooldownSeconds * 1000);
-
       for (const orderItem of order.items) {
         // 1. Fetch product
         const product = await tx.product.findUnique({
           where: { id: orderItem.productId }
         });
+
+        // Fetch area details to get cooldownMinutes
+        let actualCooldownMinutes = 0;
+        if (orderItem.areaId) {
+          const areaDetail = await tx.productAreaDetail.findUnique({
+            where: { productId_areaId: { productId: orderItem.productId, areaId: orderItem.areaId } }
+          });
+          if (areaDetail && areaDetail.cooldownMinutes > 0) {
+            actualCooldownMinutes = areaDetail.cooldownMinutes;
+          }
+        }
+
+        // We only decrement stock if it was not already deducted during crypto-checkout.
+        // Wait, crypto-checkout already deducts stock? No, crypto-checkout did NOT deduct stock in the previous agent's code. Let's assume confirm-payment handles it.
 
         if (!product || product.stockQuantity < 1) {
           anyOutOfStock = true;
@@ -60,11 +71,14 @@ export async function POST(req: Request) {
           });
 
           // 3. Update order item to COOLDOWN_ACTIVE
+          const cd = new Date();
+          cd.setMinutes(cd.getMinutes() + actualCooldownMinutes);
+
           await tx.orderItem.update({
             where: { id: orderItem.id },
             data: {
               status: "COOLDOWN_ACTIVE",
-              cooldownEndAt,
+              cooldownEndAt: cd,
             },
           });
         }
