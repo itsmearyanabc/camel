@@ -21,7 +21,6 @@ export async function GET() {
   return NextResponse.json({
     products: products.map((p: any) => ({
       id: p.id,
-      code: p.code,
       name: p.name,
       description: p.description,
       price: p.price,
@@ -30,8 +29,9 @@ export async function GET() {
       casNumber: p.casNumber,
       imageUrl: p.imageUrl,
       stockQuantity: p.stockQuantity,
-      categoryId: p.category.id,
-      categoryName: p.category.name,
+      productType: p.productType || null,
+      categoryId: p.category?.id || null,
+      categoryName: p.category?.name || null,
       cities: p.cities,
       areas: p.areas,
       areaDetails: p.areaDetails,
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { name, description, price, formula, casNumber, imageUrl, categoryId, currency, stockQuantity, cityIds, areaIds } = await req.json();
+  const { name, description, price, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds } = await req.json();
 
   if (!name || name.trim().length < 2) {
     return NextResponse.json({ error: "Product name must be at least 2 characters" }, { status: 400 });
@@ -54,36 +54,22 @@ export async function POST(req: NextRequest) {
   if (!price || price <= 0) {
     return NextResponse.json({ error: "Price must be a positive number" }, { status: 400 });
   }
-  if (!categoryId) {
-    return NextResponse.json({ error: "Category is required" }, { status: 400 });
-  }
 
   const existing = await prisma.product.findUnique({ where: { name: name.trim() } });
   if (existing) {
     return NextResponse.json({ error: "Product with this name already exists" }, { status: 400 });
   }
 
-  const category = await prisma.category.findUnique({ where: { id: categoryId }, include: { products: true } });
-  if (!category) {
-    return NextResponse.json({ error: "Category not found" }, { status: 404 });
-  }
-
-  let code = null;
-  if (category.prefixCode) {
-    code = `${category.prefixCode}${category.products.length + 1}`;
-  }
-
   const product = await prisma.product.create({
     data: {
       name: name.trim(),
-      code,
       description: description?.trim() || null,
       price: parseFloat(price),
       currency: currency || "USD",
       formula: formula?.trim() || null,
       casNumber: casNumber?.trim() || null,
       imageUrl: imageUrl?.trim() || null,
-      categoryId,
+      productType: productType?.trim() || null,
       stockQuantity: parseInt(stockQuantity || "0", 10),
       cities: cityIds && cityIds.length > 0 ? { connect: cityIds.map((id: string) => ({ id })) } : undefined,
       areas: areaIds && areaIds.length > 0 ? { connect: areaIds.map((id: string) => ({ id })) } : undefined,
@@ -99,7 +85,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds } = await req.json();
+  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType } = await req.json();
 
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
@@ -130,6 +116,7 @@ export async function PUT(req: NextRequest) {
   if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
   if (stockQuantity !== undefined) updateData.stockQuantity = parseInt(stockQuantity, 10);
+  if (productType !== undefined) updateData.productType = productType?.trim() || null;
   
   if (cityIds !== undefined) {
     updateData.cities = { set: cityIds.map((id: string) => ({ id })) };

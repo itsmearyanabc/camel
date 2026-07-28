@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 export async function POST(req: Request) {
   try {
     const session = await getSession();
-    if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Order Item ID and status are required" }, { status: 400 });
     }
 
-    const validStatuses = ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"];
+    const validStatuses = ["ORDERED", "PROCESSING", "COOLDOWN_ACTIVE", "PAID", "PENDING_PAYMENT", "ON_PICKUP", "COMPLETED", "CANCELLED"];
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: "Invalid status provided" }, { status: 400 });
     }

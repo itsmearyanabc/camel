@@ -69,14 +69,13 @@ export async function GET(req: NextRequest) {
       const products = await prisma.product.findMany({
         include: { category: true, cities: true, areas: true }
       });
-      csvRows.push(["Product ID", "Code", "Name", "Category", "Stock Quantity", "Price", "Currency", "Cities", "Areas", "Created At"].join(","));
+      csvRows.push(["Product ID", "Type/Category", "Name", "Stock Quantity", "Price", "Currency", "Cities", "Areas", "Created At"].join(","));
       
       for (const p of products) {
         csvRows.push([
           p.id,
-          p.code || "",
+          `"${p.productType || p.category?.name || ""}"`,
           `"${p.name}"`,
-          `"${p.category.name}"`,
           p.stockQuantity.toString(),
           p.price.toString(),
           p.currency,

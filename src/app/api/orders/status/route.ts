@@ -65,7 +65,8 @@ export async function POST(req: Request) {
               locationLink,
               pickupVideoUrl,
               adminMessage,
-              adminMessageSentAt: new Date()
+              adminMessageSentAt: new Date(),
+              onPickupAt: new Date(),
             },
           });
           itemsUpdated = true;
@@ -74,6 +75,12 @@ export async function POST(req: Request) {
     }
 
     if (itemsUpdated) {
+      // Update master order to PROCESSING
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: "PROCESSING" },
+      });
+
       order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {

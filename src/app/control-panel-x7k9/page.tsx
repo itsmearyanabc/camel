@@ -49,10 +49,10 @@ export default function ClientAdminPanel() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
-  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, categoryId: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
+  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, productType: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, cityIds: string[], areaIds: string[], areaDetails: any[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", cityIds: [], areaIds: [], areaDetails: [] });
+  const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, productType: string, cityIds: string[], areaIds: string[], areaDetails: any[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", productType: "", cityIds: [], areaIds: [], areaDetails: [] });
   const [showLocationsModal, setShowLocationsModal] = useState<"new" | "edit" | null>(null);
   
   // Location UI states
@@ -294,7 +294,7 @@ export default function ClientAdminPanel() {
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Product added!" });
-        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", categoryId: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
+        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -313,6 +313,7 @@ export default function ClientAdminPanel() {
       casNumber: p.casNumber || "",
       imageUrl: p.imageUrl || "",
       stockQuantity: p.stockQuantity?.toString() || "0",
+      productType: p.productType || "",
       cityIds: p.cities?.map((c: any) => c.id) || [],
       areaIds: p.areas?.map((a: any) => a.id) || [],
       areaDetails: p.areaDetails || []
@@ -324,7 +325,7 @@ export default function ClientAdminPanel() {
     try {
       const res = await fetch("/api/admin/products", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity) })
+        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity), productType: editProductData.productType })
       });
       if (res.ok) {
         if (editProductData.areaDetails && editProductData.areaDetails.length > 0) {
@@ -508,7 +509,7 @@ export default function ClientAdminPanel() {
 
   const tabs = allTabs.filter(t => {
     if (user?.role === "STAFF") {
-      return ["active-orders", "all-orders", "disputes", "products"].includes(t.key);
+      return ["active-orders", "all-orders", "disputes", "products", "locations"].includes(t.key);
     }
     return true;
   });
@@ -661,40 +662,9 @@ export default function ClientAdminPanel() {
             </div>
           )}
 
-          {/* PRODUCTS TAB */}
-          {activeTab === "products" && (
+             {activeTab === "products" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <h2 style={{ fontSize: "28px" }}>Product Management</h2>
-              
-              {user?.role !== "STAFF" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
-                <div className="card">
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Category</h3>
-                  <form onSubmit={handleAddCategory} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Category Name" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Description (Optional)" value={newCategoryDesc} onChange={e => setNewCategoryDesc(e.target.value)} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Prefix Code (e.g. A, B)" value={newCategoryPrefix} onChange={e => setNewCategoryPrefix(e.target.value)} required />
-                    </div>
-                    <button type="submit" className="btn btn-primary btn-sm">Add Category</button>
-                  </form>
-                  
-                  <h4 style={{ marginTop: "24px", marginBottom: "12px" }}>Existing Categories</h4>
-                  <ul style={{ listStyle: "none", padding: 0 }}>
-                    {categories.map(c => (
-                      <li key={c.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span><strong>{c.prefixCode || "?"}</strong> - {c.name} ({c.productCount})</span>
-                        <button onClick={() => handleDeleteCategory(c.id)} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Del</button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-              )}
               
               {/* Product Form */}
               {user?.role !== "STAFF" && (
@@ -712,10 +682,7 @@ export default function ClientAdminPanel() {
                     </div>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <select className="form-input" value={newProduct.categoryId} onChange={e => setNewProduct({...newProduct, categoryId: e.target.value})} required>
-                      <option value="">Select Category...</option>
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                    <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={newProduct.productType} onChange={e => setNewProduct({...newProduct, productType: e.target.value})} required />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <input className="form-input" placeholder="Formula (Optional)" value={newProduct.formula} onChange={e => setNewProduct({...newProduct, formula: e.target.value})} />
@@ -761,7 +728,7 @@ export default function ClientAdminPanel() {
                   <thead>
                     <tr>
                       <th>Product</th>
-                      <th>Category</th>
+                      <th>Type</th>
                       <th>Price</th>
                       <th>Stock</th>
                       <th>Available / Total</th>
@@ -778,7 +745,7 @@ export default function ClientAdminPanel() {
                               <strong>{p.name}</strong>
                             </div>
                           </td>
-                          <td>{p.categoryName}</td>
+                          <td>{p.productType || p.categoryName || "—"}</td>
                           <td style={{ fontWeight: "600", color: "var(--green)" }}>{p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "$"}{Number(p.price).toFixed(2)}</td>
                           <td><span className={`badge badge-${p.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>{p.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"}</span></td>
                           <td>{p.stockQuantity}</td>
@@ -796,6 +763,7 @@ export default function ClientAdminPanel() {
                             <td colSpan={6} style={{ padding: "16px" }}>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
+                                <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={editProductData.productType} onChange={e => setEditProductData({...editProductData, productType: e.target.value})} />
                                 <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
                                   <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty</label>
@@ -854,7 +822,10 @@ export default function ClientAdminPanel() {
                                             </div>
                                             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: "12px" }}>
                                               <input className="form-input" placeholder="Message / Instructions" value={detail.message || ""} onChange={e => updateDetail("message", e.target.value)} />
-                                              <input className="form-input" type="number" placeholder="Cooldown (mins)" title="Cooldown Minutes" value={detail.cooldownMinutes || 0} onChange={e => updateDetail("cooldownMinutes", e.target.value)} />
+                                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <input className="form-input" type="number" placeholder="0" title="Cooldown Minutes" style={{ width: "80px" }} value={detail.cooldownMinutes || 0} onChange={e => updateDetail("cooldownMinutes", e.target.value)} />
+                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap", fontWeight: "600" }}>min</span>
+                              </div>
                                             </div>
                                           </div>
                                         );
