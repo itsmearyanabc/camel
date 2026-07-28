@@ -21,6 +21,11 @@ const nextConfig: NextConfig = {
 
   // Disable powered-by header
   poweredByHeader: false,
+  
+  // Enable instrumentation to run Telegram bots and background tasks
+  experimental: {
+    instrumentationHook: true,
+  },
 };
 
 export default nextConfig;

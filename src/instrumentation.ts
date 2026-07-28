@@ -89,12 +89,27 @@ export async function register() {
 
     console.log("=========================================");
 
+    // Background Cron: trigger the cooldowns every minute
+    const cronInterval = setInterval(() => {
+      if (isShuttingDown) return;
+      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+      fetch(`${baseUrl}/api/cron/process-cooldowns`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.processedCount > 0 || data.autoCompletedCount > 0) {
+            console.log(`[Cron] Processed ${data.processedCount} cooldowns, ${data.autoCompletedCount} auto-completions.`);
+          }
+        })
+        .catch(err => console.error("[Cron] Failed to process cooldowns:", err));
+    }, 60 * 1000);
+
     if (!global.__telegram_bots_shutdown_registered) {
       global.__telegram_bots_shutdown_registered = true;
       const gracefulShutdown = async (signal: string) => {
         if (isShuttingDown) return;
         isShuttingDown = true;
         console.log(`🛑 [Bots] ${signal} received. Stopping bots gracefully...`);
+        clearInterval(cronInterval);
         for (const bot of activeBots) {
           try {
             await bot.stop();
