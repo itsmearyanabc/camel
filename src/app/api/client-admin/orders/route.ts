@@ -22,6 +22,7 @@ export async function GET() {
         items: {
           include: { 
             product: { select: { name: true, price: true } },
+            area: { select: { name: true } },
           }
         },
       },

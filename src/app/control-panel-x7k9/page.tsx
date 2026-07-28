@@ -44,6 +44,12 @@ export default function ClientAdminPanel() {
   const [cryptoAddress, setCryptoAddress] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [activeOrderFilter, setActiveOrderFilter] = useState("ALL");
+  const [timeNow, setTimeNow] = useState(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => setTimeNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Product management UI states
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -1020,10 +1026,16 @@ export default function ClientAdminPanel() {
                             <div style={{ flex: 1 }}>
                               <h4 style={{ marginBottom: "12px", color: "var(--text-secondary)", fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Deliver Items</h4>
                               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                                {order.items.map((item: any) => (
+                                {order.items.map((item: any) => {
+                                  const secondsLeft = item.cooldownEndAt ? Math.max(0, Math.ceil((new Date(item.cooldownEndAt).getTime() - timeNow) / 1000)) : 0;
+                                  const isAutomated = ["COOLDOWN_ACTIVE", "ON_PICKUP", "COMPLETED"].includes(item.status);
+                                  return (
                                   <div key={item.id} style={{ background: "var(--bg-secondary)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
-                                      <strong>{item.product.name}</strong>
+                                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                        <strong>{item.product.name}</strong>
+                                        {item.area?.name && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Area: {item.area.name}</span>}
+                                      </div>
                                       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                                         <select 
                                           className="form-input" 
@@ -1036,9 +1048,11 @@ export default function ClientAdminPanel() {
                                           <option value="PROCESSING">Processing</option>
                                           <option value="COOLDOWN_ACTIVE">Cooldown</option>
                                           <option value="READY">Reached / Ready</option>
+                                          <option value="ON_PICKUP">On Pickup</option>
                                           <option value="COMPLETED">Completed</option>
                                           <option value="REFUNDED">Refunded</option>
                                           <option value="FAILED">Failed</option>
+                                          <option value="CANCELLED">Cancelled</option>
                                         </select>
                                       </div>
                                     </div>
@@ -1054,59 +1068,63 @@ export default function ClientAdminPanel() {
                                       />
                                     )}
 
-                                    {item.status === "ON_PICKUP" && (
-                                      <div style={{ display: "flex", gap: "12px", marginBottom: "12px" }}>
-                                        <input 
-                                          className="form-input" 
-                                          type="url" 
-                                          placeholder="Google Maps / Location Link"
-                                          value={locationLinks[item.id] !== undefined ? locationLinks[item.id] : (item.locationLink || "")}
-                                          onChange={(e) => setLocationLinks(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                          style={{ flex: 1 }}
-                                        />
-                                        <input 
-                                          className="form-input" 
-                                          type="url" 
-                                          placeholder="Video URL (Optional)"
-                                          value={pickupVideos[item.id] !== undefined ? pickupVideos[item.id] : (item.pickupVideoUrl || "")}
-                                          onChange={(e) => setPickupVideos(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                          style={{ flex: 1 }}
-                                        />
+                                    {item.status === "COOLDOWN_ACTIVE" && (
+                                      <div style={{ padding: "12px", background: "var(--bg-primary)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", marginBottom: "12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Automated Cooldown Timer:</span>
+                                        <span style={{ fontSize: "16px", fontWeight: "bold", color: "var(--accent)", fontFamily: "monospace" }}>
+                                          {Math.floor(secondsLeft / 60).toString().padStart(2, '0')}:{(secondsLeft % 60).toString().padStart(2, '0')}
+                                        </span>
                                       </div>
                                     )}
 
-                                    <textarea 
-                                      className="form-input" 
-                                      rows={3} 
-                                      placeholder="Extra instructions, message to customer..."
-                                      value={adminMessages[item.id] !== undefined ? adminMessages[item.id] : (item.adminMessage || "")}
-                                      onChange={(e) => setAdminMessages(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                      style={{ marginBottom: "12px" }}
-                                    />
-                                    
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                        <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0 }}>
-                                          📎 Photo
-                                          <input 
-                                            type="file" 
-                                            accept="image/*"
-                                            onChange={(e) => handleFileChange(item.id, e)} 
-                                            style={{ display: "none" }} 
-                                          />
-                                        </label>
-                                        {(adminFiles[item.id] || item.adminMessageFileUrl) && (
-                                          <span style={{ fontSize: "12px", color: "var(--green)", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            ✓ {adminFiles[item.id] ? adminFiles[item.id].name : "Photo Uploaded"}
-                                          </span>
-                                        )}
+                                    {item.status === "ON_PICKUP" && (
+                                      <div style={{ padding: "12px", background: "rgba(0,255,0,0.05)", borderRadius: "var(--radius-sm)", border: "1px solid var(--green)", marginBottom: "12px" }}>
+                                        <p style={{ fontSize: "13px", color: "var(--green)", fontWeight: "500", margin: 0 }}>✓ Automated: Pick up location sent on user's dashboard and Telegram.</p>
                                       </div>
-                                      <button onClick={() => handleSendMessage(item.id, item.adminMessage || undefined)} className="btn btn-primary btn-sm">
-                                        Save & Notify
-                                      </button>
-                                    </div>
+                                    )}
+
+                                    {item.status === "COMPLETED" && (
+                                      <div style={{ padding: "12px", background: "rgba(0,255,0,0.05)", borderRadius: "var(--radius-sm)", border: "1px solid var(--green)", marginBottom: "12px" }}>
+                                        <p style={{ fontSize: "13px", color: "var(--green)", fontWeight: "500", margin: 0 }}>✓ Automated: Order finalized.</p>
+                                      </div>
+                                    )}
+
+                                    {!isAutomated && (
+                                      <>
+                                        <textarea 
+                                          className="form-input" 
+                                          rows={3} 
+                                          placeholder="Extra instructions, message to customer..."
+                                          value={adminMessages[item.id] !== undefined ? adminMessages[item.id] : (item.adminMessage || "")}
+                                          onChange={(e) => setAdminMessages(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                          style={{ marginBottom: "12px" }}
+                                        />
+                                        
+                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                            <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0 }}>
+                                              📎 Photo
+                                              <input 
+                                                type="file" 
+                                                accept="image/*"
+                                                onChange={(e) => handleFileChange(item.id, e)} 
+                                                style={{ display: "none" }} 
+                                              />
+                                            </label>
+                                            {(adminFiles[item.id] || item.adminMessageFileUrl) && (
+                                              <span style={{ fontSize: "12px", color: "var(--green)", maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                ✓ {adminFiles[item.id] ? adminFiles[item.id].name : "Photo Uploaded"}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <button onClick={() => handleSendMessage(item.id, item.adminMessage || undefined)} className="btn btn-primary btn-sm">
+                                            Save & Notify
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
                                   </div>
-                                ))}
+                                )})}
                               </div>
                             </div>
                           </div>
