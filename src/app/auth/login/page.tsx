@@ -33,7 +33,7 @@ export default function Login() {
       const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password, captchaAnswer, captchaToken }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Login failed"); setLoading(false); loadCaptcha(); return; }
-      router.push(data.user?.role === "ADMIN" || data.user?.role === "SUPERADMIN" ? "/control-panel-x7k9" : "/dashboard");
+      router.push(["ADMIN", "SUPERADMIN", "STAFF"].includes(data.user?.role) ? "/control-panel-x7k9" : "/dashboard");
       router.refresh();
     } catch { setError("An unexpected error occurred. Please try again."); setLoading(false); loadCaptcha(); }
   };

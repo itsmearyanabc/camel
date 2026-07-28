@@ -146,7 +146,7 @@ export default function Dashboard() {
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (!data.user) { router.push("/auth/login"); return; }
-      if (data.user.role === "ADMIN" || data.user.role === "SUPERADMIN") {
+      if (["ADMIN", "SUPERADMIN", "STAFF"].includes(data.user.role)) {
         router.push("/control-panel-x7k9");
         return;
       }
