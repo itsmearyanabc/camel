@@ -622,9 +622,11 @@ export default function ClientAdminPanel() {
             </div>
           )}
 
-          <div style={{ display: activeTab === "dashboard" ? "block" : "none" }}>
-            <DashboardAnalytics onNavigate={(tab) => { setActiveTab(tab as Tab); setIsSidebarOpen(false); }} />
-          </div>
+          {activeTab === "dashboard" && (
+            <div>
+              <DashboardAnalytics onNavigate={(tab) => { setActiveTab(tab as Tab); setIsSidebarOpen(false); }} />
+            </div>
+          )}
 
           {/* PRODUCTS TAB */}
           {activeTab === "products" && (
