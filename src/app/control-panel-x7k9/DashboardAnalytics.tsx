@@ -241,9 +241,24 @@ export default function DashboardAnalytics({ onNavigate }: { onNavigate: (tab: s
               </div>
             ) : null}
             {alerts.map((a: any, i: number) => (
-              <div key={i} style={{ padding: "16px", borderRadius: "8px", background: a.type === 'danger' ? 'rgba(239,68,68,0.1)' : a.type === 'warning' ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', border: `1px solid ${a.type === 'danger' ? 'var(--red)' : a.type === 'warning' ? 'var(--yellow)' : 'var(--blue)'}`, display: "flex", gap: "12px", alignItems: "flex-start" }}>
+              <div 
+                key={i} 
+                onClick={a.link ? () => onNavigate(a.link) : undefined}
+                style={{ 
+                  padding: "16px", 
+                  borderRadius: "8px", 
+                  background: a.type === 'danger' ? 'rgba(239,68,68,0.1)' : a.type === 'warning' ? 'rgba(234,179,8,0.1)' : 'rgba(59,130,246,0.1)', 
+                  border: `1px solid ${a.type === 'danger' ? 'var(--red)' : a.type === 'warning' ? 'var(--yellow)' : 'var(--blue)'}`, 
+                  display: "flex", gap: "12px", alignItems: "flex-start",
+                  cursor: a.link ? "pointer" : "default"
+                }}
+                title={a.link ? "Click to view" : ""}
+              >
                 <span style={{ fontSize: "18px" }}>{a.type === 'danger' ? '🔴' : a.type === 'warning' ? '🟠' : '🔵'}</span>
-                <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)", lineHeight: "1.4" }}>{a.message}</span>
+                <span style={{ fontSize: "14px", fontWeight: "500", color: "var(--text-primary)", lineHeight: "1.4" }}>
+                  {a.message}
+                  {a.link && <span style={{ display: "inline-block", marginLeft: "8px", color: "var(--accent)", fontSize: "12px", fontWeight: "bold" }}>Manage &rarr;</span>}
+                </span>
               </div>
             ))}
           </div>

@@ -189,7 +189,13 @@ export async function GET(req: Request) {
     // 8. ALERTS
     const alerts = [];
     if (productsNeedingRestock > 0) {
-      alerts.push({ type: "warning", message: `${productsNeedingRestock} product(s) need restocking soon.` });
+      const restockNames = products.filter(p => p.stockQuantity < 10).map(p => p.name);
+      const displayNames = restockNames.slice(0, 3).join(', ') + (restockNames.length > 3 ? ` and ${restockNames.length - 3} more` : '');
+      alerts.push({ 
+        type: "warning", 
+        message: `${productsNeedingRestock} product(s) need restocking soon: ${displayNames}.`,
+        link: "products"
+      });
     }
     if (pendingCryptoPayments > 0) {
       alerts.push({ type: "info", message: `${pendingCryptoPayments} pending crypto payment(s) awaiting blockchain confirmation.` });

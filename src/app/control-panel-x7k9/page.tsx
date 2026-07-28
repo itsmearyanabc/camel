@@ -600,14 +600,8 @@ export default function ClientAdminPanel() {
                     <input className="form-input" placeholder="Product Name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0, display: "flex", gap: "8px" }}>
-                    <select aria-label="Product currency" className="form-input" style={{ width: "104px" }} value={newProduct.currency} onChange={e => setNewProduct({...newProduct, currency: e.target.value})}>
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="GBP">GBP</option>
-                      <option value="AUD">AUD</option>
-                      <option value="CAD">CAD</option>
-                    </select>
-                    <input className="form-input" placeholder={`Price (${newProduct.currency})`} type="number" min="0.01" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required />
+                    <div className="form-input" style={{ width: "64px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: "bold" }}>USD</div>
+                    <input className="form-input" placeholder="Price (USD)" type="number" min="0.01" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required style={{ flex: 1 }} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <select className="form-input" value={newProduct.categoryId} onChange={e => setNewProduct({...newProduct, categoryId: e.target.value})} required>
@@ -638,9 +632,9 @@ export default function ClientAdminPanel() {
                   </div>
                   <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
                     <label style={{ display: "block", marginBottom: "8px", fontWeight: "600" }}>Available in Cities:</label>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                    <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid var(--border)", padding: "12px", borderRadius: "var(--radius-sm)", display: "flex", flexWrap: "wrap", gap: "12px", background: "var(--bg-primary)" }}>
                       {locations.map(city => (
-                        <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+                        <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", width: "calc(33% - 12px)", minWidth: "120px" }}>
                           <input type="checkbox" checked={newProduct.cityIds.includes(city.id)} onChange={e => {
                             if (e.target.checked) setNewProduct({...newProduct, cityIds: [...newProduct.cityIds, city.id]});
                             else setNewProduct({...newProduct, cityIds: newProduct.cityIds.filter(id => id !== city.id)});
@@ -697,20 +691,14 @@ export default function ClientAdminPanel() {
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
                                 <div style={{ display: "flex", gap: "8px" }}>
                                   <input className="form-input" style={{ width: "100px" }} type="number" min="0" placeholder="Qty" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} title="Stock Quantity" />
-                                  <select className="form-input" style={{ width: "80px" }} value={editProductData.currency} onChange={e => setEditProductData({...editProductData, currency: e.target.value})}>
-                                    <option value="USD">USD</option>
-                                    <option value="EUR">EUR</option>
-                                    <option value="GBP">GBP</option>
-                                    <option value="AUD">AUD</option>
-                                    <option value="CAD">CAD</option>
-                                  </select>
-                                  <input className="form-input" placeholder="Price" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} />
+                                  <div className="form-input" style={{ width: "64px", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)", color: "var(--text-secondary)", fontWeight: "bold" }}>USD</div>
+                                  <input className="form-input" placeholder="Price (USD)" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} />
                                 </div>
                                 <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
                                   <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "12px" }}>Available in Cities:</label>
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+                                  <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid var(--border)", padding: "12px", borderRadius: "var(--radius-sm)", display: "flex", flexWrap: "wrap", gap: "12px", background: "var(--bg-primary)" }}>
                                     {locations.map(city => (
-                                      <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px" }}>
+                                      <label key={city.id} style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "13px", width: "calc(33% - 12px)", minWidth: "120px" }}>
                                         <input type="checkbox" checked={editProductData.cityIds.includes(city.id)} onChange={e => {
                                           if (e.target.checked) setEditProductData({...editProductData, cityIds: [...editProductData.cityIds, city.id]});
                                           else setEditProductData({...editProductData, cityIds: editProductData.cityIds.filter(id => id !== city.id)});
