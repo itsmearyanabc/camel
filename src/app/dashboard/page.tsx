@@ -201,8 +201,10 @@ export default function Dashboard() {
   }, [orders]);
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/"); router.refresh();
+    if (window.confirm("Are you sure you want to log out?")) {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/"); router.refresh();
+    }
   };
 
   const handleChangePassword = async (e: React.FormEvent) => {

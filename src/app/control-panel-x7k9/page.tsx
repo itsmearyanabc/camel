@@ -494,7 +494,13 @@ export default function ClientAdminPanel() {
           <span style={{ fontSize: "14px", color: "var(--text-secondary)", display: "none" }} className="hide-mobile">
             Admin: <strong style={{ color: "var(--text-primary)" }}>{user.username}</strong>
           </span>
-          <button onClick={() => { fetch("/api/auth/logout", { method: "POST" }); router.push("/control-panel-x7k9/login"); }} className="btn btn-ghost btn-sm">Log Out</button>
+          <button onClick={() => { 
+            if (window.confirm("Are you sure you want to log out?")) {
+              fetch("/api/auth/logout", { method: "POST" }).then(() => {
+                router.push("/");
+              });
+            }
+          }} className="btn btn-ghost btn-sm">Log Out</button>
         </div>
       </header>
 

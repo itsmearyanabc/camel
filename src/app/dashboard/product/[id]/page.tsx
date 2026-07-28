@@ -88,8 +88,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   };
 
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
+    if (window.confirm("Are you sure you want to log out?")) {
+      await fetch("/api/auth/logout", { method: "POST" });
+      router.push("/");
+    }
   };
 
   const handleCheckoutSuccess = async () => {
