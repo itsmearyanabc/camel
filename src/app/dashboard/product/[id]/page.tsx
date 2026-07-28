@@ -170,8 +170,8 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     <div>
                       <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>{product.name}</h1>
                       <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                        <span className={`badge badge-${product.stockState.toLowerCase()}`}>
-                          {product.stockState.replace(/_/g, " ")} ({product.stockCount})
+                        <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                          {product.stockQuantity > 0 ? "IN STOCK" : "OUT OF STOCK"} ({product.stockQuantity})
                         </span>
                         {product.formula && <span style={{ fontSize: "14px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
                       </div>
@@ -189,7 +189,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     <div>
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-                        {product.stockCount > 0 ? `${product.stockCount} unit(s) available in stock` : "Currently out of stock"}
+                        {product.stockQuantity > 0 ? `${product.stockQuantity} unit(s) available in stock` : "Currently out of stock"}
                       </p>
                     </div>
                     <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
@@ -200,16 +200,16 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <div style={{ display: "flex", alignItems: "center", background: "var(--background)", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
                           <button onClick={() => updateQuantity(product.id, -1)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
                           <span style={{ padding: "8px 16px", fontWeight: "600", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>{cartItem.quantity}</span>
-                          <button onClick={() => updateQuantity(product.id, 1)} disabled={cartItem.quantity >= product.stockCount} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= product.stockCount ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= product.stockCount ? 0.5 : 1 }}>+</button>
+                          <button onClick={() => updateQuantity(product.id, 1)} disabled={cartItem.quantity >= product.stockQuantity} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= product.stockQuantity ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= product.stockQuantity ? 0.5 : 1 }}>+</button>
                         </div>
                       ) : (
                         <button 
-                          onClick={() => addToCart({ id: product.id, name: product.name, price: product.price, stockCount: product.stockCount })}
+                          onClick={() => addToCart({ id: product.id, name: product.name, price: product.price, stockCount: product.stockQuantity })}
                           className="btn btn-primary" 
-                          disabled={product.stockCount < 1}
+                          disabled={product.stockQuantity < 1}
                           style={{ padding: "12px 24px", fontSize: "16px" }}
                         >
-                          {product.stockCount > 0 ? "Add to Cart" : "Out of Stock"}
+                          {product.stockQuantity > 0 ? "Add to Cart" : "Out of Stock"}
                         </button>
                       )}
                     </div>
