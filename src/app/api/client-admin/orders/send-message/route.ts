@@ -8,7 +8,7 @@ import path from "path";
 export async function POST(req: Request) {
   try {
     const session = await getSession();
-    if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

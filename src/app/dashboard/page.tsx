@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
+
+import Reviews from "@/components/Reviews";
 import SiteFooter from "@/components/SiteFooter";
 import DashboardNav from "@/components/DashboardNav";
 import { formatPrice } from "@/lib/currencies";
@@ -64,7 +66,7 @@ interface Dispute {
   messages?: DisputeMessage[];
 }
 
-type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings";
+type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings" | "favorites" | "reviews";
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_bot";
 
@@ -1495,6 +1497,23 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === "favorites" && (
+            <div className={styles.tabContent}>
+              <h2 style={{ marginBottom: "16px" }}>Favorites</h2>
+              <div className="card" style={{ padding: "40px", textAlign: "center" }}>
+                <span style={{ fontSize: "40px", display: "block", marginBottom: "16px" }}>🤍</span>
+                <p style={{ color: "var(--text-secondary)" }}>You haven't added any items to your favorites yet.</p>
+                <button className="btn btn-primary" onClick={() => setActiveTab("shop")} style={{ marginTop: "24px" }}>Browse Shop</button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "reviews" && (
+            <div className={styles.tabContent}>
+              <Reviews isLoggedIn={!!user} />
             </div>
           )}
         </main>

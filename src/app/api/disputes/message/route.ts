@@ -28,9 +28,9 @@ export async function POST(req: Request) {
     let senderRole = "CUSTOMER";
     let senderName = dispute.user.username;
 
-    if (session.role === "ADMIN" || session.role === "SUPERADMIN") {
+    if (session.role === "ADMIN" || session.role === "SUPERADMIN" || session.role === "STAFF") {
       senderRole = "ADMIN";
-      senderName = "Admin Support";
+      senderName = "Support Staff";
     } else {
       // Ensure regular users can only message their own disputes
       if (dispute.userId !== session.userId) {

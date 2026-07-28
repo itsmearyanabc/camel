@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardAnalytics from "./DashboardAnalytics";
 
-type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes";
+type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees";
 
 export default function ClientAdminPanel() {
   const router = useRouter();
@@ -21,6 +21,9 @@ export default function ClientAdminPanel() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [disputes, setDisputes] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [newEmployeeUsername, setNewEmployeeUsername] = useState("");
+  const [newEmployeePassword, setNewEmployeePassword] = useState("");
   
   // Product states
   const [categories, setCategories] = useState<any[]>([]);
@@ -69,14 +72,17 @@ export default function ClientAdminPanel() {
       const res = await fetch("/api/auth/me");
       const data = await res.json();
       if (!data.user) { router.push("/auth/login"); return; }
-      if (!["ADMIN", "SUPERADMIN"].includes(data.user.role)) { router.push("/dashboard"); return; }
+      if (!["ADMIN", "SUPERADMIN", "STAFF"].includes(data.user.role)) { router.push("/dashboard"); return; }
       setUser(data.user);
+      if (data.user.role === "STAFF" && activeTab === "dashboard") {
+        setActiveTab("active-orders");
+      }
     } catch { router.push("/auth/login"); }
   };
 
   const fetchAll = async () => {
     try {
-      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes, locationsRes] = await Promise.all([
+      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes, locationsRes, employeesRes] = await Promise.all([
         fetch("/api/client-admin/stats"),
         fetch("/api/client-admin/orders"),
         fetch("/api/client-admin/users"),
@@ -85,10 +91,11 @@ export default function ClientAdminPanel() {
         fetch("/api/client-admin/deposits"),
         fetch("/api/admin/categories"),
         fetch("/api/admin/products"),
-        fetch("/api/admin/locations")
+        fetch("/api/admin/locations"),
+        fetch("/api/admin/employees")
       ]);
-      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData, locData] = await Promise.all([
-        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json(), locationsRes.json()
+      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData, locData, empData] = await Promise.all([
+        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json(), locationsRes.json(), employeesRes.json()
       ]);
       if (statsData.stats) setStats(statsData.stats);
       if (ordersData.orders) setOrders(ordersData.orders);
@@ -109,6 +116,7 @@ export default function ClientAdminPanel() {
       if (catData.categories) setCategories(catData.categories);
       if (prodData.products) setProducts(prodData.products);
       if (locData.cities) setLocations(locData.cities);
+      if (empData && empData.staff) setEmployees(empData.staff);
     } catch (e) {
       console.error(e);
     }
@@ -454,7 +462,7 @@ export default function ClientAdminPanel() {
     );
   }
 
-  const tabs: { key: Tab; label: string; icon: string }[] = [
+  const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
     { key: "products", label: "Inventory", icon: "📦" },
     { key: "locations", label: "Locations", icon: "📍" },
@@ -463,9 +471,59 @@ export default function ClientAdminPanel() {
     { key: "users", label: "Users", icon: "👥" },
     { key: "payments", label: "Payments", icon: "💰" },
     { key: "disputes", label: "Disputes", icon: "⚖️" },
+    { key: "employees", label: "Employees", icon: "👔" },
   ];
 
+  const tabs = allTabs.filter(t => {
+    if (user?.role === "STAFF") {
+      return ["active-orders", "all-orders", "disputes"].includes(t.key);
+    }
+    return true;
+  });
+
   const activeOrders = orders;
+  // --- Employee Management ---
+  const handleAddEmployee = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/admin/employees", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: newEmployeeUsername, password: newEmployeePassword })
+      });
+      if (res.ok) {
+        setMsg({ type: "success", text: "Employee added!" });
+        setNewEmployeeUsername(""); setNewEmployeePassword("");
+        fetchAll();
+      } else {
+        const d = await res.json(); setMsg({ type: "error", text: d.error });
+      }
+    } catch (e) { setMsg({ type: "error", text: "Error adding employee" }); }
+  };
+
+  const handleDeleteEmployee = async (staffId: string) => {
+    if (!confirm("Delete employee?")) return;
+    try {
+      const res = await fetch("/api/admin/employees", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId })
+      });
+      if (res.ok) { setMsg({ type: "success", text: "Employee deleted!" }); fetchAll(); }
+    } catch (e) { setMsg({ type: "error", text: "Error deleting employee" }); }
+  };
+
+  const handleEditEmployeePassword = async (staffId: string) => {
+    const newPw = prompt("Enter new password for this employee:");
+    if (!newPw) return;
+    try {
+      const res = await fetch("/api/admin/employees", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId, newPassword: newPw })
+      });
+      if (res.ok) { setMsg({ type: "success", text: "Employee password updated!" }); }
+      else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
+    } catch (e) { setMsg({ type: "error", text: "Error updating password" }); }
+  };
+
   const filteredActiveOrders = activeOrderFilter === "ALL" 
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
@@ -1294,6 +1352,68 @@ export default function ClientAdminPanel() {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Employees Tab */}
+          {activeTab === "employees" && (
+            <div style={{ animation: "fadeIn 0.4s ease" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+                <h2>Staff Management</h2>
+                <div style={{ background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", display: "flex", gap: "12px", alignItems: "flex-end", border: "1px solid var(--border)" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>Username</label>
+                    <input type="text" className="form-input" style={{ width: "150px" }} value={newEmployeeUsername} onChange={e => setNewEmployeeUsername(e.target.value)} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>Password</label>
+                    <input type="text" className="form-input" style={{ width: "150px" }} value={newEmployeePassword} onChange={e => setNewEmployeePassword(e.target.value)} />
+                  </div>
+                  <button className="btn btn-primary" onClick={handleAddEmployee}>Add Staff</button>
+                </div>
+              </div>
+
+              <div className="card table-scroll-wrap">
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Username</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Created</th>
+                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Failed Logins</th>
+                      <th style={{ textAlign: "right", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map(emp => (
+                      <tr key={emp.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td style={{ padding: "12px", fontWeight: "500" }}>{emp.username}</td>
+                        <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{new Date(emp.createdAt).toLocaleDateString()}</td>
+                        <td style={{ padding: "12px" }}>
+                          {emp.failedLoginAttempts > 0 ? (
+                            <span style={{ color: emp.failedLoginAttempts >= 5 ? "var(--red)" : "var(--accent)" }}>{emp.failedLoginAttempts}</span>
+                          ) : (
+                            <span style={{ color: "var(--text-tertiary)" }}>0</span>
+                          )}
+                          {emp.lockUntil && new Date(emp.lockUntil) > new Date() && (
+                            <span className="badge badge-red" style={{ marginLeft: "8px" }}>Locked</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px", textAlign: "right" }}>
+                          <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                            <button onClick={() => handleEditEmployeePassword(emp.id)} className="btn btn-secondary btn-sm">Edit Password</button>
+                            <button onClick={() => handleDeleteEmployee(emp.id)} className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {employees.length === 0 && (
+                      <tr>
+                        <td colSpan={4} style={{ padding: "24px", textAlign: "center", color: "var(--text-secondary)" }}>No staff accounts found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

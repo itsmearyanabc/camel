@@ -7,7 +7,7 @@ import { formatPrice, FIAT_CURRENCIES } from "@/lib/currencies";
 import { useLanguage, LanguageCode } from "@/components/LanguageContext";
 import styles from "../app/dashboard/dashboard.module.css";
 
-type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings";
+type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings" | "favorites" | "reviews";
 
 interface DashboardNavProps {
   user: any;
@@ -250,7 +250,7 @@ export default function DashboardNav({
               <button type="button" onClick={() => handleTabClick("profile")} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>👤</span> {t("nav.profile")}
               </button>
-              <button type="button" onClick={() => {}} className={styles.menuItem}>
+              <button type="button" onClick={() => handleTabClick("favorites")} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>🤍</span> Favorites
               </button>
               <button type="button" onClick={() => handleTabClick("wallet")} className={styles.menuItem}>
@@ -263,7 +263,7 @@ export default function DashboardNav({
               <button type="button" onClick={() => handleTabClick("disputes")} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>🔍</span> {t("nav.tickets")}
               </button>
-              <button type="button" onClick={() => {}} className={styles.menuItem}>
+              <button type="button" onClick={() => handleTabClick("reviews")} className={styles.menuItem}>
                 <span style={{ width: "20px" }}>💬</span> Reviews
               </button>
               <button type="button" onClick={() => handleTabClick("settings")} className={styles.menuItem}>

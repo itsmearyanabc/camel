@@ -9,7 +9,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    if (!["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
       return NextResponse.json({ error: "Forbidden. Admin privileges required." }, { status: 403 });
     }
 
