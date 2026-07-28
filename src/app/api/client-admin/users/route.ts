@@ -13,7 +13,16 @@ export async function GET() {
       include: {
         wallet: true,
         orders: {
-          select: { totalAmount: true, status: true }
+          include: {
+            items: {
+              include: {
+                product: {
+                  select: { name: true, imageUrl: true }
+                }
+              }
+            }
+          },
+          orderBy: { createdAt: "desc" }
         }
       },
       orderBy: { createdAt: "desc" },
@@ -34,6 +43,20 @@ export async function GET() {
         totalOrders: u.orders.length,
         totalSpent,
         wallet: u.wallet ? { balance: u.wallet.balance } : { balance: 0 },
+        orders: u.orders.map(o => ({
+          id: o.id,
+          status: o.status,
+          totalAmount: o.totalAmount,
+          currency: o.currency,
+          paymentMethod: o.paymentMethod,
+          createdAt: o.createdAt.toISOString(),
+          items: o.items.map(item => ({
+            id: item.id,
+            priceAtPurchase: item.priceAtPurchase,
+            status: item.status,
+            productName: item.product?.name || "Unknown",
+          }))
+        })),
       };
     });
 

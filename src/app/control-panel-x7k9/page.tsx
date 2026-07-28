@@ -18,6 +18,9 @@ export default function ClientAdminPanel() {
   const [stats, setStats] = useState<any>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [selectedUserModal, setSelectedUserModal] = useState<any | null>(null);
+  const [balanceAdjustAmount, setBalanceAdjustAmount] = useState("");
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [disputes, setDisputes] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -247,6 +250,28 @@ export default function ClientAdminPanel() {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
       }
     } catch (e) { setMsg({ type: "error", text: "Error adding category" }); }
+  };
+
+  const handleAdjustBalance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserModal) return;
+    try {
+      const res = await fetch("/api/admin/wallet-adjust", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: selectedUserModal.id, amount: balanceAdjustAmount })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMsg({ type: "success", text: "Balance adjusted successfully!" });
+        setBalanceAdjustAmount("");
+        setSelectedUserModal(null);
+        fetchAll();
+      } else {
+        setMsg({ type: "error", text: data.error || "Failed to adjust balance" });
+      }
+    } catch (e) {
+      setMsg({ type: "error", text: "Error adjusting balance" });
+    }
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
@@ -528,6 +553,7 @@ export default function ClientAdminPanel() {
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
   const newOrdersCount = orders.filter(o => ["ORDERED", "PENDING_PAYMENT", "PROCESSING"].includes(o.status)).length;
+  const isAdmin = user && ["ADMIN", "SUPERADMIN"].includes(user.role);
 
   return (
     <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
@@ -548,8 +574,8 @@ export default function ClientAdminPanel() {
           >
             ☰
           </button>
-          <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>Inventory Management</span>
-          <span className="badge badge-red" style={{ fontSize: "11px", letterSpacing: "0.5px" }}>ROOT</span>
+          <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>{isAdmin ? "Admin Area" : "Staff Panel"}</span>
+          {isAdmin && <span className="badge badge-red" style={{ fontSize: "11px", letterSpacing: "0.5px" }}>{user.role === "SUPERADMIN" ? "ROOT" : "ADMIN"}</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <span style={{ fontSize: "14px", color: "var(--text-secondary)", display: "none" }} className="hide-mobile">
@@ -1103,7 +1129,17 @@ export default function ClientAdminPanel() {
           {/* USERS */}
           {activeTab === "users" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>User Management</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <h2 style={{ fontSize: "28px" }}>User Management</h2>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Search username or telegram..." 
+                  value={userSearchTerm} 
+                  onChange={e => setUserSearchTerm(e.target.value)}
+                  style={{ width: "300px" }}
+                />
+              </div>
               <div className="card" style={{ padding: "0", overflow: "hidden" }}>
                 <table>
                   <thead>
@@ -1118,16 +1154,21 @@ export default function ClientAdminPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map(u => (
-                      <tr key={u.id}>
+                    {users
+                      .filter(u => u.username.toLowerCase().includes(userSearchTerm.toLowerCase()) || (u.telegramUsername && u.telegramUsername.toLowerCase().includes(userSearchTerm.toLowerCase())))
+                      .map(u => (
+                      <tr key={u.id} style={{ cursor: "pointer", transition: "background 0.2s" }} onClick={() => setSelectedUserModal(u)} onMouseEnter={e => e.currentTarget.style.background = "var(--bg-secondary)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <td style={{ fontWeight: "600" }}>
                           {u.username}
-                          {u.role !== "CUSTOMER" && <span className="badge badge-red" style={{ marginLeft: "8px", fontSize: "10px" }}>{u.role}</span>}
+                          {u.role === "STAFF" && <span className="badge badge-red" style={{ marginLeft: "8px", fontSize: "10px" }}>STAFF</span>}
+                          {u.role === "SUPERADMIN" && <span className="badge badge-red" style={{ marginLeft: "8px", fontSize: "10px" }}>ROOT</span>}
                         </td>
-                        <td style={{ color: "var(--text-secondary)" }}>{u.telegramUsername ? `@${u.telegramUsername}` : "—"}</td>
+                        <td style={{ color: "var(--text-secondary)" }}>
+                          {u.role === "STAFF" ? "NA" : u.telegramUsername ? `@${u.telegramUsername}` : "—"}
+                        </td>
                         <td>
                           {u.passwordPlain ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={e => e.stopPropagation()}>
                               <span style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-secondary)" }}>
                                 {visiblePasswords[u.id] ? u.passwordPlain : "••••••••"}
                               </span>
@@ -1137,14 +1178,93 @@ export default function ClientAdminPanel() {
                             </div>
                           ) : <span style={{ color: "var(--text-tertiary)" }}>N/A</span>}
                         </td>
-                        <td style={{ fontWeight: "600", color: "var(--green)" }}>${Number(u.wallet?.balance || 0).toFixed(2)}</td>
-                        <td>{u.totalOrders}</td>
-                        <td style={{ fontWeight: "600" }}>${Number(u.totalSpent || 0).toFixed(2)}</td>
+                        <td style={{ fontWeight: "600", color: "var(--green)" }}>
+                          {u.role === "STAFF" ? "—" : `$${Number(u.wallet?.balance || 0).toFixed(2)}`}
+                        </td>
+                        <td>{u.role === "STAFF" ? "—" : u.totalOrders}</td>
+                        <td style={{ fontWeight: "600" }}>{u.role === "STAFF" ? "—" : `$${Number(u.totalSpent || 0).toFixed(2)}`}</td>
                         <td style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>{new Date(u.createdAt).toLocaleDateString()}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+
+          {/* User Profile Modal */}
+          {selectedUserModal && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }} onClick={() => setSelectedUserModal(null)}>
+              <div className="card" style={{ width: "100%", maxWidth: "800px", maxHeight: "90vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
+                <button style={{ position: "absolute", top: "16px", right: "16px", background: "none", border: "none", fontSize: "24px", color: "var(--text-secondary)", cursor: "pointer" }} onClick={() => setSelectedUserModal(null)}>×</button>
+                <h2 style={{ fontSize: "24px", marginBottom: "8px" }}>User Profile: {selectedUserModal.username}</h2>
+                <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>
+                  Role: <strong style={{ color: "var(--accent)" }}>{selectedUserModal.role}</strong> | 
+                  Joined: {new Date(selectedUserModal.createdAt).toLocaleDateString()}
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "32px" }}>
+                  {/* Balance / Adjustment */}
+                  <div className="card" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                    <h3 style={{ fontSize: "16px", marginBottom: "16px" }}>Wallet Balance</h3>
+                    <div style={{ fontSize: "32px", fontWeight: "700", color: "var(--green)", marginBottom: "24px" }}>
+                      ${Number(selectedUserModal.wallet?.balance || 0).toFixed(2)}
+                    </div>
+                    {isAdmin && (
+                      <form onSubmit={handleAdjustBalance} style={{ display: "flex", gap: "12px" }}>
+                        <input type="number" step="0.01" className="form-input" placeholder="Amount (e.g. 50 or -50)" required value={balanceAdjustAmount} onChange={e => setBalanceAdjustAmount(e.target.value)} />
+                        <button type="submit" className="btn btn-primary">Adjust</button>
+                      </form>
+                    )}
+                  </div>
+                  
+                  {/* Quick Stats */}
+                  <div className="card" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)" }}>
+                    <h3 style={{ fontSize: "16px", marginBottom: "16px" }}>Order Statistics</h3>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Total Orders:</span>
+                        <strong>{selectedUserModal.orders?.length || 0}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Total Spent:</span>
+                        <strong style={{ color: "var(--green)" }}>${Number(selectedUserModal.totalSpent || 0).toFixed(2)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <h3 style={{ fontSize: "20px", marginBottom: "16px", borderBottom: "1px solid var(--border)", paddingBottom: "12px" }}>Order History</h3>
+                {selectedUserModal.orders && selectedUserModal.orders.length > 0 ? (
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)" }}>ID</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)" }}>Date</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)" }}>Status</th>
+                          <th style={{ padding: "12px 8px", color: "var(--text-secondary)" }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedUserModal.orders.map((o: any) => (
+                          <tr key={o.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                            <td style={{ padding: "12px 8px", fontFamily: "monospace", fontSize: "13px" }}>{o.id.substring(0, 8)}...</td>
+                            <td style={{ padding: "12px 8px", fontSize: "14px" }}>{new Date(o.createdAt).toLocaleDateString()}</td>
+                            <td style={{ padding: "12px 8px" }}>
+                              <span className={`badge ${o.status === "COMPLETED" ? "badge-green" : o.status === "CANCELLED" ? "badge-red" : "badge-orange"}`}>
+                                {o.status}
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px 8px", fontWeight: "600" }}>${Number(o.totalAmount).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "20px" }}>No orders found for this user.</p>
+                )}
               </div>
             </div>
           )}
