@@ -76,8 +76,9 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
 
   const [categories, setCategories] = useState<Category[]>([]);
-  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
+  const [locations, setLocations] = useState<{ id: string; name: string; areas?: { id: string; name: string }[] }[]>([]);
   const [selectedCityId, setSelectedCityId] = useState<string>("ALL");
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("ALL");
   const [ledgers, setLedgers] = useState<WalletLedger[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
@@ -158,7 +159,7 @@ export default function Dashboard() {
 
   const loadShopData = async () => { 
     try { 
-      const [rProd, rLoc] = await Promise.all([fetch("/api/inventory/products"), fetch("/api/admin/locations")]);
+      const [rProd, rLoc] = await Promise.all([fetch("/api/inventory/products"), fetch("/api/locations")]);
       if (rProd.ok) { const d = await rProd.json(); setCategories(d.categories); }
       if (rLoc.ok) { const d = await rLoc.json(); setLocations(d.cities); }
     } catch {} 
@@ -491,20 +492,39 @@ export default function Dashboard() {
                   <h1>Browse with confidence.</h1>
                   <p>Choose a city to tailor what you see, then explore products from one streamlined dashboard.</p>
                 </div>
-                <label>
-                  <span className="form-label">Delivery city</span>
-                  <select 
-                    className={styles.citySelect} 
-                    value={selectedCityId}
-                    onChange={e => setSelectedCityId(e.target.value)}
-                    aria-label="Select delivery city"
-                  >
-                    <option value="ALL">Any city</option>
-                    {locations.map(loc => (
-                      <option key={loc.id} value={loc.id}>{loc.name}</option>
-                    ))}
-                  </select>
-                </label>
+                <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
+                  <label style={{ flex: 1, minWidth: "200px" }}>
+                    <span className="form-label">Delivery city</span>
+                    <select 
+                      className={styles.citySelect} 
+                      value={selectedCityId}
+                      onChange={e => { setSelectedCityId(e.target.value); setSelectedAreaId("ALL"); }}
+                      aria-label="Select delivery city"
+                    >
+                      <option value="ALL">Any city</option>
+                      {locations.map(loc => (
+                        <option key={loc.id} value={loc.id}>{loc.name}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {selectedCityId !== "ALL" && (locations.find(l => l.id === selectedCityId)?.areas?.length ?? 0) > 0 && (
+                    <label style={{ flex: 1, minWidth: "200px" }}>
+                      <span className="form-label">Delivery area</span>
+                      <select 
+                        className={styles.citySelect} 
+                        value={selectedAreaId}
+                        onChange={e => setSelectedAreaId(e.target.value)}
+                        aria-label="Select delivery area"
+                      >
+                        <option value="ALL">Any area</option>
+                        {locations.find(l => l.id === selectedCityId)?.areas?.map(area => (
+                          <option key={area.id} value={area.id}>{area.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
               </section>
               <h2>Browse Products</h2>
 
@@ -520,9 +540,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 categories.map(category => {
-                  const visibleProducts = selectedCityId === "ALL" 
-                    ? category.products 
-                    : category.products.filter(p => p.cities.some(c => c.id === selectedCityId));
+                  const visibleProducts = category.products;
                   
                   if (visibleProducts.length === 0) return null;
 
@@ -543,11 +561,20 @@ export default function Dashboard() {
                                   <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
                                     {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
                                   </span>
-                                  {selectedCityId !== "ALL" && (
-                                    <span className="badge badge-purple" style={{ opacity: 0.8 }}>
-                                      📍 Available in {locations.find(l => l.id === selectedCityId)?.name}
-                                    </span>
-                                  )}
+                                  {(() => {
+                                    if (selectedCityId === "ALL") return null;
+                                    const availableInCity = product.cities.some((c: any) => c.id === selectedCityId);
+                                    if (!availableInCity) {
+                                      return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected city</span>;
+                                    }
+                                    if (selectedAreaId !== "ALL") {
+                                      const availableInArea = (product as any).areas?.some((a: any) => a.id === selectedAreaId);
+                                      if (!availableInArea) {
+                                        return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected area</span>;
+                                      }
+                                    }
+                                    return <span className="badge badge-purple" style={{ opacity: 0.8 }}>📍 Available in selected location</span>;
+                                  })()}
                                 </div>
                                 {product.description && (
                                 <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: "1.5" }}>
@@ -564,13 +591,22 @@ export default function Dashboard() {
                           <div className="product-card-bottom">
                             <span className="product-card-price">{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
                             <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
-                              <Link
-                                href={`/dashboard/product/${product.id}`}
-                                className="btn btn-primary btn-sm"
-                                style={{ width: "100%" }}
-                              >
-                                View Product
-                              </Link>
+                              {(() => {
+                                let isAvailable = product.stockQuantity > 0;
+                                if (selectedCityId !== "ALL" && !product.cities.some((c: any) => c.id === selectedCityId)) isAvailable = false;
+                                if (selectedCityId !== "ALL" && selectedAreaId !== "ALL" && !(product as any).areas?.some((a: any) => a.id === selectedAreaId)) isAvailable = false;
+
+                                return (
+                                  <Link
+                                    href={isAvailable ? `/dashboard/product/${product.id}` : "#"}
+                                    onClick={(e) => { if (!isAvailable) { e.preventDefault(); alert("Product is out of stock or unavailable in your selected location."); } }}
+                                    className={`btn ${isAvailable ? "btn-primary" : "btn-secondary"} btn-sm`}
+                                    style={{ width: "100%", opacity: isAvailable ? 1 : 0.6, cursor: isAvailable ? "pointer" : "not-allowed" }}
+                                  >
+                                    View Product
+                                  </Link>
+                                );
+                              })()}
                             </div>
                           </div>
                         </div>
