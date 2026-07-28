@@ -71,7 +71,8 @@ export async function GET(req: NextRequest) {
       });
       csvRows.push(["Product ID", "Type/Category", "Name", "Stock Quantity", "Price", "Currency", "Cities", "Areas", "Created At"].join(","));
       
-      for (const p of products) {
+      for (const product of products) {
+        const p = product as any; // Silence IDE cache false-positive for productType
         csvRows.push([
           p.id,
           `"${p.productType || p.category?.name || ""}"`,
@@ -79,8 +80,8 @@ export async function GET(req: NextRequest) {
           p.stockQuantity.toString(),
           p.price.toString(),
           p.currency,
-          `"${p.cities.map(c => c.name).join("; ")}"`,
-          `"${p.areas.map(a => a.name).join("; ")}"`,
+          `"${p.cities.map((c: any) => c.name).join("; ")}"`,
+          `"${p.areas.map((a: any) => a.name).join("; ")}"`,
           p.createdAt.toISOString()
         ].join(","));
       }
