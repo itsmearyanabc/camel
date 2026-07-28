@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useCart } from "./CartContext";
 import { formatPrice } from "@/lib/currencies";
 
@@ -27,6 +27,25 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
       if (d.cities) setLocations(d.cities);
     }).catch(() => {});
   }, []);
+
+  const validAreaIds = useMemo(() => {
+    if (cart.length === 0) return new Set<string>();
+    let intersection = new Set(cart[0].areas?.map((a: any) => a.id) || []);
+    for (let i = 1; i < cart.length; i++) {
+      const currentAreaIds = new Set(cart[i].areas?.map((a: any) => a.id) || []);
+      intersection = new Set([...intersection].filter(x => currentAreaIds.has(x)));
+    }
+    return intersection;
+  }, [cart]);
+
+  const filteredLocations = useMemo(() => {
+    if (validAreaIds.size === 0 && cart.length > 0) return [];
+    
+    return locations.map(city => ({
+      ...city,
+      areas: city.areas?.filter((a: any) => validAreaIds.has(a.id))
+    })).filter(city => city.areas && city.areas.length > 0);
+  }, [locations, validAreaIds, cart.length]);
 
   const cryptoOptions = [
     { code: "BTC", name: "Bitcoin" },
@@ -154,18 +173,24 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
                 <div style={{ marginBottom: "24px", background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
                   <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Delivery Area</h3>
-                  <div style={{ display: "flex", gap: "12px" }}>
-                    <select className="form-input" value={selectedCityId} onChange={(e) => { setSelectedCityId(e.target.value); setSelectedAreaId(""); }} style={{ flex: 1 }}>
-                      <option value="">Select City...</option>
-                      {locations.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                    <select className="form-input" value={selectedAreaId} onChange={(e) => setSelectedAreaId(e.target.value)} disabled={!selectedCityId} style={{ flex: 1 }}>
-                      <option value="">Select Area...</option>
-                      {locations.find(c => c.id === selectedCityId)?.areas?.map((a: any) => (
-                        <option key={a.id} value={a.id}>{a.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {filteredLocations.length === 0 && cart.length > 0 ? (
+                    <div className="alert alert-error" style={{ marginBottom: "12px", padding: "8px 12px", fontSize: "13px" }}>
+                      No common delivery area found for all items in your cart. Please remove some items.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: "12px" }}>
+                      <select className="form-input" value={selectedCityId} onChange={(e) => { setSelectedCityId(e.target.value); setSelectedAreaId(""); }} style={{ flex: 1 }}>
+                        <option value="">Select City...</option>
+                        {filteredLocations.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <select className="form-input" value={selectedAreaId} onChange={(e) => setSelectedAreaId(e.target.value)} disabled={!selectedCityId} style={{ flex: 1 }}>
+                        <option value="">Select Area...</option>
+                        {filteredLocations.find((c: any) => c.id === selectedCityId)?.areas?.map((a: any) => (
+                          <option key={a.id} value={a.id}>{a.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ marginBottom: "24px" }}>

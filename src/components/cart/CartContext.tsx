@@ -8,11 +8,12 @@ export interface CartItem {
   price: number;
   quantity: number;
   stockCount: number;
+  areas: any[];
 }
 
 interface CartContextType {
   cart: CartItem[];
-  addToCart: (product: { id: string; name: string; price: number; stockCount: number }, quantity?: number) => void;
+  addToCart: (product: { id: string; name: string; price: number; stockCount: number; areas: any[] }, quantity?: number) => void;
   removeFromCart: (productId: string) => void;
   updateQuantity: (productId: string, delta: number) => void;
   clearCart: () => void;
@@ -42,7 +43,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, [cart, mounted]);
 
-  const addToCart = (product: { id: string; name: string; price: number; stockCount: number }, quantity = 1) => {
+  const addToCart = (product: { id: string; name: string; price: number; stockCount: number; areas: any[] }, quantity = 1) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.productId === product.id);
       if (existing) {
@@ -52,7 +53,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
         );
       }
       if (quantity > product.stockCount) return prev;
-      return [...prev, { productId: product.id, name: product.name, price: product.price, quantity, stockCount: product.stockCount }];
+      return [...prev, { productId: product.id, name: product.name, price: product.price, quantity, stockCount: product.stockCount, areas: product.areas || [] }];
     });
   };
 

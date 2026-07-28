@@ -169,11 +169,21 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
                     <div>
                       <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>{product.name}</h1>
-                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
                         <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
                           {product.stockQuantity > 0 ? "IN STOCK" : "OUT OF STOCK"} ({product.stockQuantity})
                         </span>
                         {product.formula && <span style={{ fontSize: "14px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
+                        {product.areas && product.areas.length > 0 && (
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "16px" }}>
+                            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>📍 Available in:</span>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {product.areas.map((a: any) => (
+                                <span key={a.id} style={{ fontSize: "12px", background: "var(--surface-subtle)", padding: "2px 8px", borderRadius: "12px", color: "var(--text-primary)", border: "1px solid var(--border)" }}>{a.name}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <button onClick={toggleFavorite} className="btn btn-secondary btn-sm">
@@ -204,7 +214,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         </div>
                       ) : (
                         <button 
-                          onClick={() => addToCart({ id: product.id, name: product.name, price: product.price, stockCount: product.stockQuantity })}
+                          onClick={() => addToCart({ id: product.id, name: product.name, price: product.price, stockCount: product.stockQuantity, areas: product.areas || [] })}
                           className="btn btn-primary" 
                           disabled={product.stockQuantity < 1}
                           style={{ padding: "12px 24px", fontSize: "16px" }}
