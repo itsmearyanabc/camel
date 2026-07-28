@@ -31,7 +31,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     const saved = localStorage.getItem("Camel971_cart");
     if (saved) {
       try {
-        setCart(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        const validCart = parsed.filter((item: any) => item.areas && Array.isArray(item.areas));
+        setCart(validCart);
       } catch (e) {}
     }
     setMounted(true);
