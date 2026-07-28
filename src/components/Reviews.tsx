@@ -69,14 +69,14 @@ export default function Reviews({ productId, isLoggedIn = false }: ReviewsProps)
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px", marginBottom: "24px" }}>
-        <div style={{ display: "flex", gap: "10px" }}>
-          <select className="form-input" style={{ width: "auto", minWidth: "150px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", flex: 1 }}>
+          <select className="form-input" style={{ flex: "1 1 120px", minWidth: "120px" }}>
             <option>{t("reviews.anyType")}</option>
           </select>
-          <select className="form-input" style={{ width: "auto", minWidth: "150px" }}>
+          <select className="form-input" style={{ flex: "1 1 120px", minWidth: "120px" }}>
             <option>{t("reviews.anyCity")}</option>
           </select>
-          <select className="form-input" style={{ width: "auto", minWidth: "150px" }}>
+          <select className="form-input" style={{ flex: "1 1 120px", minWidth: "120px" }}>
             <option>{t("reviews.anyProduct")}</option>
           </select>
         </div>
