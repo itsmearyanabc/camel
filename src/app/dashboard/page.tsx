@@ -71,6 +71,7 @@ const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_
 export default function Dashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("shop");
+  const [userOrderViewType, setUserOrderViewType] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
   const [userOrderFilter, setUserOrderFilter] = useState("ALL");
   const [user, setUser] = useState<any>(null);
 
@@ -805,11 +806,32 @@ export default function Dashboard() {
           {/* ORDERS */}
           {activeTab === "orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-              <h2>My Orders</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                <h2>My Orders</h2>
+                <div style={{ display: "flex", background: "var(--bg-secondary)", borderRadius: "8px", padding: "4px" }}>
+                  <button 
+                    onClick={() => { setUserOrderViewType("ACTIVE"); setUserOrderFilter("ALL"); }}
+                    className={`btn btn-sm ${userOrderViewType === "ACTIVE" ? "btn-primary" : "btn-ghost"}`}
+                    style={{ borderRadius: "6px" }}
+                  >
+                    Active Orders
+                  </button>
+                  <button 
+                    onClick={() => { setUserOrderViewType("HISTORY"); setUserOrderFilter("ALL"); }}
+                    className={`btn btn-sm ${userOrderViewType === "HISTORY" ? "btn-primary" : "btn-ghost"}`}
+                    style={{ borderRadius: "6px" }}
+                  >
+                    Order History
+                  </button>
+                </div>
+              </div>
               
               {/* Horizontal Status Tabs */}
               <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
-                {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"].map(status => (
+                {(userOrderViewType === "ACTIVE" 
+                  ? ["ALL", "ORDERED", "PROCESSING", "ON_PICKUP"] 
+                  : ["ALL", "COMPLETED", "CANCELLED"]
+                ).map(status => (
                   <button 
                     key={status}
                     onClick={() => setUserOrderFilter(status)}
@@ -820,18 +842,29 @@ export default function Dashboard() {
                 ))}
               </div>
 
-              {orders.filter(o => userOrderFilter === "ALL" || o.status === userOrderFilter).length === 0 ? (
-                <div className="card" style={{ textAlign: "center", padding: "60px" }}>
-                  <p style={{ color: "var(--text-secondary)" }}>No orders match this status.</p>
-                </div>
-              ) : (
-                orders.filter(o => userOrderFilter === "ALL" || o.status === userOrderFilter).map(order => {
+              {(() => {
+                const filteredOrders = orders.filter(o => {
+                  const isActive = !["COMPLETED", "CANCELLED"].includes(o.status);
+                  if (userOrderViewType === "ACTIVE" && !isActive) return false;
+                  if (userOrderViewType === "HISTORY" && isActive) return false;
+                  if (userOrderFilter !== "ALL" && o.status !== userOrderFilter) return false;
+                  return true;
+                });
+
+                if (filteredOrders.length === 0) {
+                  return (
+                    <div className="card" style={{ textAlign: "center", padding: "60px" }}>
+                      <p style={{ color: "var(--text-secondary)" }}>No orders match this status.</p>
+                    </div>
+                  );
+                }
+
+                return filteredOrders.map(order => {
                   return (
                     <div key={order.id} className="card" style={{
                       borderLeft: `4px solid ${
-                        order.status === "PAID" ? "var(--green)" :
-                        order.status === "PENDING_PAYMENT" ? "var(--red)" :
-                        order.status === "COMPLETED" ? "var(--accent)" : "var(--border)"
+                        order.status === "COMPLETED" ? "var(--green)" :
+                        order.status === "CANCELLED" ? "var(--red)" : "var(--accent)"
                       }`,
                       marginBottom: "24px"
                     }}>
@@ -993,8 +1026,8 @@ export default function Dashboard() {
                       </div>
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           )}
 

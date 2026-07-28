@@ -463,7 +463,7 @@ export default function ClientAdminPanel() {
     { key: "disputes", label: "Disputes", icon: "⚖️" },
   ];
 
-  const activeOrders = orders.filter(o => !["COMPLETED", "CANCELLED"].includes(o.status));
+  const activeOrders = orders;
   const filteredActiveOrders = activeOrderFilter === "ALL" 
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
@@ -810,13 +810,13 @@ export default function ClientAdminPanel() {
           {activeTab === "active-orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ fontSize: "28px" }}>Active Orders ({activeOrders.length})</h2>
+                <h2 style={{ fontSize: "28px" }}>Orders ({activeOrders.length})</h2>
                 <button onClick={fetchAll} className="btn btn-secondary btn-sm">🔄 Refresh</button>
               </div>
 
               {/* Horizontal Status Tabs */}
               <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
-                {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP"].map(status => (
+                {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"].map(status => (
                   <button 
                     key={status}
                     onClick={() => setActiveOrderFilter(status)}
@@ -831,7 +831,7 @@ export default function ClientAdminPanel() {
                 <div className="card" style={{ textAlign: "center", padding: "64px 24px", color: "var(--text-secondary)" }}>
                   <span style={{ fontSize: "48px", display: "block", marginBottom: "16px" }}>🎉</span>
                   <h3 style={{ color: "var(--text-primary)", marginBottom: "8px" }}>All Caught Up!</h3>
-                  <p>There are no active orders matching this status.</p>
+                  <p>There are no orders matching this status.</p>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
