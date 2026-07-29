@@ -852,6 +852,10 @@ export default function ClientAdminPanel() {
                                       <input className="form-input" placeholder="0.00" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} disabled={user?.role === "STAFF"} style={{ paddingLeft: "32px", width: "100%", opacity: user?.role === "STAFF" ? 0.6 : 1 }} />
                                     </div>
                                   </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Global Stock Quantity</label>
+                                    <input className="form-input" placeholder="0" type="number" min="0" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} />
+                                  </div>
                                 </div>
                                 <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
                                   <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
@@ -896,8 +900,12 @@ export default function ClientAdminPanel() {
                                               <input className="form-input" placeholder="Location/Maps URL" value={detail.locationUrl || ""} onChange={e => updateDetail("locationUrl", e.target.value)} />
                                               <input className="form-input" placeholder="Video URL" value={detail.videoUrl || ""} onChange={e => updateDetail("videoUrl", e.target.value)} />
                                             </div>
-                                            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: "12px" }}>
+                                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 120px", gap: "12px" }}>
                                               <input className="form-input" placeholder="Message / Instructions" value={detail.message || ""} onChange={e => updateDetail("message", e.target.value)} />
+                                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                                <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty:</label>
+                                                <input className="form-input" type="number" min="0" placeholder="0" style={{ width: "80px", padding: "4px 8px" }} value={detail.stockQuantity || 0} onChange={e => updateDetail("stockQuantity", e.target.value)} />
+                                              </div>
                                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                 <input className="form-input" type="number" placeholder="0" title="Cooldown Minutes" style={{ width: "80px" }} value={detail.cooldownMinutes || 0} onChange={e => updateDetail("cooldownMinutes", e.target.value)} />
                                 <span style={{ fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap", fontWeight: "600" }}>min</span>
