@@ -590,7 +590,7 @@ export default function Dashboard() {
               ) : (
                 <div className="product-grid">
                   {categories.flatMap(category => category.products).map(product => (
-                    <div key={product.id} className="card card-interactive product-card-layout">
+                    <div key={product.id} className="card card-interactive product-card-layout animate-fade-in">
                       <div className="product-card-top">
                         <div className="product-card-info">
                           <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
