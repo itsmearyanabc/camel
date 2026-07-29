@@ -44,7 +44,7 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { background: var(--bg-primary); }
-html, body { min-height: 100%; }
+html, body { min-height: 100%; overflow-x: hidden; }
 body { color: var(--text-primary); background: var(--bg-primary); font-family: 'DM Sans', sans-serif; font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased; transition: color .35s var(--ease), background-color .35s var(--ease); }
 button, input, textarea, select { font: inherit; }
 button:disabled { cursor: wait; opacity: .65; }
