@@ -410,15 +410,29 @@ export default function Dashboard() {
     }
   };
 
-  if (!user) {
+  if (loading && !user) {
     return (
-      <>
-        <ParallaxIntro />
-        <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
-          {loading ? <SkeletonLoader /> : null}
+      <div className={styles.shell}>
+        <DashboardNav
+          user={{ username: "Loading...", role: "CUSTOMER" }}
+          activeTab={activeTab}
+          setActiveTab={() => {}}
+          onLogout={() => {}}
+          hasActiveOrders={false}
+          botUsername={BOT_USERNAME}
+        />
+        <div className={styles.content}>
+          <main className={styles.section}>
+            <SkeletonLoader />
+          </main>
         </div>
-      </>
+        <SiteFooter />
+      </div>
     );
+  }
+
+  if (!user) {
+    return null;
   }
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "shop", label: "Products", icon: "🛒" },
@@ -551,12 +565,12 @@ export default function Dashboard() {
               {/* Telegram Bot Banner */}
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: "linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)",
-                border: "1px solid rgba(84,120,211,0.15)", borderRadius: "var(--radius-lg)",
+                background: "var(--bg-secondary)",
+                border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
                 padding: "14px 20px", gap: "16px", flexWrap: "wrap",
               }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <span style={{ fontSize: "22px", background: "rgba(84,120,211,0.12)", borderRadius: "10px", padding: "8px", lineHeight: 1 }}>🤖</span>
+                  <span style={{ fontSize: "22px", background: "var(--accent-light)", borderRadius: "10px", padding: "8px", lineHeight: 1 }}>🤖</span>
                   <div>
                     <p style={{ fontWeight: 700, fontSize: "14px", margin: 0, color: "var(--text-primary)" }}>Shop 24/7 with Telegram Bot</p>
                     <p style={{ fontSize: "12px", margin: 0, color: "var(--text-secondary)" }}>Instant access to the store anytime, anywhere.</p>
@@ -564,7 +578,7 @@ export default function Dashboard() {
                 </div>
                 <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer"
                   className="btn btn-primary btn-sm"
-                  style={{ background: "#4f6ef7", borderColor: "#4f6ef7", gap: "6px", whiteSpace: "nowrap" }}>
+                  style={{ gap: "6px", whiteSpace: "nowrap" }}>
                   🤖 Configure Bot →
                 </a>
               </div>
@@ -590,10 +604,23 @@ export default function Dashboard() {
                             {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
                             {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
                           </div>
-                          <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                            <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                              {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
-                            </span>
+                          <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                            {(() => {
+                              const areaDetails = (product as any).areaDetails || [];
+                              const hasAreaStock = areaDetails.some((d: any) => d.stockQuantity > 0);
+                              if (hasAreaStock) {
+                                return areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
+                                  <span key={d.areaId} className="badge badge-in_stock" style={{ fontSize: "11px" }}>
+                                    {d.area?.name || "Area"} ({d.stockQuantity})
+                                  </span>
+                                ));
+                              }
+                              return (
+                                <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                                  {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
+                                </span>
+                              );
+                            })()}
                             {(() => {
                               if (selectedCityId === "ALL") return null;
                               const availableInCity = product.cities.some((c: any) => c.id === selectedCityId);

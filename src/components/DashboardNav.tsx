@@ -279,6 +279,27 @@ export default function DashboardNav({
               >
                 <span style={{ width: "20px" }}>🤖</span> Telegram Bot
               </a>
+
+              {/* Language selector — inside menu for mobile access */}
+              <div style={{ padding: "8px 16px", borderTop: "1px solid var(--border)", marginTop: "4px" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Language</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "6px" }}>
+                  {languages.map(lang => (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => { setActiveLanguage(lang.code); setMenuOpen(false); }}
+                      style={{
+                        padding: "4px 8px", borderRadius: "var(--radius-sm)", border: activeLanguage === lang.code ? "1px solid var(--accent)" : "1px solid var(--border)",
+                        background: activeLanguage === lang.code ? "var(--accent-light)" : "transparent", cursor: "pointer", fontSize: "12px",
+                        color: activeLanguage === lang.code ? "var(--accent)" : "var(--text-secondary)", fontWeight: activeLanguage === lang.code ? "700" : "500",
+                      }}
+                    >
+                      {lang.icon} {lang.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
               
               <div style={{ height: "1px", background: "var(--border)", margin: "8px 0" }} />
               

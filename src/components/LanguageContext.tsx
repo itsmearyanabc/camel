@@ -172,21 +172,27 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // 2. Inject Google Translate Script
-    // IMPORTANT: Define the callback BEFORE injecting the script.
-    // Google's script calls `googleTranslateElementInit` immediately on load.
-    if (!document.getElementById("google-translate-script")) {
+    if (typeof window !== "undefined") {
       window.googleTranslateElementInit = () => {
+        if (!window.google || !window.google.translate) return;
         new window.google.translate.TranslateElement(
-          { pageLanguage: 'en', autoDisplay: false },
+          { 
+            pageLanguage: 'en', 
+            autoDisplay: true,
+            // Include all supported languages
+            includedLanguages: 'en,ru,ar,tr,kk,uk'
+          },
           'google_translate_element'
         );
       };
 
-      const script = document.createElement("script");
-      script.id = "google-translate-script";
-      script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
-      script.async = true;
-      document.body.appendChild(script);
+      if (!document.getElementById("google-translate-script")) {
+        const script = document.createElement("script");
+        script.id = "google-translate-script";
+        script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+        script.async = true;
+        document.body.appendChild(script);
+      }
     }
   }, []);
 
@@ -196,8 +202,15 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     // Set Google Translate cookie
     const gLang = lang.toLowerCase();
-    document.cookie = `googtrans=/en/${gLang}; path=/`;
-    document.cookie = `googtrans=/en/${gLang}; domain=.${window.location.hostname}; path=/`;
+    
+    // If English, clear the cookie to revert to original
+    if (gLang === 'en') {
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+      document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=.${window.location.hostname}; path=/;`;
+    } else {
+      document.cookie = `googtrans=/en/${gLang}; path=/`;
+      document.cookie = `googtrans=/en/${gLang}; domain=.${window.location.hostname}; path=/`;
+    }
     
     // Reload to apply translation safely without React hydration conflicts
     window.location.reload();

@@ -55,7 +55,7 @@ export default function ClientAdminPanel() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryDesc, setNewCategoryDesc] = useState("");
   const [newCategoryPrefix, setNewCategoryPrefix] = useState("");
-  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, productType: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
+  const [newProduct, setNewProduct] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, productType: string, imageUrl: string, stockQuantity: number, cityIds: string[], areaIds: string[], areaDetails: any[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [], areaDetails: [] });
 
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [editProductData, setEditProductData] = useState<{name: string, description: string, price: string, currency: string, formula: string, casNumber: string, imageUrl: string, stockQuantity: string, productType: string, cityIds: string[], areaIds: string[], areaDetails: any[]}>({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", imageUrl: "", stockQuantity: "0", productType: "", cityIds: [], areaIds: [], areaDetails: [] });
@@ -294,13 +294,14 @@ export default function ClientAdminPanel() {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const areaStocks = newProduct.areaDetails.map((d: any) => ({ areaId: d.areaId, quantity: d.stockQuantity?.toString() || "0" }));
       const res = await fetch("/api/admin/products", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newProduct, price: parseFloat(newProduct.price) })
+        body: JSON.stringify({ ...newProduct, price: parseFloat(newProduct.price), areaStocks })
       });
       if (res.ok) {
         setMsg({ type: "success", text: "Product added!" });
-        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [] });
+        setNewProduct({ name: "", description: "", price: "", currency: "USD", formula: "", casNumber: "", productType: "", imageUrl: "", stockQuantity: 0, cityIds: [], areaIds: [], areaDetails: [] });
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -329,9 +330,10 @@ export default function ClientAdminPanel() {
   const handleEditProductSubmit = async () => {
     if (!editingProductId) return;
     try {
+      const areaStocks = editProductData.areaDetails.map((d: any) => ({ areaId: d.areaId, quantity: d.stockQuantity?.toString() || "0" }));
       const res = await fetch("/api/admin/products", {
         method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity), productType: editProductData.productType })
+        body: JSON.stringify({ ...editProductData, productId: editingProductId, price: parseFloat(editProductData.price), stockQuantity: parseInt(editProductData.stockQuantity), productType: editProductData.productType, areaStocks })
       });
       if (res.ok) {
         if (editProductData.areaDetails && editProductData.areaDetails.length > 0) {
@@ -493,13 +495,32 @@ export default function ClientAdminPanel() {
     }
   };
 
-  if (loading || !user) {
+  if (loading && !user) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)" }}>
-        <h3 style={{ color: "var(--text-secondary)" }}>Loading Control Panel...</h3>
+      <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
+        <header style={{ padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "var(--bg-primary)", borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <h1 style={{ margin: 0, fontSize: "20px", fontWeight: "700" }}>Control Panel</h1>
+          </div>
+        </header>
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          <main style={{ flex: 1, padding: "24px", overflowY: "auto", position: "relative" }}>
+            <div style={{ maxWidth: "1200px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "24px" }}>
+               {/* Simplified Skeleton */}
+               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "16px" }}>
+                 <div className="skeleton" style={{ height: "100px", borderRadius: "var(--radius-md)" }}></div>
+                 <div className="skeleton" style={{ height: "100px", borderRadius: "var(--radius-md)" }}></div>
+                 <div className="skeleton" style={{ height: "100px", borderRadius: "var(--radius-md)" }}></div>
+               </div>
+               <div className="skeleton" style={{ height: "400px", borderRadius: "var(--radius-md)" }}></div>
+            </div>
+          </main>
+        </div>
       </div>
     );
   }
+
+  if (!user) return null;
 
   const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
@@ -721,6 +742,47 @@ export default function ClientAdminPanel() {
                       <button type="button" onClick={() => setShowLocationsModal("new")} className="btn btn-secondary btn-sm">Manage Locations</button>
                     </div>
                   </div>
+                  
+                  {newProduct.areaIds.length > 0 && (
+                    <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                      <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Area-Wise Stock Allocation</label>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)", maxHeight: "300px", overflowY: "auto" }}>
+                        {newProduct.areaIds.map(areaId => {
+                          let areaName = "Unknown Area";
+                          for (const city of locations) {
+                            const a = city.areas?.find((x: any) => x.id === areaId);
+                            if (a) { areaName = a.name; break; }
+                          }
+                          
+                          const detailIndex = newProduct.areaDetails.findIndex(d => d.areaId === areaId);
+                          const detail = detailIndex >= 0 ? newProduct.areaDetails[detailIndex] : { areaId, stockQuantity: 0 };
+                          
+                          const updateDetail = (key: string, value: any) => {
+                            const newDetails = [...newProduct.areaDetails];
+                            const dIdx = newDetails.findIndex(d => d.areaId === areaId);
+                            if (dIdx >= 0) {
+                              newDetails[dIdx] = { ...newDetails[dIdx], [key]: value };
+                            } else {
+                              newDetails.push({ areaId, stockQuantity: 0, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0, [key]: value });
+                            }
+                            setNewProduct({ ...newProduct, areaDetails: newDetails });
+                          };
+
+                          return (
+                            <div key={areaId} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px", background: "var(--bg-primary)" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <h4 style={{ margin: 0, fontSize: "14px", color: "var(--accent)" }}>{areaName}</h4>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty:</label>
+                                  <input className="form-input" type="number" min="0" placeholder="0" style={{ width: "80px", padding: "4px 8px" }} value={detail.stockQuantity || 0} onChange={e => updateDetail("stockQuantity", e.target.value)} />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ gridColumn: "span 2" }}>
                     <button type="submit" className="btn btn-primary">Create Product</button>
                   </div>
@@ -754,7 +816,19 @@ export default function ClientAdminPanel() {
                           <td>{p.productType || p.categoryName || "—"}</td>
                           <td style={{ fontWeight: "600", color: "var(--green)" }}>{p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "$"}{Number(p.price).toFixed(2)}</td>
                           <td><span className={`badge badge-${p.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>{p.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"}</span></td>
-                          <td>{p.stockQuantity}</td>
+                          <td>
+                            {p.areaDetails && p.areaDetails.some((d: any) => d.stockQuantity > 0) ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                {p.areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
+                                  <span key={d.areaId} style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                                    {d.area?.name || "Area"}: <strong style={{ color: "var(--text-primary)" }}>{d.stockQuantity}</strong>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              p.stockQuantity
+                            )}
+                          </td>
                           <td>
                             <div style={{ display: "flex", gap: "8px" }}>
                               <button onClick={() => startEditingProduct(p)} className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }}>Edit</button>
@@ -771,10 +845,6 @@ export default function ClientAdminPanel() {
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
                                 <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={editProductData.productType} onChange={e => setEditProductData({...editProductData, productType: e.target.value})} />
                                 <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty</label>
-                                    <input className="form-input" style={{ width: "100px" }} type="number" min="0" placeholder="0" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} title="Stock Quantity" />
-                                  </div>
                                   <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
                                     <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Unit Price (USD)</label>
                                     <div style={{ position: "relative" }}>

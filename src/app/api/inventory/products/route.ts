@@ -8,6 +8,7 @@ export async function GET() {
         category: { select: { id: true, name: true, prefixCode: true } },
         cities: { select: { id: true, name: true } },
         areas: { select: { id: true, name: true } },
+        areaDetails: { select: { areaId: true, stockQuantity: true, area: { select: { name: true } } } },
       },
       orderBy: { createdAt: "asc" },
     });

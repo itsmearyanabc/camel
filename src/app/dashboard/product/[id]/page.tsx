@@ -170,9 +170,26 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     <div>
                       <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>{product.name}</h1>
                       <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-                        <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                          {product.stockQuantity > 0 ? "IN STOCK" : "OUT OF STOCK"} ({product.stockQuantity})
-                        </span>
+                        {(() => {
+                          const areaDetails = product.areaDetails || [];
+                          const hasAreaStock = areaDetails.some((d: any) => d.stockQuantity > 0);
+                          if (hasAreaStock) {
+                            return (
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                {areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
+                                  <span key={d.areaId} className="badge badge-in_stock">
+                                    {d.area?.name || "Area"} ({d.stockQuantity})
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          }
+                          return (
+                            <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                              {product.stockQuantity > 0 ? "IN STOCK" : "OUT OF STOCK"} ({product.stockQuantity})
+                            </span>
+                          );
+                        })()}
                         {product.formula && <span style={{ fontSize: "14px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
                         {product.areas && product.areas.length > 0 && (
                           <div style={{ display: "flex", gap: "8px", alignItems: "center", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "16px" }}>

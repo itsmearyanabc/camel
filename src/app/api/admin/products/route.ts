@@ -13,7 +13,7 @@ export async function GET() {
       category: { select: { id: true, name: true, prefixCode: true } },
       cities: { select: { id: true, name: true } },
       areas: { select: { id: true, name: true } },
-      areaDetails: true,
+      areaDetails: { include: { area: { select: { id: true, name: true } } } },
     },
     orderBy: { createdAt: "desc" },
   });
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { name, description, price, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds } = await req.json();
+  const { name, description, price, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds, areaStocks } = await req.json();
 
   if (!name || name.trim().length < 2) {
     return NextResponse.json({ error: "Product name must be at least 2 characters" }, { status: 400 });
@@ -60,6 +60,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Product with this name already exists" }, { status: 400 });
   }
 
+  let totalStock = parseInt(stockQuantity || "0", 10);
+  if (areaStocks && Array.isArray(areaStocks)) {
+    totalStock = areaStocks.reduce((sum: number, a: any) => sum + (parseInt(a.quantity, 10) || 0), 0);
+  }
+
   const product = await prisma.product.create({
     data: {
       name: name.trim(),
@@ -70,11 +75,23 @@ export async function POST(req: NextRequest) {
       casNumber: casNumber?.trim() || null,
       imageUrl: imageUrl?.trim() || null,
       productType: productType?.trim() || null,
-      stockQuantity: parseInt(stockQuantity || "0", 10),
+      stockQuantity: totalStock,
       cities: cityIds && cityIds.length > 0 ? { connect: cityIds.map((id: string) => ({ id })) } : undefined,
       areas: areaIds && areaIds.length > 0 ? { connect: areaIds.map((id: string) => ({ id })) } : undefined,
     },
   });
+
+  if (areaStocks && Array.isArray(areaStocks)) {
+    for (const { areaId, quantity } of areaStocks) {
+      await prisma.productAreaDetail.create({
+        data: {
+          productId: product.id,
+          areaId,
+          stockQuantity: parseInt(quantity, 10) || 0,
+        },
+      });
+    }
+  }
 
   return NextResponse.json({ product });
 }
@@ -85,7 +102,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType } = await req.json();
+  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType, areaStocks } = await req.json();
 
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
@@ -115,7 +132,6 @@ export async function PUT(req: NextRequest) {
   if (formula !== undefined) updateData.formula = formula?.trim() || null;
   if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
-  if (stockQuantity !== undefined) updateData.stockQuantity = parseInt(stockQuantity, 10);
   if (productType !== undefined) updateData.productType = productType?.trim() || null;
   
   if (cityIds !== undefined) {
@@ -123,6 +139,25 @@ export async function PUT(req: NextRequest) {
   }
   if (areaIds !== undefined) {
     updateData.areas = { set: areaIds.map((id: string) => ({ id })) };
+  }
+
+  // Handle area-wise stock allocation
+  if (areaStocks && Array.isArray(areaStocks)) {
+    // Upsert stock for each area
+    for (const { areaId, quantity } of areaStocks) {
+      await prisma.productAreaDetail.upsert({
+        where: { productId_areaId: { productId, areaId } },
+        update: { stockQuantity: parseInt(quantity, 10) || 0 },
+        create: { productId, areaId, stockQuantity: parseInt(quantity, 10) || 0 },
+      });
+    }
+    // Auto-compute total stock as sum of all area stocks
+    const allAreaDetails = await prisma.productAreaDetail.findMany({ where: { productId } });
+    const totalStock = allAreaDetails.reduce((sum: number, d: any) => sum + (d.stockQuantity || 0), 0);
+    updateData.stockQuantity = totalStock;
+  } else if (stockQuantity !== undefined) {
+    // Fallback: direct stock quantity if no areaStocks provided
+    updateData.stockQuantity = parseInt(stockQuantity, 10);
   }
 
   const updatedProduct = await prisma.product.update({
