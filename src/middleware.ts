@@ -18,7 +18,7 @@ export function middleware(request: NextRequest) {
 
   // Rate Limiting ONLY for Auth routes to prevent brute force / DDoS
   if (url.startsWith('/api/auth/login') || url.startsWith('/api/auth/register')) {
-    const ip = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
+    const ip = request.headers.get('x-forwarded-for') || 'unknown';
     
     // Clean up old entries randomly to prevent memory leaks (10% chance)
     if (Math.random() < 0.1) {
