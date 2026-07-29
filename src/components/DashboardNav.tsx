@@ -80,13 +80,13 @@ export default function DashboardNav({
   
   const { language: activeLanguage, setLanguage: setActiveLanguage, t } = useLanguage();
   
-  const languages: { code: LanguageCode; name: string; icon: string }[] = [
-    { code: "EN", name: "English", icon: "🇬🇧" },
-    { code: "RU", name: "Русский", icon: "🇷🇺" },
-    { code: "AR", name: "العربية", icon: "🇸🇦" },
-    { code: "TR", name: "Türkçe", icon: "🇹🇷" },
-    { code: "KK", name: "Қазақша", icon: "🇰🇿" },
-    { code: "UK", name: "Українська", icon: "🇺🇦" },
+  const languages: { code: LanguageCode; name: string; iconUrl: string }[] = [
+    { code: "EN", name: "English", iconUrl: "https://flagcdn.com/w40/gb.png" },
+    { code: "RU", name: "Русский", iconUrl: "https://flagcdn.com/w40/ru.png" },
+    { code: "AR", name: "العربية", iconUrl: "https://flagcdn.com/w40/sa.png" },
+    { code: "TR", name: "Türkçe", iconUrl: "https://flagcdn.com/w40/tr.png" },
+    { code: "KK", name: "Қазақша", iconUrl: "https://flagcdn.com/w40/kz.png" },
+    { code: "UK", name: "Українська", iconUrl: "https://flagcdn.com/w40/ua.png" },
   ];
 
   // Bottom tab items
@@ -179,7 +179,7 @@ export default function DashboardNav({
               className="btn btn-ghost btn-sm"
               style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
             >
-              <span aria-hidden="true">{languages.find(l => l.code === activeLanguage)?.icon || "🇬🇧"}</span> 
+              <img src={languages.find(l => l.code === activeLanguage)?.iconUrl || "https://flagcdn.com/w40/gb.png"} alt="flag" style={{ width: "20px", borderRadius: "2px" }} aria-hidden="true" />
               {languages.find(l => l.code === activeLanguage)?.name || "English"}
             </button>
             <nav
@@ -195,7 +195,7 @@ export default function DashboardNav({
                   style={{ justifyContent: "space-between" }}
                 >
                   <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ width: "18px", fontSize: "15px", textAlign: "center" }}>{lang.icon}</span>
+                    <img src={lang.iconUrl} alt={lang.name} style={{ width: "20px", borderRadius: "2px" }} />
                     {lang.name}
                   </span>
                   {activeLanguage === lang.code && (

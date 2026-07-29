@@ -480,7 +480,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <ParallaxIntro />
       <div className={styles.shell}>
         {/* Header */}
       <DashboardNav
@@ -504,19 +503,19 @@ export default function Dashboard() {
               <section className={styles.dashboardHero}>
                 <div>
                   <p className={styles.heroKicker}>Camel971marketplace</p>
-                  <h1>Browse with confidence.</h1>
-                  <p>Choose a city to tailor what you see, then explore products from one streamlined dashboard.</p>
+                  <h1>{t("dash.title")}</h1>
+                  <p>{t("dash.subtitle")}</p>
                 </div>
                 <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
                   <label style={{ flex: 1, minWidth: "200px" }}>
-                    <span className="form-label">Delivery city</span>
+                    <span className="form-label">{t("dash.city")}</span>
                     <select 
                       className={styles.citySelect} 
                       value={selectedCityId}
                       onChange={e => { setSelectedCityId(e.target.value); setSelectedAreaId("ALL"); }}
-                      aria-label="Select delivery city"
+                      aria-label={t("dash.city")}
                     >
-                      <option value="ALL">Any city</option>
+                      <option value="ALL">{t("dash.anycity")}</option>
                       {locations.map(loc => (
                         <option key={loc.id} value={loc.id}>{loc.name}</option>
                       ))}
@@ -525,14 +524,14 @@ export default function Dashboard() {
 
                   {selectedCityId !== "ALL" && (locations.find(l => l.id === selectedCityId)?.areas?.length ?? 0) > 0 && (
                     <label style={{ flex: 1, minWidth: "200px" }}>
-                      <span className="form-label">Delivery area</span>
+                      <span className="form-label">{t("dash.area")}</span>
                       <select 
                         className={styles.citySelect} 
                         value={selectedAreaId}
                         onChange={e => setSelectedAreaId(e.target.value)}
-                        aria-label="Select delivery area"
+                        aria-label={t("dash.area")}
                       >
-                        <option value="ALL">Any area</option>
+                        <option value="ALL">{t("dash.anyarea")}</option>
                         {locations.find(l => l.id === selectedCityId)?.areas?.map(area => (
                           <option key={area.id} value={area.id}>{area.name}</option>
                         ))}
@@ -551,14 +550,14 @@ export default function Dashboard() {
                 <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                   <span style={{ fontSize: "22px", background: "var(--accent-light)", borderRadius: "10px", padding: "8px", lineHeight: 1 }}>🤖</span>
                   <div>
-                    <p style={{ fontWeight: 700, fontSize: "14px", margin: 0, color: "var(--text-primary)" }}>Shop 24/7 with Telegram Bot</p>
-                    <p style={{ fontSize: "12px", margin: 0, color: "var(--text-secondary)" }}>Instant access to the store anytime, anywhere.</p>
+                    <p style={{ fontWeight: 700, fontSize: "14px", margin: 0, color: "var(--text-primary)" }}>{t("dash.bot.title")}</p>
+                    <p style={{ fontSize: "12px", margin: 0, color: "var(--text-secondary)" }}>{t("dash.bot.desc")}</p>
                   </div>
                 </div>
                 <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer"
                   className="btn btn-primary btn-sm"
                   style={{ gap: "6px", whiteSpace: "nowrap" }}>
-                  🤖 Configure Bot →
+                  {t("dash.bot.btn")}
                 </a>
               </div>
 

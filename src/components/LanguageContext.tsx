@@ -26,7 +26,16 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "reviews.loadMore": "Load more",
     "reviews.write": "Write a Review",
     "reviews.login": "Log in to review",
-    "reviews.submit": "Submit Review"
+    "reviews.submit": "Submit Review",
+    "dash.title": "Browse with confidence.",
+    "dash.subtitle": "Choose a city to tailor what you see, then explore products from one streamlined dashboard.",
+    "dash.city": "Delivery city",
+    "dash.anycity": "Any city",
+    "dash.area": "Delivery area",
+    "dash.anyarea": "Any area",
+    "dash.bot.title": "Shop 24/7 with Telegram Bot",
+    "dash.bot.desc": "Instant access to the store anytime, anywhere.",
+    "dash.bot.btn": "🤖 Configure Bot →"
   },
   RU: {
     "nav.shop": "Магазин",
@@ -49,7 +58,16 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "reviews.loadMore": "Загрузить еще",
     "reviews.write": "Написать отзыв",
     "reviews.login": "Войдите для отзыва",
-    "reviews.submit": "Отправить отзыв"
+    "reviews.submit": "Отправить отзыв",
+    "dash.title": "Покупайте с уверенностью.",
+    "dash.subtitle": "Выберите город для настройки отображения, затем исследуйте продукты в удобной панели.",
+    "dash.city": "Город доставки",
+    "dash.anycity": "Любой город",
+    "dash.area": "Район доставки",
+    "dash.anyarea": "Любой район",
+    "dash.bot.title": "Покупайте 24/7 с Telegram ботом",
+    "dash.bot.desc": "Мгновенный доступ к магазину в любое время и в любом месте.",
+    "dash.bot.btn": "🤖 Настроить бота →"
   },
   AR: {
     "nav.shop": "المتجر",
@@ -72,7 +90,16 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "reviews.loadMore": "تحميل المزيد",
     "reviews.write": "اكتب مراجعة",
     "reviews.login": "تسجيل الدخول",
-    "reviews.submit": "إرسال المراجعة"
+    "reviews.submit": "إرسال المراجعة",
+    "dash.title": "تصفح بثقة.",
+    "dash.subtitle": "اختر مدينة لتخصيص ما تراه، ثم استكشف المنتجات من لوحة تحكم واحدة مبسطة.",
+    "dash.city": "مدينة التوصيل",
+    "dash.anycity": "أي مدينة",
+    "dash.area": "منطقة التوصيل",
+    "dash.anyarea": "أي منطقة",
+    "dash.bot.title": "تسوق على مدار الساعة طوال أيام الأسبوع مع بوت تيليجرام",
+    "dash.bot.desc": "وصول فوري إلى المتجر في أي وقت وفي أي مكان.",
+    "dash.bot.btn": "🤖 إعداد البوت →"
   },
   TR: {
     "nav.shop": "Mağaza",
