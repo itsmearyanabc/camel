@@ -289,7 +289,7 @@ export default function Dashboard() {
       } else {
         setTgMsg({ type: "success", text: "Telegram settings updated successfully!" });
         tgInputsSeeded.current = false;
-        await checkSession({ seedTelegram: true });
+        await loadDashboardData({ seedTelegram: true });
       }
     } catch {
       setTgMsg({ type: "error", text: "An error occurred" });
@@ -300,8 +300,7 @@ export default function Dashboard() {
   const handleCheckoutSuccess = async () => {
     setIsCheckoutOpen(false);
     setShopMsg({ type: "success", text: "Order placed successfully! Cooldown active." });
-    loadOrdersData();
-    checkSession();
+    await loadDashboardData();
     setActiveTab("orders");
   };
 
@@ -322,7 +321,7 @@ export default function Dashboard() {
       setShowDepositInstructions(true);
       setWalletMessage(`Deposit request for ${formatPrice(parseFloat(depositAmount), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} submitted successfully!`);
       setDepositAmount("");
-      loadDepositRequests();
+      await loadDashboardData();
     } catch { setWalletMessage("Error processing deposit"); }
   };
 
@@ -333,8 +332,7 @@ export default function Dashboard() {
       const d = await r.json();
       if (!r.ok) { setShopMsg({ type: "error", text: d.error || "Purchase failed" }); return; }
       setShopMsg({ type: "success", text: `Order placed! Cooldown active.` });
-      const rMe = await fetch("/api/auth/me"); const dMe = await rMe.json(); setUser(dMe.user);
-      loadShopData(); loadWalletData(); loadOrdersData();
+      await loadDashboardData();
       setActiveTab("orders");
     } catch { setShopMsg({ type: "error", text: "Error processing purchase" }); }
   };
@@ -355,7 +353,7 @@ export default function Dashboard() {
       
       setCryptoPaymentInfo(d.order);
       setCryptoStep("pay");
-      loadShopData(); loadOrdersData();
+      await loadDashboardData();
     } catch { setShopMsg({ type: "error", text: "Error processing crypto purchase" }); }
   };
 
@@ -387,7 +385,7 @@ export default function Dashboard() {
     if (!selectedOrderIdForDispute) return;
     try {
       const r = await fetch("/api/disputes/submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: selectedOrderIdForDispute, reason: disputeReason }) });
-      if (r.ok) { setSelectedOrderIdForDispute(null); setDisputeReason(""); loadDisputesData(); loadOrdersData(); setActiveTab("disputes"); }
+      if (r.ok) { setSelectedOrderIdForDispute(null); setDisputeReason(""); await loadDashboardData(); setActiveTab("disputes"); }
     } catch {}
   };
 
@@ -402,7 +400,7 @@ export default function Dashboard() {
       });
       if (r.ok) {
         setDisputeMessageTexts(prev => ({ ...prev, [disputeId]: "" }));
-        loadDisputesData();
+        await loadDashboardData();
       }
     } catch (e) {
       console.error(e);
@@ -422,8 +420,7 @@ export default function Dashboard() {
         setRaiseTicketOpen(false);
         setRaiseTicketOrderId("");
         setRaiseTicketReason("");
-        loadDisputesData();
-        loadOrdersData();
+        await loadDashboardData();
       }
     } catch (e) {
       console.error(e);
