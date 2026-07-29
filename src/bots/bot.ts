@@ -444,6 +444,13 @@ export function createTelegramBot(token: string, botName: string) {
       text += `🧪 *${esc(item.product.name)}*\n`;
       text += `Status: *${esc(item.status)}*\n`;
       
+      if (item.locationLink) {
+        text += `🗺️ *Location:* [View on Map](${item.locationLink})\n`;
+      }
+      if (item.pickupVideoUrl) {
+        text += `🎥 *Video Guide:* [Watch Video](${item.pickupVideoUrl})\n`;
+      }
+      
       if (item.status === "COOLDOWN_ACTIVE") {
         hasCooldown = true;
         const secLeft = Math.max(0, Math.ceil((new Date(item.cooldownEndAt!).getTime() - Date.now()) / 1000));
@@ -523,6 +530,14 @@ export function createTelegramBot(token: string, botName: string) {
     order.items.forEach((item) => {
       text += `🧪 *${esc(item.product.name)}*\n`;
       text += `Status: *${esc(item.status)}*\n`;
+      
+      if (item.locationLink) {
+        text += `🗺️ *Location:* [View on Map](${item.locationLink})\n`;
+      }
+      if (item.pickupVideoUrl) {
+        text += `🎥 *Video Guide:* [Watch Video](${item.pickupVideoUrl})\n`;
+      }
+      
       text += `📍 *Ready for collection*\n\n`;
     });
 

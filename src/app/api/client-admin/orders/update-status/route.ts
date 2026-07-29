@@ -61,9 +61,16 @@ export async function POST(req: Request) {
       const botToken = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
       if (botToken && botToken !== "PLACEHOLDER_BOT_1_TOKEN") {
         try {
-          const telegramMessage =
+          let telegramMessage =
             `📦 *Order Update for ${orderItem.product.name}*\n\n` +
             `Your item status has been updated to: *${status.replace(/_/g, " ")}*`;
+
+          if (orderItem.locationLink) {
+            telegramMessage += `\n\n🗺️ *Location:* [View on Map](${orderItem.locationLink})`;
+          }
+          if (orderItem.pickupVideoUrl) {
+            telegramMessage += `\n🎥 *Video Guide:* [Watch Video](${orderItem.pickupVideoUrl})`;
+          }
 
           const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: "POST",

@@ -36,19 +36,25 @@ export async function GET(req: Request) {
       let pickupVideoUrl: string | null = null;
       let adminMessage = "Your product is ready for pickup!";
 
+      let areaDetail = null;
       if (item.areaId) {
-        const areaDetail = await prisma.productAreaDetail.findUnique({
+        areaDetail = await prisma.productAreaDetail.findUnique({
           where: {
             productId_areaId: { productId: item.productId, areaId: item.areaId }
           }
         });
-        
-        if (areaDetail) {
-          locationLink = areaDetail.locationUrl || null;
-          pickupVideoUrl = areaDetail.videoUrl || null;
-          if (areaDetail.message) {
-            adminMessage = areaDetail.message;
-          }
+      } else {
+        // Fallback for older orders or Telegram orders without an areaId
+        areaDetail = await prisma.productAreaDetail.findFirst({
+          where: { productId: item.productId }
+        });
+      }
+      
+      if (areaDetail) {
+        locationLink = areaDetail.locationUrl || null;
+        pickupVideoUrl = areaDetail.videoUrl || null;
+        if (areaDetail.message) {
+          adminMessage = areaDetail.message;
         }
       }
 
@@ -105,10 +111,12 @@ export async function GET(req: Request) {
       telegramMessage += `📝 ${escapeTelegramMarkdown(msg.adminMessage)}\n\n`;
       
       if (msg.locationLink) {
-        telegramMessage += `🗺️ *Location:* [View on Map](${msg.locationLink})\n`;
+        const safeLink = msg.locationLink.replace(/([\\()])/g, "\\$1");
+        telegramMessage += `🗺️ *Location:* [View on Map](${safeLink})\n`;
       }
       if (msg.pickupVideoUrl) {
-        telegramMessage += `🎥 *Video Guide:* [Watch Video](${msg.pickupVideoUrl})\n`;
+        const safeVid = msg.pickupVideoUrl.replace(/([\\()])/g, "\\$1");
+        telegramMessage += `🎥 *Video Guide:* [Watch Video](${safeVid})\n`;
       }
 
       telegramMessage += `\nStatus: *READY FOR PICKUP*`;
