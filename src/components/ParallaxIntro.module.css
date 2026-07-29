@@ -9,13 +9,15 @@
 /* ========== PARALLAX SECTION ========== */
 .parallaxSection {
     position: relative;
-    width: 100%;
+    width: 100vw;
+    max-width: 100vw;
     height: 100vh;
     overflow: hidden;
     display: flex;
     justify-content: center;
     align-items: center;
     margin-top: 0;
+    margin-left: calc(-50vw + 50%);
     z-index: 1;
     background: #000000;
 }
@@ -121,8 +123,18 @@
     .movingLine {
         font-size: 40px;
         letter-spacing: 4px;
-        animation-duration: 25s;
+        animation-duration: 15s;
         padding: 10px 0;
+    }
+    .parallaxImg {
+        object-position: center bottom;
+    }
+    .man {
+        height: 60vh !important;
+        width: auto !important;
+        left: 50% !important;
+        transform: translateX(-50%);
+        bottom: 0;
     }
 }
 
@@ -133,10 +145,16 @@
     .parallaxSection::after {
         height: 60px;
     }
+    .movingLineWrapper {
+        width: 200vw;
+    }
     .movingLine {
-        font-size: 28px;
-        letter-spacing: 3px;
-        animation-duration: 23s;
+        font-size: 24px;
+        letter-spacing: 2px;
+        animation-duration: 12s;
         padding: 8px 0;
+    }
+    .man {
+        height: 50vh !important;
     }
 }
