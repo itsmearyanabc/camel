@@ -12,7 +12,7 @@ export async function GET() {
     // 1. Total Sales (from orders that are at least PAID)
     const paidOrders = await prisma.order.findMany({
       where: {
-        status: { in: ["PAID", "COOLDOWN_ACTIVE", "READY", "COMPLETED"] }
+        status: { in: ["ORDERED", "PROCESSING", "COMPLETED"] }
       }
     });
     const totalSales = paidOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
