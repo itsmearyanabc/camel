@@ -410,11 +410,14 @@ export default function Dashboard() {
     }
   };
 
-  if (loading || !user) {
+  if (!user) {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
-        <SkeletonLoader />
-      </div>
+      <>
+        <ParallaxIntro />
+        <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
+          {loading ? <SkeletonLoader /> : null}
+        </div>
+      </>
     );
   }
   const tabs: { key: Tab; label: string; icon: string }[] = [
@@ -498,7 +501,11 @@ export default function Dashboard() {
 
       <div className={styles.content}>
         <main className={styles.section}>
-          {/* SHOP */}
+          {loading ? (
+            <SkeletonLoader />
+          ) : (
+            <>
+              {/* SHOP */}
           {activeTab === "shop" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
               <section className={styles.dashboardHero}>
@@ -1547,6 +1554,8 @@ export default function Dashboard() {
             <div className={styles.tabContent}>
               <Reviews isLoggedIn={!!user} />
             </div>
+          )}
+            </>
           )}
         </main>
       </div>
