@@ -35,7 +35,19 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "dash.anyarea": "Any area",
     "dash.bot.title": "Shop 24/7 with Telegram Bot",
     "dash.bot.desc": "Instant access to the store anytime, anywhere.",
-    "dash.bot.btn": "🤖 Configure Bot →"
+    "dash.bot.btn": "🤖 Configure Bot →",
+    "footer.desc": "A premium, privacy-first marketplace with secure ordering and always-on Telegram access.",
+    "footer.explore": "Explore",
+    "footer.home": "Home",
+    "footer.create": "Create account",
+    "footer.signin": "Sign in",
+    "footer.secure": "Secure access",
+    "footer.bot": "Telegram Bot",
+    "footer.wallet": "Encrypted wallet",
+    "footer.247": "24/7 availability",
+    "footer.appearance": "Appearance",
+    "footer.theme": "Choose the view that feels right for you.",
+    "product.view": "View Product"
   },
   RU: {
     "nav.shop": "Магазин",
@@ -67,7 +79,19 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "dash.anyarea": "Любой район",
     "dash.bot.title": "Покупайте 24/7 с Telegram ботом",
     "dash.bot.desc": "Мгновенный доступ к магазину в любое время и в любом месте.",
-    "dash.bot.btn": "🤖 Настроить бота →"
+    "dash.bot.btn": "🤖 Настроить бота →",
+    "footer.desc": "Премиальный рынок с приоритетом конфиденциальности, безопасным заказом и постоянным доступом через Telegram.",
+    "footer.explore": "Исследовать",
+    "footer.home": "Главная",
+    "footer.create": "Создать аккаунт",
+    "footer.signin": "Войти",
+    "footer.secure": "Безопасный доступ",
+    "footer.bot": "Telegram Бот",
+    "footer.wallet": "Зашифрованный кошелек",
+    "footer.247": "Доступность 24/7",
+    "footer.appearance": "Внешний вид",
+    "footer.theme": "Выберите подходящий для вас вид.",
+    "product.view": "Посмотреть продукт"
   },
   AR: {
     "nav.shop": "المتجر",
@@ -99,7 +123,19 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "dash.anyarea": "أي منطقة",
     "dash.bot.title": "تسوق على مدار الساعة طوال أيام الأسبوع مع بوت تيليجرام",
     "dash.bot.desc": "وصول فوري إلى المتجر في أي وقت وفي أي مكان.",
-    "dash.bot.btn": "🤖 إعداد البوت →"
+    "dash.bot.btn": "🤖 إعداد البوت →",
+    "footer.desc": "سوق مميز يعطي الأولوية للخصوصية مع طلب آمن ووصول دائم عبر تيليجرام.",
+    "footer.explore": "استكشف",
+    "footer.home": "الرئيسية",
+    "footer.create": "إنشاء حساب",
+    "footer.signin": "تسجيل الدخول",
+    "footer.secure": "وصول آمن",
+    "footer.bot": "بوت تيليجرام",
+    "footer.wallet": "محفظة مشفرة",
+    "footer.247": "متاح 24/7",
+    "footer.appearance": "المظهر",
+    "footer.theme": "اختر العرض الذي يناسبك.",
+    "product.view": "عرض المنتج"
   },
   TR: {
     "nav.shop": "Mağaza",

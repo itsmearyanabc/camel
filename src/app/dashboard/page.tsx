@@ -643,7 +643,7 @@ export default function Dashboard() {
                                 className={`btn ${isAvailable ? "btn-primary" : "btn-secondary"} btn-sm`}
                                 style={{ width: "100%", opacity: isAvailable ? 1 : 0.6, cursor: isAvailable ? "pointer" : "not-allowed" }}
                               >
-                                View Product
+                                {t("product.view")}
                               </Link>
                             );
                           })()}
