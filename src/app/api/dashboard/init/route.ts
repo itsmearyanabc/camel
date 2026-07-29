@@ -17,32 +17,34 @@ export async function GET() {
         role: true,
         telegramId: true,
         telegramUsername: true,
-        balance: true,
+        wallet: { select: { balance: true, currency: true } },
         createdAt: true,
       }
     });
     
     if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+    const walletInfo = await prisma.wallet.findUnique({ where: { userId: user.id } });
+
     const [categories, cities, ledgers, orders, disputes, depositRequests, settings] = await Promise.all([
       prisma.category.findMany({
-        include: { products: { include: { locations: true } } },
-        orderBy: { sortOrder: "asc" }
+        include: { products: { include: { cities: true, areas: true, areaDetails: { include: { area: true } } } } },
+        orderBy: { createdAt: "asc" }
       }),
       prisma.city.findMany({
         include: { areas: true },
         orderBy: { name: "asc" }
       }),
-      prisma.ledgerEntry.findMany({
-        where: { userId: user.id },
+      walletInfo ? prisma.walletLedger.findMany({
+        where: { walletId: walletInfo.id },
         orderBy: { createdAt: "desc" }
-      }),
+      }) : Promise.resolve([]),
       prisma.order.findMany({
         where: { userId: user.id },
         include: { items: { include: { product: true } } },
         orderBy: { createdAt: "desc" }
       }),
-      prisma.ticket.findMany({
+      prisma.dispute.findMany({
         where: { userId: user.id },
         include: { messages: true, order: true },
         orderBy: { updatedAt: "desc" }
@@ -51,8 +53,10 @@ export async function GET() {
         where: { userId: user.id },
         orderBy: { createdAt: "desc" }
       }),
-      prisma.systemSettings.findFirst()
+      prisma.setting.findMany()
     ]);
+
+    const cryptoSetting = settings.find(s => s.key === "cryptoWalletAddress");
 
     return NextResponse.json({
       user,
@@ -62,7 +66,7 @@ export async function GET() {
       orders,
       disputes,
       depositRequests,
-      cryptoAddress: settings?.cryptoWalletAddress || "Not configured"
+      cryptoAddress: cryptoSetting?.value || "Not configured"
     });
   } catch (error: any) {
     console.error("Dashboard Init Error:", error);
