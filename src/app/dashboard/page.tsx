@@ -179,8 +179,10 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       await checkSession({ seedTelegram: true });
-      await Promise.all([loadShopData(), loadWalletData(), loadOrdersData(), loadDisputesData(), loadDepositRequests()]);
-      setLoading(false);
+      setLoading(false); // Stop UI blocking immediately so user sees the dashboard instantly
+      
+      // Load heavy data asynchronously in the background
+      Promise.all([loadShopData(), loadWalletData(), loadOrdersData(), loadDisputesData(), loadDepositRequests()]);
     })();
   }, []);
 
