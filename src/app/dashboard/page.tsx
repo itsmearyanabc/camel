@@ -498,6 +498,7 @@ export default function Dashboard() {
 
   return (
     <>
+      <ParallaxIntro />
       <div className={styles.shell}>
         {/* Header */}
       <DashboardNav
