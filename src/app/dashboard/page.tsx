@@ -410,30 +410,9 @@ export default function Dashboard() {
     }
   };
 
-  if (loading && !user) {
-    return (
-      <div className={styles.shell}>
-        <DashboardNav
-          user={{ username: "Loading...", role: "CUSTOMER" }}
-          activeTab={activeTab}
-          setActiveTab={() => {}}
-          onLogout={() => {}}
-          hasActiveOrders={false}
-          botUsername={BOT_USERNAME}
-        />
-        <div className={styles.content}>
-          <main className={styles.section}>
-            <SkeletonLoader />
-          </main>
-        </div>
-        <SiteFooter />
-      </div>
-    );
-  }
 
-  if (!user) {
-    return null;
-  }
+
+
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "shop", label: "Products", icon: "🛒" },
     { key: "wallet", label: "Wallet", icon: "💳" },
@@ -505,7 +484,7 @@ export default function Dashboard() {
       <div className={styles.shell}>
         {/* Header */}
       <DashboardNav
-        user={user}
+        user={user || { username: "Loading...", role: "CUSTOMER" } as any}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onLogout={handleLogout}
@@ -517,7 +496,7 @@ export default function Dashboard() {
         <main className={styles.section}>
           {loading ? (
             <SkeletonLoader />
-          ) : (
+          ) : !user ? null : (
             <>
               {/* SHOP */}
           {activeTab === "shop" && (
