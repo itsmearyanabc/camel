@@ -55,7 +55,7 @@ function getDateRange(filter: string) {
 
 export async function GET(req: Request) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -77,14 +77,14 @@ export async function GET(req: Request) {
       where: { createdAt: { gte: prevStart, lte: prevEnd } },
     });
 
-    const currentRevenue = orders.filter(o => ["PAID", "COMPLETED"].includes(o.status)).reduce((sum, o) => sum + Number(o.totalAmount), 0);
-    const prevRevenue = prevOrders.filter(o => ["PAID", "COMPLETED"].includes(o.status)).reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const currentRevenue = orders.filter(o => ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED"].includes(o.status)).reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const prevRevenue = prevOrders.filter(o => ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED"].includes(o.status)).reduce((sum, o) => sum + Number(o.totalAmount), 0);
     const revenueGrowth = prevRevenue === 0 ? (currentRevenue > 0 ? 100 : 0) : ((currentRevenue - prevRevenue) / prevRevenue) * 100;
 
-    const activeOrders = orders.filter(o => ["PENDING_PAYMENT", "PROCESSING"].includes(o.status)).length;
+    const activeOrders = orders.filter(o => ["PENDING_PAYMENT", "ORDERED", "PROCESSING"].includes(o.status)).length;
     const completedOrders = orders.filter(o => o.status === "COMPLETED").length;
-    const cancelledOrders = orders.filter(o => ["FAILED", "REFUNDED"].includes(o.status)).length;
-    const validOrders = orders.filter(o => ["PAID", "COMPLETED"].includes(o.status));
+    const cancelledOrders = orders.filter(o => ["FAILED", "REFUNDED", "CANCELLED"].includes(o.status)).length;
+    const validOrders = orders.filter(o => ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED"].includes(o.status));
     const aov = validOrders.length > 0 ? currentRevenue / validOrders.length : 0;
 
     const websiteOrders = orders.filter(o => o.orderSource === "WEBSITE").length;
@@ -101,7 +101,7 @@ export async function GET(req: Request) {
       const dateStr = o.createdAt.toISOString().split("T")[0];
       if (!chartDataMap[dateStr]) chartDataMap[dateStr] = { date: dateStr, revenue: 0, orders: 0 };
       chartDataMap[dateStr].orders += 1;
-      if (["PAID", "COMPLETED"].includes(o.status)) {
+      if (["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED"].includes(o.status)) {
         chartDataMap[dateStr].revenue += Number(o.totalAmount);
       }
     });
@@ -119,7 +119,7 @@ export async function GET(req: Request) {
 
     // 5. TOP PRODUCTS
     const allOrderItems = await prisma.orderItem.findMany({
-      where: { order: { createdAt: { gte: start, lte: end }, status: { in: ["PAID", "COMPLETED"] } } },
+      where: { order: { createdAt: { gte: start, lte: end }, status: { in: ["ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED"] } } },
       include: { product: true }
     });
     const productSalesMap: Record<string, { id: string, name: string, quantity: number, revenue: number }> = {};

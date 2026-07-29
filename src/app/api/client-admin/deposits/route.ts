@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
-    if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

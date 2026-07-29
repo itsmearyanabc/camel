@@ -35,7 +35,7 @@ export function proxy(request: NextRequest) {
     }
 
     const windowMs = 15 * 60 * 1000; // 15 minutes
-    const maxRequests = 10; // limit each IP to 10 requests per windowMs
+    const maxRequests = 100; // Increased limit so multiple staff on the same IP don't get locked out
 
     const record = rateLimitMap.get(ip);
     const now = Date.now();
