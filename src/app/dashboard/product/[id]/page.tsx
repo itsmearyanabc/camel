@@ -90,7 +90,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const handleLogout = async () => {
     if (window.confirm("Are you sure you want to log out?")) {
       await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/");
+      window.location.href = "/";
     }
   };
 

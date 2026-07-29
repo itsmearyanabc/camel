@@ -619,7 +619,7 @@ export default function ClientAdminPanel() {
           <button onClick={() => { 
             if (window.confirm("Are you sure you want to log out?")) {
               fetch("/api/auth/logout", { method: "POST" }).then(() => {
-                router.push("/");
+                window.location.href = "/";
               });
             }
           }} className="btn btn-ghost btn-sm">Log Out</button>

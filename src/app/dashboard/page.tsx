@@ -220,7 +220,7 @@ export default function Dashboard() {
   const handleLogout = async () => {
     if (window.confirm("Are you sure you want to log out?")) {
       await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/"); router.refresh();
+      window.location.href = "/";
     }
   };
 
