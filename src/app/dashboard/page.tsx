@@ -307,6 +307,13 @@ export default function Dashboard() {
       const r = await fetch("/api/wallet/deposit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ amount: depositAmount }) });
       const d = await r.json();
       if (!r.ok) { setWalletMessage(`Error: ${d.error}`); return; }
+      
+      if (d.paymentUrl) {
+         setWalletMessage("Redirecting to secure payment gateway...");
+         window.location.href = d.paymentUrl;
+         return;
+      }
+      
       setPendingDeposit(d.depositRequest);
       setShowDepositInstructions(true);
       setWalletMessage(`Deposit request for ${formatPrice(parseFloat(depositAmount), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} submitted successfully!`);
