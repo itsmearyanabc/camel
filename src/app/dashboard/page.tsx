@@ -14,6 +14,7 @@ import styles from "./dashboard.module.css";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
 import SkeletonLoader from "@/components/SkeletonLoader";
+import { useLanguage } from "@/components/LanguageContext";
 
 interface Product {
   id: string; name: string; description: string; price: number;
@@ -109,6 +110,7 @@ export default function Dashboard() {
   const [cryptoWalletAddress, setCryptoWalletAddress] = useState("");
   const [pendingDeposit, setPendingDeposit] = useState<any | null>(null);
   const [showDepositInstructions, setShowDepositInstructions] = useState(false);
+  const { t } = useLanguage();
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
