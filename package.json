@@ -11,6 +11,7 @@
     "bots": "tsx --env-file=.env src/bots/runner.ts",
     "reset-db": "tsx --env-file=.env src/scripts/reset_db_with_admin.ts",
     "wipe-customers": "tsx --env-file=.env src/scripts/wipe_customers.ts",
+    "set-webhooks": "node scripts/set-webhooks.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -20,11 +21,13 @@
     "cross-env": "^7.0.3",
     "dotenv": "^16.5.0",
     "grammy": "^1.44.0",
+    "lru-cache": "^11.5.2",
     "next": "16.2.9",
     "prisma": "^7.8.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.10.1"
+    "recharts": "^3.10.1",
+    "swr": "^2.4.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

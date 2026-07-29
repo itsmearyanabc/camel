@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 
+import ParallaxIntro from "@/components/ParallaxIntro";
 import Reviews from "@/components/Reviews";
 import SiteFooter from "@/components/SiteFooter";
 import DashboardNav from "@/components/DashboardNav";
@@ -12,6 +13,7 @@ import { formatPrice } from "@/lib/currencies";
 import styles from "./dashboard.module.css";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
+import SkeletonLoader from "@/components/SkeletonLoader";
 
 interface Product {
   id: string; name: string; description: string; price: number;
@@ -197,10 +199,19 @@ export default function Dashboard() {
         })
       );
       setOrders(updated);
+      // Auto-trigger cooldown processing if any active order is past its cooldownEndAt
+      const now = new Date().getTime();
+      const needsProcessing = orders.some(o => 
+        o.items.some(i => i.status === "COOLDOWN_ACTIVE" && i.cooldownEndAt && new Date(i.cooldownEndAt).getTime() <= now)
+      );
+      if (needsProcessing) {
+        await fetch("/api/cron/process-cooldowns");
+      }
+
       const rMe = await fetch("/api/auth/me");
       const dMe = await rMe.json();
       if (dMe.user) setUser(dMe.user);
-    }, 2500);
+    }, 15000); // 15 seconds instead of 2.5s for massive scalability
     return () => clearInterval(interval);
   }, [orders]);
 
@@ -401,12 +412,11 @@ export default function Dashboard() {
 
   if (loading || !user) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-secondary)" }}>
-        <h3 style={{ color: "var(--text-secondary)" }}>Loading...</h3>
+      <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
+        <SkeletonLoader />
       </div>
     );
   }
-
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: "shop", label: "Products", icon: "🛒" },
     { key: "wallet", label: "Wallet", icon: "💳" },
@@ -473,8 +483,10 @@ export default function Dashboard() {
   };
 
   return (
-    <div className={styles.shell}>
-      {/* Header */}
+    <>
+      <ParallaxIntro />
+      <div className={styles.shell}>
+        {/* Header */}
       <DashboardNav
         user={user}
         activeTab={activeTab}
@@ -1544,5 +1556,6 @@ export default function Dashboard() {
 
       <SiteFooter />
     </div>
+    </>
   );
 }

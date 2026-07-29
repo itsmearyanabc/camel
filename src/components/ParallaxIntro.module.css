@@ -1,0 +1,142 @@
+/* ===== CUSTOM FONT ===== */
+@font-face {
+    font-family: 'CS Gerda';
+    src: url('/CSGerda-Regular_demo.otf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+/* ========== PARALLAX SECTION ========== */
+.parallaxSection {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 0;
+    z-index: 1;
+    background: #000000;
+}
+
+.parallaxSection::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 120px;
+    width: 100%;
+    background: linear-gradient(to bottom, transparent, var(--bg-primary, #ffffff));
+    z-index: 15;
+    pointer-events: none;
+}
+
+.parallaxImg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+}
+
+.man {
+    top: inherit;
+    bottom: 0;
+    z-index: 5;
+}
+
+.mountainLeft, .mountainRight {
+    z-index: 3;
+}
+
+.cloud1, .cloud2 {
+    z-index: 4;
+}
+
+.parallaxText {
+    position: relative;
+    color: white;
+    font-size: 10rem;
+    font-family: 'Montserrat', serif;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-shadow: 0 0 30px rgba(0,0,0,0.3);
+    z-index: 1;
+    transition: all 0.1s ease;
+}
+
+/* ========== BOTTOM CONTENT (Moving Line) ========== */
+.movingLineWrapper {
+    width: 170%;
+    overflow: hidden;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+    height: auto;
+    border: none;
+}
+
+.movingLine {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: 'CS Gerda', 'Montserrat', serif;
+    font-size: 80px;
+    font-weight: 900;
+    letter-spacing: 8px;
+    color: var(--text-primary, #000000);
+    text-transform: uppercase;
+    animation: scrollLeft 25s linear infinite;
+    background: transparent;
+    padding: 15px 0;
+    line-height: 1.2;
+    width: auto;
+    transform: translateX(100vw);
+}
+
+@keyframes scrollLeft {
+    0% {
+        transform: translateX(100vw);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+@media (max-width: 768px) {
+    .parallaxText {
+        font-size: 5rem !important;
+        white-space: nowrap;
+        text-align: center;
+        padding: 0 20px;
+    }
+    .parallaxSection::after {
+        height: 80px;
+    }
+    .movingLine {
+        font-size: 40px;
+        letter-spacing: 4px;
+        animation-duration: 25s;
+        padding: 10px 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .parallaxText {
+        font-size: 3.5rem !important;
+    }
+    .parallaxSection::after {
+        height: 60px;
+    }
+    .movingLine {
+        font-size: 28px;
+        letter-spacing: 3px;
+        animation-duration: 23s;
+        padding: 8px 0;
+    }
+}

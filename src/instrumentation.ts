@@ -75,13 +75,21 @@ export async function register() {
       if (hasBot1) {
         const bot1 = createTelegramBot(token1, "Bot #1 (Customer)");
         activeBots.push(bot1);
-        startBotWithRetry(bot1, "Bot #1 - Customer");
+        if (process.env.USE_WEBHOOK !== "true") {
+          startBotWithRetry(bot1, "Bot #1 - Customer");
+        } else {
+          console.log("🤖 [Bot #1 - Customer] Running in Webhook mode.");
+        }
       }
 
       if (hasBot2) {
         const bot2 = createTelegramBot(token2, "Bot #2 (Mirror)");
         activeBots.push(bot2);
-        startBotWithRetry(bot2, "Bot #2 - Mirror");
+        if (process.env.USE_WEBHOOK !== "true") {
+          startBotWithRetry(bot2, "Bot #2 - Mirror");
+        } else {
+          console.log("🤖 [Bot #2 - Mirror] Running in Webhook mode.");
+        }
       }
     } catch (e) {
       console.error("❌ Failed to import bot module:", e);

@@ -38,7 +38,11 @@ export async function GET() {
       products: g.products,
     }));
 
-    return NextResponse.json({ categories });
+    return NextResponse.json({ categories }, {
+      headers: {
+        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=59",
+      }
+    });
   } catch (error) {
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
   }
