@@ -339,9 +339,16 @@ export default function Dashboard() {
     if (!selectedProductForCrypto) return;
     setShopMsg(null);
     try {
-      const r = await fetch("/api/orders/crypto-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: selectedProductForCrypto, cryptoCurrency }) });
+      const r = await fetch("/api/orders/crypto-checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cart: [{ productId: selectedProductForCrypto, quantity: 1 }], cryptoCurrency, areaId: selectedAreaId }) });
       const d = await r.json();
       if (!r.ok) { setShopMsg({ type: "error", text: d.error || "Purchase failed" }); setCryptoModalOpen(false); return; }
+      
+      if (d.paymentUrl) {
+         setShopMsg({ type: "success", text: "Redirecting to secure payment gateway..." });
+         window.location.href = d.paymentUrl;
+         return;
+      }
+      
       setCryptoPaymentInfo(d.order);
       setCryptoStep("pay");
       loadShopData(); loadOrdersData();

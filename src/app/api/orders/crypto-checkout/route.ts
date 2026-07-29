@@ -99,27 +99,82 @@ export async function POST(req: Request) {
         paymentWalletAddress: walletSetting.value,
         items: {
           create: orderItemsData,
-        },
+        }
       },
     });
+    // Check if Cryptomus is configured
+    const merchantId = process.env.CRYPTOMUS_MERCHANT_ID;
+    const paymentKey = process.env.CRYPTOMUS_API_KEY;
 
-    return NextResponse.json({
-      success: true,
+    if (!merchantId || !paymentKey) {
+      console.warn("Cryptomus not configured for crypto-checkout, falling back to manual deposit");
+      return NextResponse.json({ 
+        success: true, 
+        order: {
+          id: order.id,
+          productName: cart.length > 1 ? `${firstProductName} and ${cart.length - 1} more` : firstProductName,
+          totalAmount: order.totalAmount,
+          currency: order.currency,
+          cryptoCurrency: cryptoCurrency,
+          cryptoName: cryptoInfo.name,
+          network: cryptoInfo.network,
+          networkFee: networkFee,
+          totalDue: totalAmountDue + networkFee,
+          walletAddress: walletSetting.value,
+          status: order.status,
+        }
+      });
+    }
+
+    // Generate Cryptomus Invoice
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://camel971.com";
+    const payload = {
+      amount: (totalAmountDue + networkFee).toFixed(2),
+      currency: "USD",
+      order_id: order.id,
+      url_return: `${baseUrl}/dashboard`,
+      url_callback: `${baseUrl}/api/webhooks/cryptomus`,
+      is_payment_multiple: false,
+      lifetime: 3600
+    };
+
+    const payloadString = JSON.stringify(payload);
+    const base64Payload = Buffer.from(payloadString).toString('base64');
+    
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const crypto = require('crypto');
+    const sign = crypto.createHash('md5').update(base64Payload + paymentKey).digest('hex');
+
+    const response = await fetch("https://api.cryptomus.com/v1/payment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "merchant": merchantId,
+        "sign": sign
+      },
+      body: payloadString
+    });
+
+    const data = await response.json();
+
+    if (data.state !== 0) {
+      console.error("Cryptomus error:", data);
+      return NextResponse.json({ error: "Failed to generate payment gateway for checkout" }, { status: 500 });
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      paymentUrl: data.result.url,
       order: {
         id: order.id,
         productName: cart.length > 1 ? `${firstProductName} and ${cart.length - 1} more` : firstProductName,
-        totalAmount: order.totalAmount,
-        currency: order.currency,
-        cryptoCurrency: cryptoCurrency,
-        cryptoName: cryptoInfo.name,
-        network: cryptoInfo.network,
-        networkFee: networkFee,
         totalDue: totalAmountDue + networkFee,
-        walletAddress: walletSetting.value,
         status: order.status,
-      },
+      }
     });
-  } catch {
-    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
+
+  } catch (error) {
+    console.error("Crypto checkout error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

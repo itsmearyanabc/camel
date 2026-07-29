@@ -39,59 +39,92 @@ export async function POST(req: NextRequest) {
 
     // Cryptomus statuses indicating successful payment
     if (status === "paid" || status === "paid_over") {
+      
+      // 1. Check if it's a Deposit Request
       const depositRequest = await prisma.depositRequest.findUnique({
         where: { id: order_id }
       });
 
-      if (!depositRequest) {
-        console.error("DepositRequest not found:", order_id);
-        return NextResponse.json({ error: "Order not found" }, { status: 404 });
-      }
+      if (depositRequest) {
+        // Start a transaction to safely approve the deposit and update wallet atomically (prevents double spend race condition)
+        const result = await prisma.$transaction(async (tx) => {
+          const currentReq = await tx.depositRequest.findUnique({ where: { id: order_id } });
+          if (currentReq?.status === "APPROVED") return "ALREADY_PROCESSED";
 
-      if (depositRequest.status === "APPROVED") {
-        // Already processed
-        return NextResponse.json({ success: true, message: "Already processed" });
-      }
-
-      // Start a transaction to safely approve the deposit and update wallet
-      await prisma.$transaction(async (tx) => {
-        // 1. Mark as APPROVED
-        await tx.depositRequest.update({
-          where: { id: order_id },
-          data: { status: "APPROVED", updatedAt: new Date() }
-        });
-
-        // 2. Add to wallet balance
-        const wallet = await tx.wallet.findUnique({
-          where: { userId: depositRequest.userId }
-        });
-
-        if (wallet) {
-          const newBalance = Number(wallet.balance) + Number(depositRequest.amount);
-          
-          await tx.wallet.update({
-            where: { id: wallet.id },
-            data: { balance: newBalance, updatedAt: new Date() }
+          await tx.depositRequest.update({
+            where: { id: order_id },
+            data: { status: "APPROVED", updatedAt: new Date() }
           });
 
-          // 3. Add to wallet ledger
-          await tx.walletLedger.create({
-            data: {
-              walletId: wallet.id,
-              type: "DEPOSIT",
-              amount: depositRequest.amount,
-              description: `Cryptomus automated deposit`,
-            }
-          });
-        }
+          const wallet = await tx.wallet.findUnique({ where: { userId: currentReq!.userId } });
+          if (wallet) {
+            const newBalance = Number(wallet.balance) + Number(currentReq!.amount);
+            await tx.wallet.update({
+              where: { id: wallet.id },
+              data: { balance: newBalance, updatedAt: new Date() }
+            });
+
+            await tx.walletLedger.create({
+              data: {
+                walletId: wallet.id,
+                type: "DEPOSIT",
+                amount: currentReq!.amount,
+                description: `Cryptomus automated deposit`,
+              }
+            });
+          }
+          return "PROCESSED";
+        });
+
+        if (result === "ALREADY_PROCESSED") return NextResponse.json({ success: true, message: "Already processed" });
+        console.log(`Successfully processed Cryptomus deposit for ${order_id}`);
+        return NextResponse.json({ success: true });
+      }
+
+      // 2. Check if it's a Direct Order Checkout
+      const order = await prisma.order.findUnique({
+        where: { id: order_id }
       });
 
-      console.log(`Successfully processed Cryptomus deposit for ${order_id} (Amount: $${depositRequest.amount})`);
+      if (order) {
+        const result = await prisma.$transaction(async (tx) => {
+          const currentOrder = await tx.order.findUnique({ where: { id: order_id }, include: { items: true } });
+          if (currentOrder?.status === "PROCESSING" || currentOrder?.status === "COMPLETED") return "ALREADY_PROCESSED";
+
+          // Mark order as PAID/PROCESSING
+          await tx.order.update({
+            where: { id: order_id },
+            data: { status: "PROCESSING", updatedAt: new Date() }
+          });
+
+          // Update items
+          for (const item of currentOrder!.items) {
+             await tx.orderItem.update({
+               where: { id: item.id },
+               data: { status: "PROCESSING" }
+             });
+          }
+          return "PROCESSED";
+        });
+
+        if (result === "ALREADY_PROCESSED") return NextResponse.json({ success: true, message: "Already processed" });
+        console.log(`Successfully processed Cryptomus direct order for ${order_id}`);
+        return NextResponse.json({ success: true });
+      }
+
+      console.error("Order or Deposit not found:", order_id);
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+
     } else if (status === "fail" || status === "cancel" || status === "system_fail") {
-       await prisma.depositRequest.update({
-         where: { id: order_id },
-         data: { status: "REJECTED", updatedAt: new Date() }
-       });
+       // Mark as rejected if possible
+       const depositReq = await prisma.depositRequest.findUnique({ where: { id: order_id } });
+       if (depositReq) {
+         await prisma.depositRequest.update({ where: { id: order_id }, data: { status: "REJECTED", updatedAt: new Date() } });
+       }
+       const orderReq = await prisma.order.findUnique({ where: { id: order_id } });
+       if (orderReq) {
+         await prisma.order.update({ where: { id: order_id }, data: { status: "CANCELLED", updatedAt: new Date() } });
+       }
     }
 
     return NextResponse.json({ success: true });
