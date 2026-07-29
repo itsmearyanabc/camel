@@ -12,14 +12,12 @@ export const metadata: Metadata = {
 };
 
 import { LanguageProvider } from "@/components/LanguageContext";
-import CursorAnimation from "@/components/CursorAnimation";
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
       <body>
         <LanguageProvider>
-          <CursorAnimation />
           {children}
         </LanguageProvider>
       </body>
