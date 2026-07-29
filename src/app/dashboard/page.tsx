@@ -145,44 +145,46 @@ export default function Dashboard() {
     { code: "TRX", label: "Tron (TRX)", icon: "⟐" },
   ];
 
-  const checkSession = async (opts?: { seedTelegram?: boolean }) => {
+  const loadDashboardData = async (opts?: { seedTelegram?: boolean }) => {
     try {
-      const res = await fetch("/api/auth/me");
+      const res = await fetch("/api/dashboard/init");
       const data = await res.json();
-      if (!data.user) { router.push("/auth/login"); return; }
+      
+      if (!res.ok || !data.user) {
+        router.push("/auth/login");
+        return;
+      }
+      
       if (["ADMIN", "SUPERADMIN", "STAFF"].includes(data.user.role)) {
         router.push("/control-panel-x7k9");
         return;
       }
+
       setUser(data.user);
       if (opts?.seedTelegram || !tgInputsSeeded.current) {
         setTgIdInput(data.user.telegramId || "");
         setTgUsernameInput(data.user.telegramUsername || "");
         tgInputsSeeded.current = true;
       }
-    } catch { router.push("/auth/login"); }
-  };
 
-  const loadShopData = async () => { 
-    try { 
-      const [rProd, rLoc] = await Promise.all([fetch("/api/inventory/products"), fetch("/api/locations")]);
-      if (rProd.ok) { const d = await rProd.json(); setCategories(d.categories); }
-      if (rLoc.ok) { const d = await rLoc.json(); setLocations(d.cities); }
-    } catch {} 
+      setCategories(data.categories || []);
+      setLocations(data.cities || []);
+      setLedgers(data.ledgers || []);
+      setOrders(data.orders || []);
+      setDisputes(data.disputes || []);
+      setDepositRequests(data.depositRequests || []);
+      setCryptoWalletAddress(data.cryptoAddress || "");
+
+    } catch (error) {
+      router.push("/auth/login");
+    }
   };
-  const loadWalletData = async () => { try { const r = await fetch("/api/wallet/ledger"); const d = await r.json(); if (r.ok) setLedgers(d.ledgers); } catch {} };
-  const loadOrdersData = async () => { try { const r = await fetch("/api/orders/list"); const d = await r.json(); if (r.ok) setOrders(d.orders); } catch {} };
-  const loadDisputesData = async () => { try { const r = await fetch("/api/disputes/list"); const d = await r.json(); if (r.ok) setDisputes(d.disputes); } catch {} };
-  const loadDepositRequests = async () => { try { const r = await fetch("/api/wallet/deposit"); const d = await r.json(); if (r.ok) { setDepositRequests(d.requests); setCryptoWalletAddress(d.cryptoAddress); } } catch {} };
 
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await checkSession({ seedTelegram: true });
-      setLoading(false); // Stop UI blocking immediately so user sees the dashboard instantly
-      
-      // Load heavy data asynchronously in the background
-      Promise.all([loadShopData(), loadWalletData(), loadOrdersData(), loadDisputesData(), loadDepositRequests()]);
+      await loadDashboardData({ seedTelegram: true });
+      setLoading(false);
     })();
   }, []);
 
