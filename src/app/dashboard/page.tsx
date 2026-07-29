@@ -548,7 +548,26 @@ export default function Dashboard() {
                   )}
                 </div>
               </section>
-              <h2>Browse Products</h2>
+              {/* Telegram Bot Banner */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: "linear-gradient(135deg, #eef2ff 0%, #e8f0fe 100%)",
+                border: "1px solid rgba(84,120,211,0.15)", borderRadius: "var(--radius-lg)",
+                padding: "14px 20px", gap: "16px", flexWrap: "wrap",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <span style={{ fontSize: "22px", background: "rgba(84,120,211,0.12)", borderRadius: "10px", padding: "8px", lineHeight: 1 }}>🤖</span>
+                  <div>
+                    <p style={{ fontWeight: 700, fontSize: "14px", margin: 0, color: "var(--text-primary)" }}>Shop 24/7 with Telegram Bot</p>
+                    <p style={{ fontSize: "12px", margin: 0, color: "var(--text-secondary)" }}>Instant access to the store anytime, anywhere.</p>
+                  </div>
+                </div>
+                <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: "#4f6ef7", borderColor: "#4f6ef7", gap: "6px", whiteSpace: "nowrap" }}>
+                  🤖 Configure Bot →
+                </a>
+              </div>
 
               {shopMsg && (
                 <div className={`alert ${shopMsg.type === "error" ? "alert-error" : "alert-success"}`}>
@@ -561,82 +580,71 @@ export default function Dashboard() {
                   <p style={{ color: "var(--text-secondary)" }}>No products available yet. Check back soon!</p>
                 </div>
               ) : (
-                categories.map(category => {
-                  const visibleProducts = category.products;
-                  
-                  if (visibleProducts.length === 0) return null;
-
-                  return (
-                    <div key={category.id}>
-                      <h3 style={{ marginBottom: "16px", color: "var(--text-secondary)" }}>{category.prefixCode ? `${category.prefixCode} - ` : ""}{category.name}</h3>
-                      <div className="product-grid">
-                        {visibleProducts.map(product => (
-                          <div key={product.id} className="card card-interactive product-card-layout">
-                            <div className="product-card-top">
-                              <div className="product-card-info">
-                                <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
-                                <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
-                                  {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
-                                  {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
-                                </div>
-                                <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                                  <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                                    {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
-                                  </span>
-                                  {(() => {
-                                    if (selectedCityId === "ALL") return null;
-                                    const availableInCity = product.cities.some((c: any) => c.id === selectedCityId);
-                                    if (!availableInCity) {
-                                      return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected city</span>;
-                                    }
-                                    if (selectedAreaId !== "ALL") {
-                                      const availableInArea = (product as any).areas?.some((a: any) => a.id === selectedAreaId);
-                                      if (!availableInArea) {
-                                        return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected area</span>;
-                                      }
-                                    }
-                                    return <span className="badge badge-purple" style={{ opacity: 0.8 }}>📍 Available in selected location</span>;
-                                  })()}
-                                </div>
-                                {product.description && (
-                                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: "1.5" }}>
-                                  {product.description}
-                                </p>
-                              )}
-                            </div>
-                            {product.imageUrl && (
-                              <div className="product-card-image">
-                                <img src={product.imageUrl} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              </div>
-                            )}
+                <div className="product-grid">
+                  {categories.flatMap(category => category.products).map(product => (
+                    <div key={product.id} className="card card-interactive product-card-layout">
+                      <div className="product-card-top">
+                        <div className="product-card-info">
+                          <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
+                          <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
+                            {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
+                            {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
                           </div>
-                          <div className="product-card-bottom">
-                            <span className="product-card-price">{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
-                              {(() => {
-                                let isAvailable = product.stockQuantity > 0;
-                                if (selectedCityId !== "ALL" && !product.cities.some((c: any) => c.id === selectedCityId)) isAvailable = false;
-                                if (selectedCityId !== "ALL" && selectedAreaId !== "ALL" && !(product as any).areas?.some((a: any) => a.id === selectedAreaId)) isAvailable = false;
-
-                                return (
-                                  <Link
-                                    href={isAvailable ? `/dashboard/product/${product.id}` : "#"}
-                                    onClick={(e) => { if (!isAvailable) { e.preventDefault(); alert("Product is out of stock or unavailable in your selected location."); } }}
-                                    className={`btn ${isAvailable ? "btn-primary" : "btn-secondary"} btn-sm`}
-                                    style={{ width: "100%", opacity: isAvailable ? 1 : 0.6, cursor: isAvailable ? "pointer" : "not-allowed" }}
-                                  >
-                                    View Product
-                                  </Link>
-                                );
-                              })()}
-                            </div>
+                          <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                              {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
+                            </span>
+                            {(() => {
+                              if (selectedCityId === "ALL") return null;
+                              const availableInCity = product.cities.some((c: any) => c.id === selectedCityId);
+                              if (!availableInCity) {
+                                return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected city</span>;
+                              }
+                              if (selectedAreaId !== "ALL") {
+                                const availableInArea = (product as any).areas?.some((a: any) => a.id === selectedAreaId);
+                                if (!availableInArea) {
+                                  return <span className="badge badge-red" style={{ opacity: 0.8 }}>Not available in selected area</span>;
+                                }
+                              }
+                              return <span className="badge badge-purple" style={{ opacity: 0.8 }}>📍 Available in selected location</span>;
+                            })()}
                           </div>
+                          {product.description && (
+                            <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: "1.5" }}>
+                              {product.description}
+                            </p>
+                          )}
                         </div>
-                      ))}
+                        {product.imageUrl && (
+                          <div className="product-card-image">
+                            <img src={product.imageUrl} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="product-card-bottom">
+                        <span className="product-card-price">{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+                          {(() => {
+                            let isAvailable = product.stockQuantity > 0;
+                            if (selectedCityId !== "ALL" && !product.cities.some((c: any) => c.id === selectedCityId)) isAvailable = false;
+                            if (selectedCityId !== "ALL" && selectedAreaId !== "ALL" && !(product as any).areas?.some((a: any) => a.id === selectedAreaId)) isAvailable = false;
+
+                            return (
+                              <Link
+                                href={isAvailable ? `/dashboard/product/${product.id}` : "#"}
+                                onClick={(e) => { if (!isAvailable) { e.preventDefault(); alert("Product is out of stock or unavailable in your selected location."); } }}
+                                className={`btn ${isAvailable ? "btn-primary" : "btn-secondary"} btn-sm`}
+                                style={{ width: "100%", opacity: isAvailable ? 1 : 0.6, cursor: isAvailable ? "pointer" : "not-allowed" }}
+                              >
+                                View Product
+                              </Link>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  ))}
+                </div>
               )}
 
               {/* Crypto Payment Modal */}

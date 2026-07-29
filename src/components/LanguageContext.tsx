@@ -172,19 +172,21 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     // 2. Inject Google Translate Script
+    // IMPORTANT: Define the callback BEFORE injecting the script.
+    // Google's script calls `googleTranslateElementInit` immediately on load.
     if (!document.getElementById("google-translate-script")) {
-      const script = document.createElement("script");
-      script.id = "google-translate-script";
-      script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
-      script.async = true;
-      document.body.appendChild(script);
-
       window.googleTranslateElementInit = () => {
         new window.google.translate.TranslateElement(
           { pageLanguage: 'en', autoDisplay: false },
           'google_translate_element'
         );
       };
+
+      const script = document.createElement("script");
+      script.id = "google-translate-script";
+      script.src = "//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
+      script.async = true;
+      document.body.appendChild(script);
     }
   }, []);
 
@@ -209,8 +211,8 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t }}>
-      {/* Hidden element required by Google Translate API */}
-      <div id="google_translate_element" style={{ display: "none" }}></div>
+      {/* Hidden element required by Google Translate API — must NOT use display:none */}
+      <div id="google_translate_element" style={{ position: "absolute", top: 0, left: 0, opacity: 0, pointerEvents: "none", height: 0, overflow: "hidden" }}></div>
       {children}
     </LanguageContext.Provider>
   );

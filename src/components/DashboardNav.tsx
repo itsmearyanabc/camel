@@ -82,11 +82,11 @@ export default function DashboardNav({
   
   const languages: { code: LanguageCode; name: string; icon: string }[] = [
     { code: "EN", name: "English", icon: "🇬🇧" },
-    { code: "RU", name: "Russian", icon: "🇷🇺" },
-    { code: "AR", name: "Arabic", icon: "🇦🇪" },
-    { code: "TR", name: "Turkish", icon: "🇹🇷" },
-    { code: "KK", name: "Kazakh", icon: "🇰🇿" },
-    { code: "UK", name: "Ukrainian", icon: "🇺🇦" },
+    { code: "RU", name: "Русский", icon: "🇷🇺" },
+    { code: "AR", name: "العربية", icon: "🇸🇦" },
+    { code: "TR", name: "Türkçe", icon: "🇹🇷" },
+    { code: "KK", name: "Қазақша", icon: "🇰🇿" },
+    { code: "UK", name: "Українська", icon: "🇺🇦" },
   ];
 
   // Bottom tab items
