@@ -6,8 +6,23 @@ function escapeTelegramMarkdown(text: string) {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
 }
 
+// Production: Require CRON_SECRET for authentication
+const CRON_SECRET = process.env.CRON_SECRET || "";
+if (!CRON_SECRET && process.env.NODE_ENV === "production") {
+  console.warn(
+    "CRON_SECRET environment variable is required in production. " +
+    "Generate one with: openssl rand -base64 32"
+  );
+}
+
 export async function GET(req: Request) {
   try {
+    // Verify cron secret
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader || authHeader !== `Bearer ${CRON_SECRET}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const now = new Date();
     let processedCount = 0;
     let autoCompletedCount = 0;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getCryptoInfo, CRYPTO_CURRENCIES } from "@/lib/currencies";
+import { createNOWPaymentInvoice, mapToNOWPaymentsCurrency, isNOWPaymentsConfigured } from "@/lib/nowpayments";
 
 export async function POST(req: Request) {
   try {
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { cart, cryptoCurrency, areaId } = await req.json();
+    const { cart, cryptoCurrency, areaId, couponCode } = await req.json();
     if (!cart || !Array.isArray(cart) || cart.length === 0 || !cryptoCurrency) {
       return NextResponse.json({ error: "Cart and crypto currency are required" }, { status: 400 });
     }
@@ -24,8 +25,53 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
+    // Validate coupon if provided
+    let coupon = null;
+    let discount = 0;
+    if (couponCode) {
+      coupon = await prisma.coupon.findUnique({
+        where: { code: couponCode.toUpperCase() },
+        include: {
+          couponUsages: {
+            where: { userId: session.userId },
+          },
+        },
+      });
+
+      if (!coupon) {
+        return NextResponse.json({ error: "Invalid coupon code" }, { status: 400 });
+      }
+
+      if (!coupon.isActive) {
+        return NextResponse.json({ error: "This coupon is no longer active" }, { status: 400 });
+      }
+
+      const now = new Date();
+      if (coupon.validFrom > now) {
+        return NextResponse.json({ error: "This coupon is not yet valid" }, { status: 400 });
+      }
+
+      if (coupon.validUntil && coupon.validUntil < now) {
+        return NextResponse.json({ error: "This coupon has expired" }, { status: 400 });
+      }
+
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+        return NextResponse.json({ error: "This coupon has reached its usage limit" }, { status: 400 });
+      }
+
+      if (coupon.userLimit && coupon.couponUsages.length >= coupon.userLimit) {
+        return NextResponse.json({ error: "You have already used this coupon the maximum number of times" }, { status: 400 });
+      }
+    }
+
     let totalAmountDue = 0;
-    const orderItemsData = [];
+    const orderItemsData: Array<{
+      productId: string;
+      priceAtPurchase: any;
+      status: string;
+      areaId: string | undefined;
+      cooldownEndAt: Date;
+    }> = [];
     let firstProductName = "Multiple Items";
 
     // Validate inventory and calculate total price
@@ -42,18 +88,26 @@ export async function POST(req: Request) {
 
       if (i === 0) firstProductName = product.name;
 
-      // Check stock availability
-      if (product.stockQuantity < quantity) {
-        return NextResponse.json({ error: `Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}` }, { status: 400 });
+      // Check area-specific stock if areaId is provided
+      let areaDetail = null;
+      if (areaId) {
+        areaDetail = await prisma.productAreaDetail.findUnique({
+          where: { productId_areaId: { productId: product.id, areaId } }
+        });
+        
+        if (areaDetail && areaDetail.stockQuantity < quantity) {
+          return NextResponse.json({ error: `Not enough stock for ${product.name} in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}` }, { status: 400 });
+        }
+      } else {
+        // Fallback to global stock check
+        if (product.stockQuantity < quantity) {
+          return NextResponse.json({ error: `Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}` }, { status: 400 });
+        }
       }
 
       const itemCost = Number(product.price);
       totalAmountDue += itemCost * quantity;
 
-      const areaDetail = await prisma.productAreaDetail.findUnique({
-        where: { productId_areaId: { productId: product.id, areaId } }
-      });
-      
       let cooldownEndAt: Date = new Date();
       if (areaDetail && areaDetail.cooldownMinutes > 0) {
         cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + areaDetail.cooldownMinutes);
@@ -85,29 +139,114 @@ export async function POST(req: Request) {
     });
     const networkFee = feeSetting ? parseFloat(feeSetting.value) : 0;
 
-    // Create master order with PENDING_PAYMENT status
-    const order = await prisma.order.create({
-      data: {
-        userId: session.userId,
-        totalAmount: totalAmountDue,
-        status: "PENDING_PAYMENT",
-        orderSource: "WEBSITE",
-        paymentMethod: "DIRECT_CRYPTO",
-        cryptoCurrency: cryptoCurrency,
-        networkFee: networkFee,
-        cryptoAmountDue: (totalAmountDue + networkFee).toFixed(2),
-        paymentWalletAddress: walletSetting.value,
-        items: {
-          create: orderItemsData,
-        }
-      },
-    });
-    // Check if Cryptomus is configured
-    const merchantId = process.env.CRYPTOMUS_MERCHANT_ID;
-    const paymentKey = process.env.CRYPTOMUS_API_KEY;
+    // Apply coupon discount if provided
+    let finalAmount = totalAmountDue;
+    if (coupon) {
+      // Check minimum order amount
+      if (coupon.minOrderAmount && totalAmountDue < Number(coupon.minOrderAmount)) {
+        return NextResponse.json({ 
+          error: `Minimum order amount of $${coupon.minOrderAmount} required for this coupon` 
+        }, { status: 400 });
+      }
 
-    if (!merchantId || !paymentKey) {
-      console.warn("Cryptomus not configured for crypto-checkout, falling back to manual deposit");
+      // Calculate discount
+      if (coupon.discountType === "PERCENTAGE") {
+        discount = (totalAmountDue * Number(coupon.discountValue)) / 100;
+        // Apply max discount limit if set
+        if (coupon.maxDiscount && discount > Number(coupon.maxDiscount)) {
+          discount = Number(coupon.maxDiscount);
+        }
+      } else if (coupon.discountType === "FIXED_AMOUNT") {
+        discount = Number(coupon.discountValue);
+        // Don't allow discount to exceed order amount
+        if (discount > totalAmountDue) {
+          discount = totalAmountDue;
+        }
+      }
+
+      finalAmount = totalAmountDue - discount;
+    }
+
+    // Create master order with PENDING_PAYMENT status and deduct stock in transaction
+    const order = await prisma.$transaction(async (tx) => {
+      // Deduct stock for each product
+      for (const cartItem of cart) {
+        const { productId, quantity } = cartItem;
+        
+        // Check if we have area-specific stock
+        if (areaId) {
+          const areaDetail = await tx.productAreaDetail.findUnique({
+            where: { productId_areaId: { productId, areaId } }
+          });
+          
+          if (areaDetail) {
+            // Deduct from area-specific stock
+            await tx.productAreaDetail.update({
+              where: { id: areaDetail.id },
+              data: { stockQuantity: { decrement: quantity } }
+            });
+            
+            // Create stock entry for the sale
+            await tx.stockEntry.create({
+              data: {
+                productAreaDetailId: areaDetail.id,
+                quantity: -quantity,
+                type: "SALE",
+                notes: `Crypto order checkout - ${quantity} unit(s)`,
+                createdBy: session.userId
+              }
+            });
+          }
+        }
+        
+        // Always deduct from global stock
+        await tx.product.update({
+          where: { id: productId },
+          data: { stockQuantity: { decrement: quantity } }
+        });
+      }
+
+      // Create the order
+      const createdOrder = await tx.order.create({
+        data: {
+          userId: session.userId,
+          totalAmount: finalAmount,
+          status: "PENDING_PAYMENT",
+          orderSource: "WEBSITE",
+          paymentMethod: "DIRECT_CRYPTO",
+          cryptoCurrency: cryptoCurrency,
+          networkFee: networkFee,
+          cryptoAmountDue: (finalAmount + networkFee).toFixed(2),
+          paymentWalletAddress: walletSetting.value,
+          items: {
+            create: orderItemsData,
+          }
+        },
+      });
+
+      // Record coupon usage if coupon was applied
+      if (coupon && discount > 0) {
+        await tx.couponUsage.create({
+          data: {
+            couponId: coupon.id,
+            userId: session.userId,
+            orderId: createdOrder.id,
+            discount: discount,
+          },
+        });
+
+        // Increment coupon used count
+        await tx.coupon.update({
+          where: { id: coupon.id },
+          data: { usedCount: { increment: 1 } },
+        });
+      }
+
+      return createdOrder;
+    });
+    // Check if NOWPayments is configured
+    if (!isNOWPaymentsConfigured()) {
+      console.warn("NOWPayments not configured for crypto-checkout, falling back to manual deposit");
       return NextResponse.json({ 
         success: true, 
         order: {
@@ -119,57 +258,49 @@ export async function POST(req: Request) {
           cryptoName: cryptoInfo.name,
           network: cryptoInfo.network,
           networkFee: networkFee,
-          totalDue: totalAmountDue + networkFee,
+          totalDue: finalAmount + networkFee,
           walletAddress: walletSetting.value,
           status: order.status,
+          discount: discount > 0 ? discount : undefined,
+          couponCode: coupon ? coupon.code : undefined,
         }
       });
     }
 
-    // Generate Cryptomus Invoice
+    // Generate NOWPayments Invoice
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://camel971.com";
-    const payload = {
-      amount: (totalAmountDue + networkFee).toFixed(2),
-      currency: "USD",
-      order_id: order.id,
-      url_return: `${baseUrl}/dashboard`,
-      url_callback: `${baseUrl}/api/webhooks/cryptomus`,
-      is_payment_multiple: false,
-      lifetime: 3600
-    };
-
-    const payloadString = JSON.stringify(payload);
-    const base64Payload = Buffer.from(payloadString).toString('base64');
+    const nowpaymentsCurrency = mapToNOWPaymentsCurrency(cryptoCurrency);
     
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const crypto = require('crypto');
-    const sign = crypto.createHash('md5').update(base64Payload + paymentKey).digest('hex');
-
-    const response = await fetch("https://api.cryptomus.com/v1/payment", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "merchant": merchantId,
-        "sign": sign
-      },
-      body: payloadString
+    const invoiceResult = await createNOWPaymentInvoice({
+      priceAmount: parseFloat((finalAmount + networkFee).toFixed(2)),
+      priceCurrency: "usd",
+      payCurrency: nowpaymentsCurrency,
+      orderId: order.id,
+      orderDescription: `Order ${order.id.slice(0, 8)} - ${firstProductName}`,
+      ipnCallbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
+      successUrl: `${baseUrl}/dashboard?payment=success`,
+      cancelUrl: `${baseUrl}/dashboard?payment=cancelled`,
     });
 
-    const data = await response.json();
-
-    if (data.state !== 0) {
-      console.error("Cryptomus error:", data);
-      return NextResponse.json({ error: "Failed to generate payment gateway for checkout" }, { status: 500 });
+    if (!invoiceResult.success || !invoiceResult.invoice) {
+      console.error("NOWPayments error:", invoiceResult.error);
+      return NextResponse.json({ 
+        error: "Failed to generate payment gateway for checkout",
+        details: invoiceResult.error 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
       success: true, 
-      paymentUrl: data.result.url,
+      paymentUrl: invoiceResult.invoice.invoice_url,
+      invoiceId: invoiceResult.invoice.id,
       order: {
         id: order.id,
         productName: cart.length > 1 ? `${firstProductName} and ${cart.length - 1} more` : firstProductName,
-        totalDue: totalAmountDue + networkFee,
+        totalDue: finalAmount + networkFee,
         status: order.status,
+        discount: discount > 0 ? discount : undefined,
+        couponCode: coupon ? coupon.code : undefined,
       }
     });
 

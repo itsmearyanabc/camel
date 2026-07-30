@@ -3,8 +3,12 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardAnalytics from "./DashboardAnalytics";
+import StockManagement from "./StockManagement";
+import CouponManagement from "./CouponManagement";
+import StaffManagement from "./StaffManagement";
+import ProductManagement from "./ProductManagement";
 
-type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees";
+type Tab = "dashboard" | "products" | "stock" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees" | "coupons";
 
 export default function ClientAdminPanel() {
   const router = useRouter();
@@ -24,9 +28,6 @@ export default function ClientAdminPanel() {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [disputes, setDisputes] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [newEmployeeUsername, setNewEmployeeUsername] = useState("");
-  const [newEmployeePassword, setNewEmployeePassword] = useState("");
   
   // Product states
   const [categories, setCategories] = useState<any[]>([]);
@@ -91,7 +92,7 @@ export default function ClientAdminPanel() {
 
   const fetchAll = async () => {
     try {
-      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes, locationsRes, employeesRes] = await Promise.all([
+      const [statsRes, ordersRes, usersRes, settingsRes, disputesRes, depositsRes, categoriesRes, productsRes, locationsRes] = await Promise.all([
         fetch("/api/client-admin/stats"),
         fetch("/api/client-admin/orders"),
         fetch("/api/client-admin/users"),
@@ -100,11 +101,10 @@ export default function ClientAdminPanel() {
         fetch("/api/client-admin/deposits"),
         fetch("/api/admin/categories"),
         fetch("/api/admin/products"),
-        fetch("/api/admin/locations"),
-        fetch("/api/admin/employees")
+        fetch("/api/admin/locations")
       ]);
-      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData, locData, empData] = await Promise.all([
-        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json(), locationsRes.json(), employeesRes.json()
+      const [statsData, ordersData, usersData, settingsData, disputesData, depositsData, catData, prodData, locData] = await Promise.all([
+        statsRes.json(), ordersRes.json(), usersRes.json(), settingsRes.json(), disputesRes.json(), depositsRes.json(), categoriesRes.json(), productsRes.json(), locationsRes.json()
       ]);
       if (statsData.stats) setStats(statsData.stats);
       if (ordersData.orders) setOrders(ordersData.orders);
@@ -125,7 +125,6 @@ export default function ClientAdminPanel() {
       if (catData.categories) setCategories(catData.categories);
       if (prodData.products) setProducts(prodData.products);
       if (locData.cities) setLocations(locData.cities);
-      if (empData && empData.staff) setEmployees(empData.staff);
     } catch (e) {
       console.error(e);
     }
@@ -525,6 +524,7 @@ export default function ClientAdminPanel() {
   const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
     { key: "products", label: "Inventory", icon: "📦" },
+    { key: "stock", label: "Stock Management", icon: "📊" },
     { key: "locations", label: "Locations", icon: "📍" },
     { key: "active-orders", label: "Active Orders", icon: "🚚" },
     { key: "all-orders", label: "All Orders", icon: "📋" },
@@ -532,6 +532,7 @@ export default function ClientAdminPanel() {
     { key: "payments", label: "Payments", icon: "💰" },
     { key: "disputes", label: "Disputes", icon: "⚖️" },
     { key: "employees", label: "Employees", icon: "👔" },
+    { key: "coupons", label: "Coupons", icon: "🎟️" },
   ];
 
   const tabs = allTabs.filter(t => {
@@ -542,48 +543,6 @@ export default function ClientAdminPanel() {
   });
 
   const activeOrders = orders;
-  // --- Employee Management ---
-  const handleAddEmployee = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("/api/admin/employees", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: newEmployeeUsername, password: newEmployeePassword })
-      });
-      if (res.ok) {
-        setMsg({ type: "success", text: "Employee added!" });
-        setNewEmployeeUsername(""); setNewEmployeePassword("");
-        fetchAll();
-      } else {
-        const d = await res.json(); setMsg({ type: "error", text: d.error });
-      }
-    } catch (e) { setMsg({ type: "error", text: "Error adding employee" }); }
-  };
-
-  const handleDeleteEmployee = async (staffId: string) => {
-    if (!confirm("Delete employee?")) return;
-    try {
-      const res = await fetch("/api/admin/employees", {
-        method: "DELETE", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staffId })
-      });
-      if (res.ok) { setMsg({ type: "success", text: "Employee deleted!" }); fetchAll(); }
-    } catch (e) { setMsg({ type: "error", text: "Error deleting employee" }); }
-  };
-
-  const handleEditEmployeePassword = async (staffId: string) => {
-    const newPw = prompt("Enter new password for this employee:");
-    if (!newPw) return;
-    try {
-      const res = await fetch("/api/admin/employees", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staffId, newPassword: newPw })
-      });
-      if (res.ok) { setMsg({ type: "success", text: "Employee password updated!" }); }
-      else { const d = await res.json(); setMsg({ type: "error", text: d.error }); }
-    } catch (e) { setMsg({ type: "error", text: "Error updating password" }); }
-  };
-
   const filteredActiveOrders = activeOrderFilter === "ALL" 
     ? activeOrders 
     : activeOrders.filter(o => o.status === activeOrderFilter);
@@ -812,259 +771,16 @@ export default function ClientAdminPanel() {
             </div>
           )}
 
-             {activeTab === "products" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Product Management</h2>
-              
-              {/* Product Form */}
-              {user?.role !== "STAFF" && (
-              <div className="card">
-                <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add New Product</h3>
-                <form onSubmit={handleAddProduct} className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <input className="form-input" placeholder="Product Name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Unit Price (USD)</label>
-                    <div style={{ position: "relative" }}>
-                      <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "bold", color: "var(--text-secondary)" }}>$</span>
-                      <input className="form-input" placeholder="0.00" type="number" min="0.01" step="0.01" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} required style={{ paddingLeft: "32px", width: "100%" }} />
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={newProduct.productType} onChange={e => setNewProduct({...newProduct, productType: e.target.value})} required />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <input className="form-input" placeholder="Formula (Optional)" value={newProduct.formula} onChange={e => setNewProduct({...newProduct, formula: e.target.value})} />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <input className="form-input" placeholder="CAS Number (Optional)" value={newProduct.casNumber} onChange={e => setNewProduct({...newProduct, casNumber: e.target.value})} />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Stock Quantity</label>
-                    <input className="form-input" placeholder="0" type="number" min="0" value={newProduct.stockQuantity} onChange={e => setNewProduct({...newProduct, stockQuantity: parseInt(e.target.value) || 0})} required />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0, display: "flex", gap: "8px", alignItems: "center" }}>
-                    <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", margin: 0, flex: 1, textAlign: "center" }}>
-                      Upload Image
-                      <input type="file" accept="image/*" onChange={(e) => handleProductImageUpload(e, false)} style={{ display: "none" }} />
-                    </label>
-                    {newProduct.imageUrl && (
-                      <img src={newProduct.imageUrl} alt="Preview" style={{ width: "60px", height: "40px", objectFit: "cover", borderRadius: "var(--radius-sm)" }} />
-                    )}
-                  </div>
-                  <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                    <textarea className="form-input" placeholder="Description" value={newProduct.description} onChange={e => setNewProduct({...newProduct, description: e.target.value})} rows={3}></textarea>
-                  </div>
-                  <div className="form-group" style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
-                      <span style={{ fontSize: "14px", color: "var(--text-secondary)", flex: 1 }}>
-                        {newProduct.cityIds.length === 0 ? "No locations selected" : `${newProduct.cityIds.length} Cities, ${newProduct.areaIds.length} Areas selected`}
-                      </span>
-                      <button type="button" onClick={() => setShowLocationsModal("new")} className="btn btn-secondary btn-sm">Manage Locations</button>
-                    </div>
-                  </div>
-                  
-                  {newProduct.areaIds.length > 0 && (
-                    <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                      <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Area-Wise Stock Allocation</label>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)", maxHeight: "300px", overflowY: "auto" }}>
-                        {newProduct.areaIds.map(areaId => {
-                          let areaName = "Unknown Area";
-                          for (const city of locations) {
-                            const a = city.areas?.find((x: any) => x.id === areaId);
-                            if (a) { areaName = a.name; break; }
-                          }
-                          
-                          const detailIndex = newProduct.areaDetails.findIndex(d => d.areaId === areaId);
-                          const detail = detailIndex >= 0 ? newProduct.areaDetails[detailIndex] : { areaId, stockQuantity: 0 };
-                          
-                          const updateDetail = (key: string, value: any) => {
-                            const newDetails = [...newProduct.areaDetails];
-                            const dIdx = newDetails.findIndex(d => d.areaId === areaId);
-                            if (dIdx >= 0) {
-                              newDetails[dIdx] = { ...newDetails[dIdx], [key]: value };
-                            } else {
-                              newDetails.push({ areaId, stockQuantity: 0, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0, [key]: value });
-                            }
-                            setNewProduct({ ...newProduct, areaDetails: newDetails });
-                          };
+          {activeTab === "products" && (
+            <div style={{ animation: "fadeIn 0.4s ease" }}>
+              <ProductManagement />
+            </div>
+          )}
 
-                          return (
-                            <div key={areaId} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px", background: "var(--bg-primary)" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <h4 style={{ margin: 0, fontSize: "14px", color: "var(--accent)" }}>{areaName}</h4>
-                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                  <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty:</label>
-                                  <input className="form-input" type="number" min="0" placeholder="0" style={{ width: "80px", padding: "4px 8px" }} value={detail.stockQuantity || 0} onChange={e => updateDetail("stockQuantity", e.target.value)} />
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ gridColumn: "span 2" }}>
-                    <button type="submit" className="btn btn-primary">Create Product</button>
-                  </div>
-                </form>
-              </div>
-              )}
-
-              {/* Products List */}
-              <div className="card cp-table-wrap" style={{ padding: 0, overflowX: "auto" }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th>Type</th>
-                      <th>Price</th>
-                      <th>Stock</th>
-                      <th>Available / Total</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map(p => (
-                      <React.Fragment key={p.id}>
-                        <tr>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              {p.imageUrl && <img src={p.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover" }} />}
-                              <strong>{p.name}</strong>
-                            </div>
-                          </td>
-                          <td>{p.productType || p.categoryName || "—"}</td>
-                          <td style={{ fontWeight: "600", color: "var(--green)" }}>{p.currency === "EUR" ? "€" : p.currency === "GBP" ? "£" : "$"}{Number(p.price).toFixed(2)}</td>
-                          <td><span className={`badge badge-${p.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>{p.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"}</span></td>
-                          <td>
-                            {p.areaDetails && p.areaDetails.some((d: any) => d.stockQuantity > 0) ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                {p.areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
-                                  <span key={d.areaId} style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                                    {d.area?.name || "Area"}: <strong style={{ color: "var(--text-primary)" }}>{d.stockQuantity}</strong>
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              p.stockQuantity
-                            )}
-                          </td>
-                          <td>
-                            <div style={{ display: "flex", gap: "8px" }}>
-                              <button onClick={() => startEditingProduct(p)} className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }}>Edit</button>
-                              {user?.role !== "STAFF" && (
-                                <button onClick={() => handleDeleteProduct(p.id)} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Del</button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                        {editingProductId === p.id && (
-                          <tr style={{ background: "var(--bg-secondary)" }}>
-                            <td colSpan={6} style={{ padding: "16px" }}>
-                              <div className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
-                                <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
-                                <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={editProductData.productType} onChange={e => setEditProductData({...editProductData, productType: e.target.value})} />
-                                <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Unit Price (USD)</label>
-                                    <div style={{ position: "relative" }}>
-                                      <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "bold", color: "var(--text-secondary)" }}>$</span>
-                                      <input className="form-input" placeholder="0.00" type="number" step="0.01" value={editProductData.price} onChange={e => setEditProductData({...editProductData, price: e.target.value})} disabled={user?.role === "STAFF"} style={{ paddingLeft: "32px", width: "100%", opacity: user?.role === "STAFF" ? 0.6 : 1 }} />
-                                    </div>
-                                  </div>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
-                                    <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Global Stock Quantity</label>
-                                    <input className="form-input" placeholder="0" type="number" min="0" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} />
-                                  </div>
-                                </div>
-                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                                  <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
-                                  <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
-                                    <span style={{ fontSize: "14px", color: "var(--text-secondary)", flex: 1 }}>
-                                      {editProductData.cityIds.length === 0 ? "No locations selected" : `${editProductData.cityIds.length} Cities, ${editProductData.areaIds.length} Areas selected`}
-                                    </span>
-                                    <button type="button" onClick={() => setShowLocationsModal("edit")} className="btn btn-secondary btn-sm">Manage Locations</button>
-                                  </div>
-                                </div>
-                                
-                                {editProductData.areaIds.length > 0 && (
-                                  <div className="cp-grid-span2" style={{ gridColumn: "span 2", marginBottom: 0 }}>
-                                    <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Area Delivery Details (Auto-Delivery)</label>
-                                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)", maxHeight: "300px", overflowY: "auto" }}>
-                                      {editProductData.areaIds.map(areaId => {
-                                        // Find area name
-                                        let areaName = "Unknown Area";
-                                        for (const city of locations) {
-                                          const a = city.areas?.find((x: any) => x.id === areaId);
-                                          if (a) { areaName = a.name; break; }
-                                        }
-                                        
-                                        const detailIndex = editProductData.areaDetails.findIndex(d => d.areaId === areaId);
-                                        const detail = detailIndex >= 0 ? editProductData.areaDetails[detailIndex] : { areaId, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0 };
-                                        
-                                        const updateDetail = (key: string, value: any) => {
-                                          const newDetails = [...editProductData.areaDetails];
-                                          const dIdx = newDetails.findIndex(d => d.areaId === areaId);
-                                          if (dIdx >= 0) {
-                                            newDetails[dIdx] = { ...newDetails[dIdx], [key]: value };
-                                          } else {
-                                            newDetails.push({ areaId, locationUrl: "", videoUrl: "", message: "", cooldownMinutes: 0, [key]: value });
-                                          }
-                                          setEditProductData({ ...editProductData, areaDetails: newDetails });
-                                        };
-
-                                        return (
-                                          <div key={areaId} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px", background: "var(--bg-primary)" }}>
-                                            <h4 style={{ marginBottom: "12px", fontSize: "14px", color: "var(--accent)" }}>{areaName}</h4>
-                                            <div className="cp-area-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
-                                              <input className="form-input" placeholder="Location/Maps URL" value={detail.locationUrl || ""} onChange={e => updateDetail("locationUrl", e.target.value)} />
-                                              <input className="form-input" placeholder="Video URL" value={detail.videoUrl || ""} onChange={e => updateDetail("videoUrl", e.target.value)} />
-                                            </div>
-                                            <div className="cp-area-grid-3col" style={{ display: "grid", gridTemplateColumns: "1fr auto 120px", gap: "12px" }}>
-                                              <input className="form-input" placeholder="Message / Instructions" value={detail.message || ""} onChange={e => updateDetail("message", e.target.value)} />
-                                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                                <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty:</label>
-                                                <input className="form-input" type="number" min="0" placeholder="0" style={{ width: "80px", padding: "4px 8px" }} value={detail.stockQuantity || 0} onChange={e => updateDetail("stockQuantity", e.target.value)} />
-                                              </div>
-                                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <input className="form-input" type="number" placeholder="0" title="Cooldown Minutes" style={{ width: "80px" }} value={detail.cooldownMinutes || 0} onChange={e => updateDetail("cooldownMinutes", e.target.value)} />
-                                <span style={{ fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap", fontWeight: "600" }}>min</span>
-                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
-                                  <textarea className="form-input" placeholder="Description" rows={3} style={{ flex: 1 }} value={editProductData.description} onChange={e => setEditProductData({...editProductData, description: e.target.value})} />
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "200px" }}>
-                                    <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", textAlign: "center" }}>
-                                      Update Image
-                                      <input type="file" accept="image/*" onChange={(e) => handleProductImageUpload(e, true)} style={{ display: "none" }} />
-                                    </label>
-                                    {editProductData.imageUrl && (
-                                      <img src={editProductData.imageUrl} alt="Preview" style={{ width: "100%", height: "60px", objectFit: "cover", borderRadius: "var(--radius-sm)" }} />
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-                                  <button onClick={() => setEditingProductId(null)} className="btn btn-ghost btn-sm">Cancel</button>
-                                  <button onClick={handleEditProductSubmit} className="btn btn-primary btn-sm">Save Changes</button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+          {/* STOCK MANAGEMENT TAB */}
+          {activeTab === "stock" && (
+            <div style={{ animation: "fadeIn 0.4s ease" }}>
+              <StockManagement />
             </div>
           )}
 
@@ -1731,62 +1447,14 @@ export default function ClientAdminPanel() {
           {/* Employees Tab */}
           {activeTab === "employees" && (
             <div style={{ animation: "fadeIn 0.4s ease" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
-                <h2>Staff Management</h2>
-                <div className="cp-employee-form" style={{ background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", display: "flex", gap: "12px", alignItems: "flex-end", border: "1px solid var(--border)" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>Username</label>
-                    <input type="text" className="form-input" style={{ width: "150px" }} value={newEmployeeUsername} onChange={e => setNewEmployeeUsername(e.target.value)} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>Password</label>
-                    <input type="text" className="form-input" style={{ width: "150px" }} value={newEmployeePassword} onChange={e => setNewEmployeePassword(e.target.value)} />
-                  </div>
-                  <button className="btn btn-primary" onClick={handleAddEmployee}>Add Staff</button>
-                </div>
-              </div>
+              <StaffManagement />
+            </div>
+          )}
 
-              <div className="card cp-table-wrap table-scroll-wrap">
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Username</th>
-                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Created</th>
-                      <th style={{ textAlign: "left", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Failed Logins</th>
-                      <th style={{ textAlign: "right", padding: "12px", color: "var(--text-secondary)", fontWeight: "600" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employees.map(emp => (
-                      <tr key={emp.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                        <td style={{ padding: "12px", fontWeight: "500" }}>{emp.username}</td>
-                        <td style={{ padding: "12px", color: "var(--text-secondary)" }}>{new Date(emp.createdAt).toLocaleDateString()}</td>
-                        <td style={{ padding: "12px" }}>
-                          {emp.failedLoginAttempts > 0 ? (
-                            <span style={{ color: emp.failedLoginAttempts >= 5 ? "var(--red)" : "var(--accent)" }}>{emp.failedLoginAttempts}</span>
-                          ) : (
-                            <span style={{ color: "var(--text-tertiary)" }}>0</span>
-                          )}
-                          {emp.lockUntil && new Date(emp.lockUntil) > new Date() && (
-                            <span className="badge badge-red" style={{ marginLeft: "8px" }}>Locked</span>
-                          )}
-                        </td>
-                        <td style={{ padding: "12px", textAlign: "right" }}>
-                          <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-                            <button onClick={() => handleEditEmployeePassword(emp.id)} className="btn btn-secondary btn-sm">Edit Password</button>
-                            <button onClick={() => handleDeleteEmployee(emp.id)} className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }}>Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {employees.length === 0 && (
-                      <tr>
-                        <td colSpan={4} style={{ padding: "24px", textAlign: "center", color: "var(--text-secondary)" }}>No staff accounts found.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+          {/* Coupons Tab */}
+          {activeTab === "coupons" && (
+            <div style={{ animation: "fadeIn 0.4s ease" }}>
+              <CouponManagement />
             </div>
           )}
 

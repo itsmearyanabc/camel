@@ -121,9 +121,28 @@ export async function POST(req: NextRequest) {
        if (depositReq) {
          await prisma.depositRequest.update({ where: { id: order_id }, data: { status: "REJECTED", updatedAt: new Date() } });
        }
-       const orderReq = await prisma.order.findUnique({ where: { id: order_id } });
+       
+       // Restore stock for cancelled orders
+       const orderReq = await prisma.order.findUnique({ 
+         where: { id: order_id },
+         include: { items: true }
+       });
        if (orderReq) {
-         await prisma.order.update({ where: { id: order_id }, data: { status: "CANCELLED", updatedAt: new Date() } });
+         await prisma.$transaction(async (tx) => {
+           // Restore stock for each item
+           for (const item of orderReq.items) {
+             await tx.product.update({
+               where: { id: item.productId },
+               data: { stockQuantity: { increment: 1 } }
+             });
+           }
+           
+           // Mark order as cancelled
+           await tx.order.update({ 
+             where: { id: order_id }, 
+             data: { status: "CANCELLED", updatedAt: new Date() } 
+           });
+         });
        }
     }
 

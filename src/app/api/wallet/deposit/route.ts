@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { createNOWPaymentInvoice, isNOWPaymentsConfigured } from "@/lib/nowpayments";
 
 export async function GET(req: NextRequest) {
   try {
@@ -56,12 +57,9 @@ export async function POST(req: Request) {
       },
     });
 
-    // Check if Cryptomus is configured
-    const merchantId = process.env.CRYPTOMUS_MERCHANT_ID;
-    const paymentKey = process.env.CRYPTOMUS_API_KEY;
-
-    if (!merchantId || !paymentKey) {
-      console.warn("Cryptomus not configured, falling back to manual deposit");
+    // Check if NOWPayments is configured
+    if (!isNOWPaymentsConfigured()) {
+      console.warn("NOWPayments not configured, falling back to manual deposit");
       return NextResponse.json({ 
         success: true, 
         depositRequest: {
@@ -73,46 +71,32 @@ export async function POST(req: Request) {
       });
     }
 
-    // Generate Cryptomus Invoice
+    // Generate NOWPayments Invoice
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://camel971.com";
     
-    const payload = {
-      amount: depositAmount.toString(),
-      currency: "USD",
-      order_id: depositRequest.id,
-      url_return: `${baseUrl}/dashboard`,
-      url_callback: `${baseUrl}/api/webhooks/cryptomus`,
-      is_payment_multiple: false,
-      lifetime: 3600
-    };
-
-    const payloadString = JSON.stringify(payload);
-    const base64Payload = Buffer.from(payloadString).toString('base64');
-    
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const crypto = require('crypto');
-    const sign = crypto.createHash('md5').update(base64Payload + paymentKey).digest('hex');
-
-    const response = await fetch("https://api.cryptomus.com/v1/payment", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "merchant": merchantId,
-        "sign": sign
-      },
-      body: payloadString
+    const invoiceResult = await createNOWPaymentInvoice({
+      priceAmount: depositAmount,
+      priceCurrency: "usd",
+      payCurrency: "usdttrc20", // Default to USDT TRC20, user can change on payment page
+      orderId: depositRequest.id,
+      orderDescription: `Wallet Deposit - $${depositAmount}`,
+      ipnCallbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
+      successUrl: `${baseUrl}/dashboard?deposit=success`,
+      cancelUrl: `${baseUrl}/dashboard?deposit=cancelled`,
     });
 
-    const data = await response.json();
-
-    if (data.state !== 0) {
-      console.error("Cryptomus error:", data);
-      return NextResponse.json({ error: "Failed to generate payment gateway" }, { status: 500 });
+    if (!invoiceResult.success || !invoiceResult.invoice) {
+      console.error("NOWPayments error:", invoiceResult.error);
+      return NextResponse.json({ 
+        error: "Failed to generate payment gateway",
+        details: invoiceResult.error 
+      }, { status: 500 });
     }
 
     return NextResponse.json({ 
       success: true, 
-      paymentUrl: data.result.url,
+      paymentUrl: invoiceResult.invoice.invoice_url,
+      invoiceId: invoiceResult.invoice.id,
       depositRequest: {
         id: depositRequest.id,
         amount: depositRequest.amount,

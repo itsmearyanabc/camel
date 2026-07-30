@@ -2,7 +2,15 @@ import { cookies } from "next/headers";
 import crypto from "crypto";
 
 const SESSION_COOKIE_NAME = "camel971_session";
-const SESSION_SECRET = process.env.SESSION_SECRET || "Camel971_super_secret_key_123456789";
+
+// Production: Require SESSION_SECRET environment variable
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+if (!SESSION_SECRET && process.env.NODE_ENV === "production") {
+  console.warn(
+    "SESSION_SECRET environment variable is required in production. " +
+    "Generate one with: openssl rand -base64 32"
+  );
+}
 
 interface SessionPayload {
   userId: string;

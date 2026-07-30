@@ -51,29 +51,34 @@ export async function POST(req: Request) {
 
       // 1. Process resolution
       if (resolutionType === "REFUND" || resolutionType === "CREDIT") {
-        const wallet = await tx.wallet.findUnique({
-          where: { userId: dispute.userId },
-        });
+        // Only credit wallet for WALLET payments
+        // For DIRECT_CRYPTO payments, admin already received crypto directly
+        // so we just mark as refunded without wallet credit
+        if (dispute.order.paymentMethod === "WALLET") {
+          const wallet = await tx.wallet.findUnique({
+            where: { userId: dispute.userId },
+          });
 
-        if (!wallet) {
-          throw new Error("User wallet not found");
+          if (!wallet) {
+            throw new Error("User wallet not found");
+          }
+
+          // Add funds back
+          await tx.wallet.update({
+            where: { id: wallet.id },
+            data: { balance: { increment: dispute.order.totalAmount } },
+          });
+
+          // Add ledger record
+          await tx.walletLedger.create({
+            data: {
+              walletId: wallet.id,
+              type: "REFUND",
+              amount: dispute.order.totalAmount,
+              description: `Refund for order #${dispute.orderId} (Dispute resolved as ${resolutionType})`,
+            },
+          });
         }
-
-        // Add funds back
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balance: { increment: dispute.order.totalAmount } },
-        });
-
-        // Add ledger record
-        await tx.walletLedger.create({
-          data: {
-            walletId: wallet.id,
-            type: "REFUND",
-            amount: dispute.order.totalAmount,
-            description: `Refund for order #${dispute.orderId} (Dispute resolved as ${resolutionType})`,
-          },
-        });
 
         // Update order status to REFUNDED
         await tx.order.update({

@@ -114,8 +114,23 @@ model ProductAreaDetail {
   cooldownMinutes Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  stockEntries    StockEntry[]
 
   @@unique([productId, areaId])
+}
+
+model StockEntry {
+  id              String   @id @default(uuid())
+  productAreaDetailId String
+  productAreaDetail ProductAreaDetail @relation(fields: [productAreaDetailId], references: [id], onDelete: Cascade)
+  quantity        Int      // Positive for additions, negative for removals
+  type            String   // RESTOCK, SALE, ADJUSTMENT, DAMAGE, RETURN
+  notes           String?
+  createdBy       String?  // User ID who made the entry
+  createdAt       DateTime @default(now())
+
+  @@index([productAreaDetailId])
+  @@index([createdAt])
 }
 
 model Order {
@@ -237,4 +252,41 @@ model Review {
 
   @@index([productId])
   @@index([userId])
+}
+
+model Coupon {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  description     String?
+  discountType    String   // PERCENTAGE, FIXED_AMOUNT
+  discountValue   Decimal  @db.Decimal(12, 2)
+  minOrderAmount  Decimal? @db.Decimal(12, 2)
+  maxDiscount     Decimal? @db.Decimal(12, 2) // For percentage discounts
+  usageLimit      Int?     // Total number of times this coupon can be used
+  usedCount       Int      @default(0)
+  userLimit       Int?     // Per-user usage limit
+  validFrom       DateTime @default(now())
+  validUntil      DateTime?
+  isActive        Boolean  @default(true)
+  createdBy       String?  // Admin user ID
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  couponUsages    CouponUsage[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model CouponUsage {
+  id        String   @id @default(uuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId    String
+  orderId   String?
+  discount  Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+
+  @@index([couponId])
+  @@index([userId])
+  @@index([orderId])
 }

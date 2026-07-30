@@ -26,9 +26,14 @@ export async function GET() {
 
     const walletInfo = await prisma.wallet.findUnique({ where: { userId: user.id } });
 
-    const [categories, cities, ledgers, orders, disputes, depositRequests, settings] = await Promise.all([
+    const [categories, uncategorizedProducts, cities, ledgers, orders, disputes, depositRequests, settings] = await Promise.all([
       prisma.category.findMany({
         include: { products: { include: { cities: true, areas: true, areaDetails: { include: { area: true } } } } },
+        orderBy: { createdAt: "asc" }
+      }),
+      prisma.product.findMany({
+        where: { categoryId: null },
+        include: { cities: true, areas: true, areaDetails: { include: { area: true } } },
         orderBy: { createdAt: "asc" }
       }),
       prisma.city.findMany({
@@ -58,9 +63,22 @@ export async function GET() {
 
     const cryptoSetting = settings.find(s => s.key === "cryptoWalletAddress");
 
+    // Add uncategorized products as an "Other" category if any exist
+    const allCategories = [...categories];
+    if (uncategorizedProducts.length > 0) {
+      allCategories.push({
+        id: "other",
+        name: "Other",
+        prefixCode: null,
+        description: null,
+        products: uncategorizedProducts,
+        createdAt: new Date(),
+      } as any);
+    }
+
     return NextResponse.json({
       user,
-      categories,
+      categories: allCategories,
       cities,
       ledgers,
       orders,

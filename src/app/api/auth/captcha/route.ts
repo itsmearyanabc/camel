@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-const CAPTCHA_SECRET = "captcha_boys_secret_987654321";
+// Production: Require CAPTCHA_SECRET environment variable
+const CAPTCHA_SECRET = process.env.CAPTCHA_SECRET || "";
+if (!CAPTCHA_SECRET && process.env.NODE_ENV === "production") {
+  console.warn(
+    "CAPTCHA_SECRET environment variable is required in production. " +
+    "Generate one with: openssl rand -base64 32"
+  );
+}
 
 function encryptAnswer(answer: string): string {
   const cipher = crypto.createCipheriv(
