@@ -34,7 +34,7 @@ export default function ParallaxIntro() {
   return (
     <>
       <section className={styles.parallaxSection}>
-        <img src="https://cdn.phototourl.com/free/2026-07-19-d9e23e06-09aa-405c-befb-15e329c303cb.png" id="bg" className={styles.parallaxImg} alt="Background" />
+        <img src="https://cdn.phototourl.com/free/2026-07-29-539499ac-d901-4aa1-88c5-ee03acd85f18.png" id="bg" className={styles.parallaxImg} alt="Background" />
         <h2 ref={textRef} className={styles.parallaxText}>RELAX</h2>
         <img ref={manRef} src="https://www.image2url.com/r2/default/images/1783276661415-dae13064-ca67-4897-88cf-c73691277c6b.png" className={`${styles.parallaxImg} ${styles.man}`} alt="Man" />
         <img ref={cloud1Ref} src="https://aryan-tayal.github.io/Mountains-Parallax/clouds_1.png" className={`${styles.parallaxImg} ${styles.cloud1}`} alt="Cloud 1" />

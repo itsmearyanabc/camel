@@ -85,8 +85,8 @@ export default function DashboardNav({
     { code: "RU", name: "Русский", iconUrl: "https://flagcdn.com/w40/ru.png" },
     { code: "AR", name: "العربية", iconUrl: "https://flagcdn.com/w40/sa.png" },
     { code: "TR", name: "Türkçe", iconUrl: "https://flagcdn.com/w40/tr.png" },
-    { code: "KK", name: "Қазақша", iconUrl: "https://flagcdn.com/w40/kz.png" },
-    { code: "UK", name: "Українська", iconUrl: "https://flagcdn.com/w40/ua.png" },
+    { code: "ZH", name: "中文", iconUrl: "https://flagcdn.com/w40/cn.png" },
+    { code: "ES", name: "Español", iconUrl: "https://flagcdn.com/w40/es.png" },
   ];
 
   // Bottom tab items
@@ -149,7 +149,7 @@ export default function DashboardNav({
             
             <nav
               className={`${styles.menuPanel} ${currencyOpen ? styles.menuPanelOpen : ""}`}
-              style={{ right: 0, top: "calc(100% + 12px)", minWidth: "180px", padding: "8px 0" }}
+              style={{ left: "50%", right: "auto", transform: "translateX(-50%)", top: "calc(100% + 12px)", minWidth: "180px", padding: "8px 0" }}
             >
               {currencyList.map(cur => (
                 <button
@@ -184,7 +184,7 @@ export default function DashboardNav({
             </button>
             <nav
               className={`${styles.menuPanel} ${languageOpen ? styles.menuPanelOpen : ""}`}
-              style={{ right: 0, top: "calc(100% + 12px)", minWidth: "160px", padding: "8px 0" }}
+              style={{ left: "50%", right: "auto", transform: "translateX(-50%)", top: "calc(100% + 12px)", minWidth: "160px", padding: "8px 0" }}
             >
               {languages.map(lang => (
                 <button
