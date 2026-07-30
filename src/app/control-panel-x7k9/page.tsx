@@ -593,7 +593,7 @@ export default function ClientAdminPanel() {
   return (
     <div data-theme="night" style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg-secondary)", color: "var(--text-primary)" }}>
       {/* Header */}
-      <header style={{
+      <header className="cp-header" style={{
         padding: "16px 24px", display: "flex", justifyContent: "space-between",
         alignItems: "center", background: "var(--bg-primary)",
         borderBottom: "1px solid var(--border)", position: "sticky", top: 0, zIndex: 100,
@@ -609,7 +609,7 @@ export default function ClientAdminPanel() {
           >
             ☰
           </button>
-          <span style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>{isAdmin ? "Admin Area" : "Staff Panel"}</span>
+          <span className="cp-header-title" style={{ fontSize: "20px", fontWeight: "800", letterSpacing: "-0.5px" }}>{isAdmin ? "Admin Area" : "Staff Panel"}</span>
           {isAdmin && <span className="badge badge-red" style={{ fontSize: "11px", letterSpacing: "0.5px" }}>{user.role === "SUPERADMIN" ? "ROOT" : "ADMIN"}</span>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -662,16 +662,139 @@ export default function ClientAdminPanel() {
 
         <style dangerouslySetInnerHTML={{__html: `
           @media (max-width: 900px) {
-            .admin-layout { flex-direction: column !important; padding: 16px !important; gap: 16px !important; }
+            /* === LAYOUT === */
+            .admin-layout { flex-direction: column !important; padding: 12px !important; gap: 12px !important; }
             #mobile-menu-btn { display: inline-flex !important; }
             .hide-mobile { display: none !important; }
+
+            /* === SIDEBAR === */
             .admin-sidebar { 
               display: none !important; 
               position: absolute; top: 0; left: 0; right: 0; 
               background: var(--bg-primary) !important; padding: 16px; 
-              border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); 
+              border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+              z-index: 200 !important;
             }
             .admin-sidebar.open { display: flex !important; }
+
+            /* === ALL TABLES - horizontal scroll === */
+            .cp-table-wrap {
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch !important;
+            }
+            .cp-table-wrap table {
+              min-width: 600px !important;
+            }
+            .cp-table-wrap table th,
+            .cp-table-wrap table td {
+              padding: 10px 12px !important;
+              font-size: 13px !important;
+              white-space: nowrap !important;
+            }
+
+            /* === GRID STACKING === */
+            .cp-grid-form {
+              grid-template-columns: 1fr !important;
+            }
+            .cp-grid-span2 {
+              grid-column: span 1 !important;
+            }
+            .cp-area-grid-2col {
+              grid-template-columns: 1fr !important;
+            }
+            .cp-area-grid-3col {
+              grid-template-columns: 1fr !important;
+            }
+
+            /* === ACTIVE ORDERS === */
+            .cp-order-header {
+              padding: 14px 16px !important;
+            }
+            .cp-order-badges {
+              flex-wrap: wrap !important;
+              gap: 6px !important;
+            }
+            .cp-order-summary {
+              white-space: normal !important;
+              word-break: break-word !important;
+            }
+            .cp-order-details {
+              padding: 16px !important;
+            }
+            .cp-order-details-grid {
+              grid-template-columns: 1fr !important;
+              gap: 20px !important;
+            }
+
+            /* === STATUS FILTER TABS === */
+            .cp-status-tabs {
+              -webkit-overflow-scrolling: touch !important;
+            }
+            .cp-status-tabs button {
+              flex-shrink: 0 !important;
+              font-size: 12px !important;
+              padding: 6px 10px !important;
+            }
+
+            /* === DISPUTES === */
+            .cp-dispute-footer {
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              gap: 10px !important;
+            }
+            .cp-dispute-actions {
+              flex-wrap: wrap !important;
+              width: 100% !important;
+            }
+            .cp-dispute-actions > button {
+              flex: 1 1 auto !important;
+              min-width: 0 !important;
+              font-size: 12px !important;
+              padding: 6px 10px !important;
+            }
+            .cp-dispute-header {
+              flex-wrap: wrap !important;
+              gap: 8px !important;
+            }
+
+            /* === EMPLOYEE MANAGEMENT === */
+            .cp-employee-form {
+              flex-direction: column !important;
+              align-items: stretch !important;
+              gap: 10px !important;
+            }
+            .cp-employee-form input {
+              width: 100% !important;
+            }
+
+            /* === HEADER === */
+            .cp-header {
+              padding: 12px 16px !important;
+            }
+            .cp-header-title {
+              font-size: 16px !important;
+            }
+
+            /* === HEADINGS === */
+            .cp-heading {
+              font-size: 22px !important;
+            }
+
+            /* === CARDS === */
+            .card {
+              padding: 14px !important;
+            }
+
+            /* === MODAL === */
+            .cp-modal {
+              width: 95% !important;
+              max-height: 90vh !important;
+            }
+
+            /* === MISC === */
+            textarea.form-input {
+              min-height: 60px !important;
+            }
           }
         `}} />
 
@@ -691,13 +814,13 @@ export default function ClientAdminPanel() {
 
              {activeTab === "products" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>Product Management</h2>
+              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Product Management</h2>
               
               {/* Product Form */}
               {user?.role !== "STAFF" && (
               <div className="card">
                 <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add New Product</h3>
-                <form onSubmit={handleAddProduct} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
+                <form onSubmit={handleAddProduct} className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <input className="form-input" placeholder="Product Name" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} required />
                   </div>
@@ -791,7 +914,7 @@ export default function ClientAdminPanel() {
               )}
 
               {/* Products List */}
-              <div className="card" style={{ padding: 0, overflowX: "auto" }}>
+              <div className="card cp-table-wrap" style={{ padding: 0, overflowX: "auto" }}>
                 <table>
                   <thead>
                     <tr>
@@ -841,7 +964,7 @@ export default function ClientAdminPanel() {
                         {editingProductId === p.id && (
                           <tr style={{ background: "var(--bg-secondary)" }}>
                             <td colSpan={6} style={{ padding: "16px" }}>
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
+                              <div className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "16px" }}>
                                 <input className="form-input" placeholder="Name" value={editProductData.name} onChange={e => setEditProductData({...editProductData, name: e.target.value})} />
                                 <input className="form-input" placeholder="Product Type (e.g. Powder, Liquid)" value={editProductData.productType} onChange={e => setEditProductData({...editProductData, productType: e.target.value})} />
                                 <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
@@ -857,7 +980,7 @@ export default function ClientAdminPanel() {
                                     <input className="form-input" placeholder="0" type="number" min="0" value={editProductData.stockQuantity} onChange={e => setEditProductData({...editProductData, stockQuantity: e.target.value})} />
                                   </div>
                                 </div>
-                                <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", marginBottom: 0 }}>
                                   <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Product Availability (Locations)</label>
                                   <div style={{ display: "flex", alignItems: "center", gap: "16px", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)" }}>
                                     <span style={{ fontSize: "14px", color: "var(--text-secondary)", flex: 1 }}>
@@ -868,7 +991,7 @@ export default function ClientAdminPanel() {
                                 </div>
                                 
                                 {editProductData.areaIds.length > 0 && (
-                                  <div style={{ gridColumn: "span 2", marginBottom: 0 }}>
+                                  <div className="cp-grid-span2" style={{ gridColumn: "span 2", marginBottom: 0 }}>
                                     <label style={{ display: "block", marginBottom: "8px", fontWeight: "600", fontSize: "14px" }}>Area Delivery Details (Auto-Delivery)</label>
                                     <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-secondary)", maxHeight: "300px", overflowY: "auto" }}>
                                       {editProductData.areaIds.map(areaId => {
@@ -896,11 +1019,11 @@ export default function ClientAdminPanel() {
                                         return (
                                           <div key={areaId} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px", background: "var(--bg-primary)" }}>
                                             <h4 style={{ marginBottom: "12px", fontSize: "14px", color: "var(--accent)" }}>{areaName}</h4>
-                                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
+                                            <div className="cp-area-grid-2col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "8px" }}>
                                               <input className="form-input" placeholder="Location/Maps URL" value={detail.locationUrl || ""} onChange={e => updateDetail("locationUrl", e.target.value)} />
                                               <input className="form-input" placeholder="Video URL" value={detail.videoUrl || ""} onChange={e => updateDetail("videoUrl", e.target.value)} />
                                             </div>
-                                            <div style={{ display: "grid", gridTemplateColumns: "1fr auto 120px", gap: "12px" }}>
+                                            <div className="cp-area-grid-3col" style={{ display: "grid", gridTemplateColumns: "1fr auto 120px", gap: "12px" }}>
                                               <input className="form-input" placeholder="Message / Instructions" value={detail.message || ""} onChange={e => updateDetail("message", e.target.value)} />
                                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                                                 <label style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-secondary)" }}>Stock Qty:</label>
@@ -917,7 +1040,7 @@ export default function ClientAdminPanel() {
                                     </div>
                                   </div>
                                 )}
-                                <div style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
+                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", display: "flex", gap: "16px" }}>
                                   <textarea className="form-input" placeholder="Description" rows={3} style={{ flex: 1 }} value={editProductData.description} onChange={e => setEditProductData({...editProductData, description: e.target.value})} />
                                   <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "200px" }}>
                                     <label className="btn btn-secondary btn-sm" style={{ cursor: "pointer", textAlign: "center" }}>
@@ -929,7 +1052,7 @@ export default function ClientAdminPanel() {
                                     )}
                                   </div>
                                 </div>
-                                <div style={{ gridColumn: "span 2", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                                <div className="cp-grid-span2" style={{ gridColumn: "span 2", display: "flex", gap: "12px", justifyContent: "flex-end" }}>
                                   <button onClick={() => setEditingProductId(null)} className="btn btn-ghost btn-sm">Cancel</button>
                                   <button onClick={handleEditProductSubmit} className="btn btn-primary btn-sm">Save Changes</button>
                                 </div>
@@ -948,9 +1071,9 @@ export default function ClientAdminPanel() {
           {/* LOCATIONS TAB */}
           {activeTab === "locations" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>Locations Management</h2>
+              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Locations Management</h2>
               
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+              <div className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
                 <div className="card">
                   <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add City</h3>
                   <form onSubmit={handleAddCity} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -1007,12 +1130,12 @@ export default function ClientAdminPanel() {
           {activeTab === "active-orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ fontSize: "28px" }}>Orders ({activeOrders.length})</h2>
+                <h2 className="cp-heading" style={{ fontSize: "28px" }}>Orders ({activeOrders.length})</h2>
                 <button onClick={fetchAll} className="btn btn-secondary btn-sm">🔄 Refresh</button>
               </div>
 
               {/* Horizontal Status Tabs */}
-              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
+              <div className="cp-status-tabs" style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "8px" }}>
                 {["ALL", "ORDERED", "PROCESSING", "ON_PICKUP", "COMPLETED", "CANCELLED"].map(status => (
                   <button 
                     key={status}
@@ -1037,10 +1160,11 @@ export default function ClientAdminPanel() {
                       {/* Order Row Header */}
                       <div 
                         onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        className="cp-order-header"
                         style={{ display: "flex", alignItems: "center", padding: "20px 24px", cursor: "pointer", background: expandedOrderId === order.id ? "var(--bg-tertiary)" : "var(--bg-primary)" }}
                       >
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div className="cp-order-badges" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                             <span style={{ fontWeight: "600", fontSize: "16px" }}>{order.user.username}</span>
                             <span className={`badge ${order.status === "ON_PICKUP" ? "badge-blue" : "badge-in_stock"}`}>{order.status}</span>
                             <span className="badge" style={{ background: order.orderSource === "TELEGRAM" ? "#0088cc" : "var(--bg-secondary)", color: order.orderSource === "TELEGRAM" ? "white" : "var(--text-secondary)" }}>
@@ -1048,7 +1172,7 @@ export default function ClientAdminPanel() {
                             </span>
                             <span className="badge badge-green">💳 Wallet</span>
                           </div>
-                          <span style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>Ordered {order.items.map((i: any) => `${i.product.name}`).join(", ")} • ${Number(order.totalAmount).toFixed(2)} • {new Date(order.createdAt).toLocaleString()}</span>
+                          <span className="cp-order-summary" style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>Ordered {order.items.map((i: any) => `${i.product.name}`).join(", ")} • ${Number(order.totalAmount).toFixed(2)} • {new Date(order.createdAt).toLocaleString()}</span>
                         </div>
                         <div>
                           <span style={{ fontSize: "20px", color: "var(--text-tertiary)", transform: expandedOrderId === order.id ? "rotate(180deg)" : "rotate(0deg)", display: "inline-block", transition: "transform 0.2s ease" }}>↓</span>
@@ -1057,8 +1181,8 @@ export default function ClientAdminPanel() {
 
                       {/* Expanded Details */}
                       {expandedOrderId === order.id && (
-                        <div style={{ padding: "24px", borderTop: "1px solid var(--border)", background: "var(--bg-primary)" }}>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "32px" }}>
+                        <div className="cp-order-details" style={{ padding: "24px", borderTop: "1px solid var(--border)", background: "var(--bg-primary)" }}>
+                          <div className="cp-order-details-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "32px" }}>
                             <div>
                               <h4 style={{ marginBottom: "12px", color: "var(--text-secondary)", fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.5px" }}>Customer Details</h4>
                               <p style={{ marginBottom: "8px" }}><strong>Username:</strong> {order.user.username}</p>
@@ -1218,8 +1342,8 @@ export default function ClientAdminPanel() {
           {/* ALL ORDERS */}
           {activeTab === "all-orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>Order History</h2>
-              <div className="card" style={{ padding: "0", overflow: "hidden" }}>
+              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Order History</h2>
+              <div className="card cp-table-wrap" style={{ padding: "0", overflow: "hidden" }}>
                 <table>
                   <thead>
                     <tr>
@@ -1256,7 +1380,7 @@ export default function ClientAdminPanel() {
           {activeTab === "users" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <h2 style={{ fontSize: "28px" }}>User Management</h2>
+                <h2 className="cp-heading" style={{ fontSize: "28px" }}>User Management</h2>
                 <input 
                   type="text" 
                   className="form-input" 
@@ -1266,7 +1390,7 @@ export default function ClientAdminPanel() {
                   style={{ width: "300px" }}
                 />
               </div>
-              <div className="card" style={{ padding: "0", overflow: "hidden" }}>
+              <div className="card cp-table-wrap" style={{ padding: "0", overflow: "hidden" }}>
                 <table>
                   <thead>
                     <tr>
@@ -1450,7 +1574,7 @@ export default function ClientAdminPanel() {
               </div>
 
               {/* Deposit Requests Review Table */}
-              <div className="card">
+              <div className="card cp-table-wrap">
                 <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Legacy Wallet Deposit Requests</h3>
                 {deposits.length === 0 ? (
                   <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>No deposit requests submitted.</p>
@@ -1514,7 +1638,7 @@ export default function ClientAdminPanel() {
           {/* DISPUTES */}
           {activeTab === "disputes" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 style={{ fontSize: "28px" }}>Dispute Logs ({disputes.length})</h2>
+              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Dispute Logs ({disputes.length})</h2>
               <div className="card" style={{ padding: "20px" }}>
                 {disputes.length === 0 ? (
                   <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "40px 0" }}>No disputes recorded.</p>
@@ -1522,7 +1646,7 @@ export default function ClientAdminPanel() {
                   <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
                     {disputes.map(d => (
                       <div key={d.id} style={{ padding: "20px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-primary)", display: "flex", flexDirection: "column", gap: "12px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div className="cp-dispute-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span style={{ fontWeight: "600", fontSize: "15px" }}>
                             👤 {d.user.username} <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>disputed Order #{d.order.id.slice(0,8)} ({d.order.items.map((i: any) => i.product.name).join(", ")})</span>
                           </span>
@@ -1580,13 +1704,13 @@ export default function ClientAdminPanel() {
                           </div>
                         )}
 
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "12px", marginTop: "4px" }}>
+                        <div className="cp-dispute-footer" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border)", paddingTop: "12px", marginTop: "4px" }}>
                           <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
                             Resolved: <strong style={{ color: d.resolutionType ? "var(--text-primary)" : "var(--text-tertiary)" }}>{d.resolutionType || "Pending"}</strong>
                           </span>
                           
                           {d.status !== "RESOLVED" ? (
-                            <div style={{ display: "flex", gap: "8px" }}>
+                            <div className="cp-dispute-actions" style={{ display: "flex", gap: "8px" }}>
                               <button onClick={() => handleResolveDispute(d.id, "REFUND")} className="btn btn-secondary btn-sm" style={{ color: "var(--green)" }}>Refund</button>
                               <button onClick={() => handleResolveDispute(d.id, "CREDIT")} className="btn btn-secondary btn-sm" style={{ color: "var(--blue)" }}>Credit</button>
                               <button onClick={() => handleResolveDispute(d.id, "REPLACEMENT")} className="btn btn-secondary btn-sm" style={{ color: "var(--purple)" }}>Replace</button>
@@ -1609,7 +1733,7 @@ export default function ClientAdminPanel() {
             <div style={{ animation: "fadeIn 0.4s ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
                 <h2>Staff Management</h2>
-                <div style={{ background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", display: "flex", gap: "12px", alignItems: "flex-end", border: "1px solid var(--border)" }}>
+                <div className="cp-employee-form" style={{ background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", display: "flex", gap: "12px", alignItems: "flex-end", border: "1px solid var(--border)" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>Username</label>
                     <input type="text" className="form-input" style={{ width: "150px" }} value={newEmployeeUsername} onChange={e => setNewEmployeeUsername(e.target.value)} />
@@ -1622,7 +1746,7 @@ export default function ClientAdminPanel() {
                 </div>
               </div>
 
-              <div className="card table-scroll-wrap">
+              <div className="card cp-table-wrap table-scroll-wrap">
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
@@ -1669,7 +1793,7 @@ export default function ClientAdminPanel() {
           {/* Locations Modal */}
           {showLocationsModal && (
             <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div className="card" style={{ width: "90%", maxWidth: "600px", maxHeight: "80vh", display: "flex", flexDirection: "column", animation: "popIn 0.3s ease" }}>
+              <div className="card cp-modal" style={{ width: "90%", maxWidth: "600px", maxHeight: "80vh", display: "flex", flexDirection: "column", animation: "popIn 0.3s ease" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                   <h2 style={{ fontSize: "20px" }}>Manage Product Availability</h2>
                   <button onClick={() => setShowLocationsModal(null)} style={{ background: "none", border: "none", fontSize: "24px", cursor: "pointer", color: "var(--text-secondary)" }}>&times;</button>
