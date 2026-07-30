@@ -36,7 +36,7 @@ export default function ParallaxIntro() {
       <section className={styles.parallaxSection}>
         <img src="https://cdn.phototourl.com/free/2026-07-29-539499ac-d901-4aa1-88c5-ee03acd85f18.png" id="bg" className={styles.parallaxImg} alt="Background" />
         <h2 ref={textRef} className={styles.parallaxText}>RELAX</h2>
-        <img ref={manRef} src="https://www.image2url.com/r2/default/images/1783276661415-dae13064-ca67-4897-88cf-c73691277c6b.png" className={`${styles.parallaxImg} ${styles.man}`} alt="Man" />
+        <img ref={manRef} src="https://cdn.phototourl.com/free/2026-07-30-5d933a19-1572-495d-bb96-35dce53c8057.png" className={`${styles.parallaxImg} ${styles.man}`} alt="Man" />
         <img ref={cloud1Ref} src="https://aryan-tayal.github.io/Mountains-Parallax/clouds_1.png" className={`${styles.parallaxImg} ${styles.cloud1}`} alt="Cloud 1" />
         <img ref={cloud2Ref} src="https://aryan-tayal.github.io/Mountains-Parallax/clouds_2.png" className={`${styles.parallaxImg} ${styles.cloud2}`} alt="Cloud 2" />
         <img ref={mountainLeftRef} src="https://cdn.phototourl.com/free/2026-07-20-634c9c7b-2437-4524-874e-a9fb2f7f7b60.png" className={`${styles.parallaxImg} ${styles.mountainLeft}`} alt="Mountain Left" />
