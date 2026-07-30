@@ -24,6 +24,7 @@ model User {
   disputes            Dispute[]
   depositRequests     DepositRequest[]
   reviews             Review[]
+  notifications       Notification[]
 }
 
 model Wallet {
@@ -289,4 +290,20 @@ model CouponUsage {
   @@index([couponId])
   @@index([userId])
   @@index([orderId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // ORDER_READY, ORDER_COMPLETED, ORDER_CANCELLED, GENERAL
+  title     String
+  message   String
+  link      String?  // Optional link to order/product
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
 }

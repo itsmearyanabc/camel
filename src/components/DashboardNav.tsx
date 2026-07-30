@@ -5,6 +5,7 @@ import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
 import { formatPrice, FIAT_CURRENCIES } from "@/lib/currencies";
 import { useLanguage, LanguageCode } from "@/components/LanguageContext";
+import NotificationBell from "@/components/NotificationBell";
 import styles from "../app/dashboard/dashboard.module.css";
 
 type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings" | "favorites" | "reviews";
@@ -207,6 +208,9 @@ export default function DashboardNav({
           </div>
 
           <ThemeToggle compact />
+
+          {/* Notification Bell */}
+          <NotificationBell />
 
           {/* Avatar / hamburger menu */}
           <div className={styles.menuWrap} ref={menuRef}>

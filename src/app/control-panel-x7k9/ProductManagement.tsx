@@ -905,8 +905,11 @@ export default function ProductManagement() {
                 {/* Area Stock Allocation */}
                 {formData.areaIds.length > 0 && (
                   <div style={{ gridColumn: "1 / -1" }}>
-                    <h4 style={{ fontSize: "14px", marginBottom: "12px" }}>Area-Wise Stock Allocation</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                    <h4 style={{ fontSize: "14px", marginBottom: "12px" }}>Area-Wise Stock Allocation & Delivery Details</h4>
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                      Configure stock, delivery location, video, message, and cooldown timer for each area
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                       {formData.areaIds.map((areaId) => {
                         let areaName = "Unknown Area";
                         for (const city of locations) {
@@ -919,40 +922,120 @@ export default function ProductManagement() {
 
                         const detailIndex = formData.areaDetails.findIndex((d) => d.areaId === areaId);
                         const detail =
-                          detailIndex >= 0 ? formData.areaDetails[detailIndex] : { areaId, stockQuantity: 0 };
+                          detailIndex >= 0
+                            ? formData.areaDetails[detailIndex]
+                            : {
+                                areaId,
+                                stockQuantity: 0,
+                                locationUrl: "",
+                                videoUrl: "",
+                                message: "",
+                                cooldownMinutes: 30,
+                              };
+
+                        const updateDetail = (field: string, value: any) => {
+                          const newDetails = [...formData.areaDetails];
+                          const idx = newDetails.findIndex((d) => d.areaId === areaId);
+                          if (idx >= 0) {
+                            newDetails[idx] = { ...newDetails[idx], [field]: value };
+                          } else {
+                            newDetails.push({ ...detail, [field]: value });
+                          }
+                          setFormData({ ...formData, areaDetails: newDetails });
+                        };
 
                         return (
                           <div
                             key={areaId}
                             style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              padding: "12px",
+                              padding: "16px",
                               border: "1px solid var(--border)",
                               borderRadius: "8px",
                               background: "var(--bg-primary)",
                             }}
                           >
-                            <span style={{ fontSize: "14px", fontWeight: "500" }}>{areaName}</span>
-                            <input
-                              type="number"
-                              min="0"
-                              className="form-input"
-                              style={{ width: "120px" }}
-                              placeholder="Stock"
-                              value={detail.stockQuantity || 0}
-                              onChange={(e) => {
-                                const newDetails = [...formData.areaDetails];
-                                const idx = newDetails.findIndex((d) => d.areaId === areaId);
-                                if (idx >= 0) {
-                                  newDetails[idx] = { ...newDetails[idx], stockQuantity: parseInt(e.target.value) || 0 };
-                                } else {
-                                  newDetails.push({ areaId, stockQuantity: parseInt(e.target.value) || 0 });
-                                }
-                                setFormData({ ...formData, areaDetails: newDetails });
-                              }}
-                            />
+                            <h5 style={{ fontSize: "14px", fontWeight: "600", marginBottom: "12px", color: "var(--accent)" }}>
+                              {areaName}
+                            </h5>
+                            
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                              {/* Stock Quantity */}
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" style={{ fontSize: "12px" }}>Stock Quantity *</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-input"
+                                  placeholder="0"
+                                  value={detail.stockQuantity || 0}
+                                  onChange={(e) => updateDetail("stockQuantity", parseInt(e.target.value) || 0)}
+                                />
+                              </div>
+
+                              {/* Cooldown Minutes */}
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" style={{ fontSize: "12px" }}>Cooldown (minutes) *</label>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-input"
+                                  placeholder="30"
+                                  value={detail.cooldownMinutes || 30}
+                                  onChange={(e) => updateDetail("cooldownMinutes", parseInt(e.target.value) || 30)}
+                                />
+                              </div>
+
+                              {/* Location URL */}
+                              <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
+                                <label className="form-label" style={{ fontSize: "12px" }}>
+                                  📍 Location URL (Google Maps link)
+                                </label>
+                                <input
+                                  type="url"
+                                  className="form-input"
+                                  placeholder="https://maps.google.com/?q=25.2048,55.2708"
+                                  value={detail.locationUrl || ""}
+                                  onChange={(e) => updateDetail("locationUrl", e.target.value)}
+                                />
+                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                                  Customers will see distance from their location when they click this
+                                </small>
+                              </div>
+
+                              {/* Video URL */}
+                              <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
+                                <label className="form-label" style={{ fontSize: "12px" }}>
+                                  🎥 Video URL (Product location video)
+                                </label>
+                                <input
+                                  type="url"
+                                  className="form-input"
+                                  placeholder="https://youtube.com/watch?v=..."
+                                  value={detail.videoUrl || ""}
+                                  onChange={(e) => updateDetail("videoUrl", e.target.value)}
+                                />
+                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                                  Video showing exact product location
+                                </small>
+                              </div>
+
+                              {/* Custom Message */}
+                              <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
+                                <label className="form-label" style={{ fontSize: "12px" }}>
+                                  💬 Custom Message (Sent after cooldown)
+                                </label>
+                                <textarea
+                                  className="form-input"
+                                  rows={3}
+                                  placeholder="Your order is ready for pickup at..."
+                                  value={detail.message || ""}
+                                  onChange={(e) => updateDetail("message", e.target.value)}
+                                />
+                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                                  This message will be sent via website notification and Telegram
+                                </small>
+                              </div>
+                            </div>
                           </div>
                         );
                       })}

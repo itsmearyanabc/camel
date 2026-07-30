@@ -87,6 +87,17 @@ export async function GET(req: Request) {
         },
       });
 
+      // Create website notification
+      await prisma.notification.create({
+        data: {
+          userId: item.order.userId,
+          type: "ORDER_READY",
+          title: `Order Ready for Pickup`,
+          message: `Your order for ${item.product.name} is ready for pickup! ${adminMessage}`,
+          link: `/dashboard/orders/${item.orderId}`,
+        },
+      });
+
       // Aggregate Telegram message for grouping
       const user = item.order.user;
       if (user.telegramId && botToken) {
