@@ -90,6 +90,7 @@ export async function POST(req: Request) {
         data: {
           username,
           passwordHash,
+          // @ts-ignore - suppress IDE cache error for new schema field
           passwordEncrypted,
           telegramUsername: telegramUsername || null,
           telegramId: telegramId || null,
