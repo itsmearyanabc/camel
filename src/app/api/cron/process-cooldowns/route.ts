@@ -133,10 +133,10 @@ export async function GET(req: Request) {
         }
       }
 
-      // Update master order status to PROCESSING
+      // Update master order status to ON_PICKUP
       await prisma.order.update({
         where: { id: item.orderId },
-        data: { status: "PROCESSING" },
+        data: { status: "ON_PICKUP" },
       });
 
       processedCount++;
