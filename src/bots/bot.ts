@@ -154,18 +154,35 @@ export function createTelegramBot(token: string, botName: string) {
     await ctx.answerCallbackQuery();
   });
 
-  // 2. Shop Categories
+  // 2. Browse Shop (All Products)
   bot.callbackQuery("shop_categories", async (ctx) => {
-    const categories = await prisma.category.findMany();
+    const products = await prisma.product.findMany();
     const keyboard = new InlineKeyboard();
 
-    categories.forEach((cat) => {
-      keyboard.text(`🧪 ${cat.name}`, `cat_${cat.id}`).row();
+    if (products.length === 0) {
+      keyboard.text("⬅️ Back to Main Menu", "main_menu");
+      await ctx.editMessageText("No products available currently.", { reply_markup: keyboard });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    let text = `🧪 *Complete Catalog*:\n\n`;
+
+    products.forEach((prod) => {
+      const stockCount = prod.stockQuantity;
+      const state = getStockState(stockCount);
+      text +=
+        `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
+        `  Price: $${Number(prod.price).toFixed(2)} | Stock: ${state.replace(/_/g, " ")}\n\n`;
+
+      if (stockCount > 0) {
+        keyboard.text(`Order ${prod.name}`.slice(0, 64), `buy_${prod.id}`).row();
+      }
     });
 
     keyboard.text("⬅️ Back to Main Menu", "main_menu");
 
-    await ctx.editMessageText("Select a Chemical Category:", { reply_markup: keyboard });
+    await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
   });
 
