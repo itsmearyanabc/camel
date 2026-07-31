@@ -101,7 +101,10 @@ export async function register() {
     const cronInterval = setInterval(() => {
       if (isShuttingDown) return;
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-      fetch(`${baseUrl}/api/cron/process-cooldowns`)
+      const cronSecret = process.env.CRON_SECRET || "";
+      fetch(`${baseUrl}/api/cron/process-cooldowns`, {
+        headers: { "Authorization": `Bearer ${cronSecret}` }
+      })
         .then(res => res.json())
         .then(data => {
           if (data.processedCount > 0 || data.autoCompletedCount > 0) {
