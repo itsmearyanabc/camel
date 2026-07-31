@@ -726,7 +726,6 @@ export function createTelegramBot(token: string, botName: string) {
               data: {
                 username,
                 passwordHash,
-                passwordPlain: text,
                 telegramId: String(telegramId),
                 telegramUsername: ctx.from.username || null,
                 role: "CUSTOMER",

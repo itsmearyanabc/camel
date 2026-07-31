@@ -100,6 +100,17 @@ export async function GET(req: Request) {
 
       // Aggregate Telegram message for grouping
       const user = item.order.user;
+      
+      // Debug logging
+      console.log("Telegram notification check:", {
+        userId: user.id,
+        username: user.username,
+        hasTelegramId: !!user.telegramId,
+        telegramId: user.telegramId,
+        hasBotToken: !!botToken,
+        botTokenLength: botToken?.length || 0,
+      });
+      
       if (user.telegramId && botToken) {
         const existingMsg = telegramMessagesToGroup.find(m => 
           m.telegramId === user.telegramId && 

@@ -5,11 +5,18 @@ const SESSION_COOKIE_NAME = "camel971_session";
 
 // Production: Require SESSION_SECRET environment variable
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
-if (!SESSION_SECRET && process.env.NODE_ENV === "production") {
-  console.warn(
-    "SESSION_SECRET environment variable is required in production. " +
-    "Generate one with: openssl rand -base64 32"
-  );
+if (!SESSION_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET environment variable is required in production. " +
+      "Generate one with: openssl rand -base64 32"
+    );
+  } else {
+    console.warn(
+      "⚠️  WARNING: SESSION_SECRET is not set. Using default for development only. " +
+      "Generate one with: openssl rand -base64 32"
+    );
+  }
 }
 
 interface SessionPayload {

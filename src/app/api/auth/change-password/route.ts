@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
+import { encryptPassword, isEncryptionConfigured } from "@/lib/encryption";
 
 export async function POST(req: Request) {
   try {
@@ -48,12 +49,23 @@ export async function POST(req: Request) {
     const salt = await bcrypt.genSalt(10);
     const newPasswordHash = await bcrypt.hash(newPassword, salt);
 
-    // Update both hash and plaintext (plaintext needed for admin password recovery)
+    // Encrypt new password for admin recovery (if encryption is configured)
+    let passwordEncrypted: string | null = null;
+    if (isEncryptionConfigured()) {
+      try {
+        passwordEncrypted = encryptPassword(newPassword);
+      } catch (error) {
+        console.error("Failed to encrypt password:", error);
+        // Continue without encrypted password - not critical
+      }
+    }
+
+    // Update password hash and encrypted password
     await prisma.user.update({
       where: { id: session.userId },
       data: {
         passwordHash: newPasswordHash,
-        passwordPlain: newPassword,
+        passwordEncrypted,
       },
     });
 

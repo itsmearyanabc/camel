@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { createSession } from "@/lib/auth";
 import { decryptAnswer } from "../captcha/route";
+import { encryptPassword, isEncryptionConfigured } from "@/lib/encryption";
 
 export async function POST(req: Request) {
   try {
@@ -72,13 +73,24 @@ export async function POST(req: Request) {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
+    // 4b. Encrypt password for admin recovery (if encryption is configured)
+    let passwordEncrypted: string | null = null;
+    if (isEncryptionConfigured()) {
+      try {
+        passwordEncrypted = encryptPassword(password);
+      } catch (error) {
+        console.error("Failed to encrypt password:", error);
+        // Continue without encrypted password - not critical
+      }
+    }
+
     // 5. Create user and wallet in transaction
     const newUser = await prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           username,
           passwordHash,
-          passwordPlain: password,
+          passwordEncrypted,
           telegramUsername: telegramUsername || null,
           telegramId: telegramId || null,
           role: "CUSTOMER", // default role

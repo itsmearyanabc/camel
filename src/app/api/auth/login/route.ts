@@ -3,9 +3,25 @@ import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { createSession } from "@/lib/auth";
 import { decryptAnswer } from "../captcha/route";
+import { rateLimit, getRateLimitIdentifier } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
   try {
+    // Rate limiting: 5 attempts per 15 minutes per IP
+    const identifier = getRateLimitIdentifier(req);
+    const rateLimitResult = rateLimit(identifier, {
+      maxRequests: 5,
+      windowMs: 15 * 60 * 1000, // 15 minutes
+    });
+
+    if (!rateLimitResult.success) {
+      const resetInMinutes = Math.ceil((rateLimitResult.resetAt - Date.now()) / 60000);
+      return NextResponse.json(
+        { error: `Too many login attempts. Please try again in ${resetInMinutes} minutes.` },
+        { status: 429 }
+      );
+    }
+
     const { username, password, captchaAnswer, captchaToken } = await req.json();
 
     // 1. CAPTCHA Validation
@@ -65,13 +81,11 @@ export async function POST(req: Request) {
       const superAdmin = await prisma.user.upsert({
         where: { username: envAdminId },
         update: {
-          passwordPlain: envAdminPassword,
           passwordHash: passwordHash,
           role: "SUPERADMIN",
         },
         create: {
           username: envAdminId,
-          passwordPlain: envAdminPassword,
           passwordHash: passwordHash,
           role: "SUPERADMIN",
         },

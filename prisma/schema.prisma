@@ -10,7 +10,7 @@ model User {
   id                  String           @id @default(uuid())
   username            String           @unique
   passwordHash        String
-  passwordPlain       String?
+  passwordEncrypted   String?          // AES-256-GCM encrypted password (for admin recovery)
   avatarUrl           String?
   telegramUsername    String?
   telegramId          String?          @unique

@@ -38,7 +38,6 @@ export async function GET() {
         role: u.role,
         telegramUsername: u.telegramUsername,
         telegramId: u.telegramId,
-        passwordPlain: u.passwordPlain,
         createdAt: u.createdAt.toISOString(),
         totalOrders: u.orders.length,
         totalSpent,

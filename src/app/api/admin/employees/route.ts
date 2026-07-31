@@ -61,7 +61,6 @@ export async function POST(req: Request) {
       data: {
         username,
         passwordHash,
-        passwordPlain: password,
         role: "STAFF"
       }
     });
@@ -96,8 +95,7 @@ export async function PUT(req: Request) {
     await prisma.user.update({
       where: { id: staffId },
       data: {
-        passwordHash,
-        passwordPlain: newPassword
+        passwordHash
       }
     });
 
