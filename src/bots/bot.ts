@@ -369,10 +369,11 @@ export function createTelegramBot(token: string, botName: string) {
     if (orders.length === 0) {
       text += `_No orders found. Buy chemical compounds in the Shop._`;
     } else {
-      orders.forEach((o) => {
+      orders.forEach((o, index) => {
         const productName = o.items.length > 0 ? o.items[0].product.name : "Items";
         const title = o.items.length > 1 ? `${productName} +${o.items.length - 1}` : productName;
-        text += `• *Order #${o.id.substring(0, 8)}...* - ${esc(title)} (${esc(o.status)})\n`;
+        const dateStr = o.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        text += `${index + 1}. *Order #${o.id.substring(0, 8)}...* - ${esc(title)} (${esc(o.status)}) [${dateStr}]\n`;
         keyboard.text(`View #${o.id.substring(0, 8)}`, `order_${o.id}`).row();
       });
     }
