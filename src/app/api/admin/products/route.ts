@@ -42,8 +42,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can create products." }, { status: 403 });
   }
 
   const { name, description, price, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds, areaStocks } = await req.json();
@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can update products." }, { status: 403 });
   }
 
   const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType, areaStocks } = await req.json();
@@ -127,8 +127,8 @@ export async function PUT(req: NextRequest) {
   const updateData: any = {};
   if (name !== undefined) updateData.name = name.trim();
   if (description !== undefined) updateData.description = description?.trim() || null;
-  if (price !== undefined && session.role !== "STAFF") updateData.price = parseFloat(price);
-  if (currency !== undefined && session.role !== "STAFF") updateData.currency = currency;
+  if (price !== undefined) updateData.price = parseFloat(price);
+  if (currency !== undefined) updateData.currency = currency;
   if (formula !== undefined) updateData.formula = formula?.trim() || null;
   if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
   if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
