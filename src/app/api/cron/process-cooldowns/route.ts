@@ -159,7 +159,7 @@ export async function GET(req: Request) {
       telegramMessage += `\nStatus: *READY FOR PICKUP*`;
 
       try {
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -169,6 +169,11 @@ export async function GET(req: Request) {
             disable_web_page_preview: false,
           }),
         });
+        
+        if (!res.ok) {
+          const errText = await res.text();
+          console.error("Telegram API Error:", res.status, errText, "Message:", telegramMessage);
+        }
       } catch (err) {
         console.error("Failed to send telegram message for grouped items", err);
       }
@@ -213,7 +218,7 @@ export async function GET(req: Request) {
         const telegramMessage = `✅ *Order Auto\\-Completed*\n\nYour order for *${escapeTelegramMarkdown(item.product.name)}* has been automatically marked as completed after 2 days\\.\n\nIf you have any issues, please file a dispute from your dashboard\\.`;
 
         try {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -222,6 +227,11 @@ export async function GET(req: Request) {
               parse_mode: "MarkdownV2",
             }),
           });
+          
+          if (!res.ok) {
+            const errText = await res.text();
+            console.error("Telegram API Error (Auto-complete):", res.status, errText, "Message:", telegramMessage);
+          }
         } catch (err) {
           console.error("Failed to send auto-complete telegram message for item", item.id, err);
         }
