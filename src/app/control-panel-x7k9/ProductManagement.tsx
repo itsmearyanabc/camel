@@ -87,24 +87,29 @@ export default function ProductManagement() {
     fetchData();
   }, []);
 
+  const [userRole, setUserRole] = useState<string>("");
+
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [productsRes, categoriesRes, locationsRes] = await Promise.all([
+      const [productsRes, categoriesRes, locationsRes, authRes] = await Promise.all([
         fetch("/api/admin/products"),
         fetch("/api/admin/categories"),
         fetch("/api/admin/locations"),
+        fetch("/api/auth/me")
       ]);
 
-      const [productsData, categoriesData, locationsData] = await Promise.all([
+      const [productsData, categoriesData, locationsData, authData] = await Promise.all([
         productsRes.json(),
         categoriesRes.json(),
         locationsRes.json(),
+        authRes.json()
       ]);
 
       if (productsData.products) setProducts(productsData.products);
       if (categoriesData.categories) setCategories(categoriesData.categories);
       if (locationsData.cities) setLocations(locationsData.cities);
+      if (authData.user) setUserRole(authData.user.role);
     } catch (e) {
       console.error("Failed to fetch data:", e);
       setMsg({ type: "error", text: "Failed to load data" });
@@ -775,7 +780,12 @@ export default function ProductManagement() {
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                     required
+                    disabled={userRole === "STAFF"}
+                    style={{ opacity: userRole === "STAFF" ? 0.6 : 1, cursor: userRole === "STAFF" ? "not-allowed" : "text" }}
                   />
+                  {userRole === "STAFF" && (
+                    <small style={{ color: "var(--accent)" }}>Price can only be changed by Administrators</small>
+                  )}
                 </div>
 
                 <div className="form-group">

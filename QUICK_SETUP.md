@@ -1,4 +1,4 @@
-# ⚡ QUICK SETUP - Encrypted Password System
+t variable # ⚡ QUICK SETUP - Encrypted Password System
 
 ## 🚀 5-Minute Setup
 
