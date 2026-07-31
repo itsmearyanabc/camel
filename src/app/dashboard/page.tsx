@@ -1047,7 +1047,7 @@ export default function Dashboard() {
                                   borderRadius: "var(--radius-sm)", marginBottom: "12px",
                                   display: "flex", justifyContent: "space-between", alignItems: "center",
                                 }}>
-                                  <p style={{ fontSize: "13px", color: "var(--orange)" }}>Preparing your batch allocation...</p>
+                                  <p style={{ fontSize: "13px", color: "var(--orange)" }}>Pick up location in ....</p>
                                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                                     <span style={{ fontWeight: "700", color: "var(--orange)", fontFamily: "monospace" }}>
                                       {secondsLeft > 0 ? `${secondsLeft}s` : "Ready"}
