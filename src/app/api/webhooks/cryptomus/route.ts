@@ -89,19 +89,31 @@ export async function POST(req: NextRequest) {
       if (order) {
         const result = await prisma.$transaction(async (tx) => {
           const currentOrder = await tx.order.findUnique({ where: { id: order_id }, include: { items: true } });
-          if (currentOrder?.status === "PROCESSING" || currentOrder?.status === "COMPLETED") return "ALREADY_PROCESSED";
+          if (currentOrder?.status !== "PENDING_PAYMENT") return "ALREADY_PROCESSED";
 
-          // Mark order as PAID/PROCESSING
+          // Mark order as COOLDOWN_ACTIVE so the delivery cron picks it up
           await tx.order.update({
             where: { id: order_id },
-            data: { status: "PROCESSING", updatedAt: new Date() }
+            data: { status: "COOLDOWN_ACTIVE", updatedAt: new Date() }
           });
 
-          // Update items
+          // Update items: start cooldown from payment confirmation time
           for (const item of currentOrder!.items) {
+             let cooldownMinutes = 0;
+             if (item.areaId) {
+               const areaDetail = await tx.productAreaDetail.findUnique({
+                 where: { productId_areaId: { productId: item.productId, areaId: item.areaId } }
+               });
+               if (areaDetail && areaDetail.cooldownMinutes > 0) {
+                 cooldownMinutes = areaDetail.cooldownMinutes;
+               }
+             }
+             const cd = new Date();
+             cd.setMinutes(cd.getMinutes() + cooldownMinutes);
+
              await tx.orderItem.update({
                where: { id: item.id },
-               data: { status: "PROCESSING" }
+               data: { status: "COOLDOWN_ACTIVE", cooldownEndAt: cd }
              });
           }
           return "PROCESSED";
@@ -127,14 +139,36 @@ export async function POST(req: NextRequest) {
          where: { id: order_id },
          include: { items: true }
        });
-       if (orderReq) {
+       if (orderReq && orderReq.status === "PENDING_PAYMENT") {
          await prisma.$transaction(async (tx) => {
-           // Restore stock for each item
+           // Restore stock for each item (each order item = 1 unit)
            for (const item of orderReq.items) {
+             // Restore global stock
              await tx.product.update({
                where: { id: item.productId },
                data: { stockQuantity: { increment: 1 } }
              });
+
+             // Restore area-level stock
+             if (item.areaId) {
+               const areaDetail = await tx.productAreaDetail.findUnique({
+                 where: { productId_areaId: { productId: item.productId, areaId: item.areaId } }
+               });
+               if (areaDetail) {
+                 await tx.productAreaDetail.update({
+                   where: { id: areaDetail.id },
+                   data: { stockQuantity: { increment: 1 } }
+                 });
+               }
+             }
+
+             // Release the reserved per-unit stock item back to AVAILABLE
+             if (item.stockItemId) {
+               await tx.stockItem.update({
+                 where: { id: item.stockItemId },
+                 data: { status: "AVAILABLE" }
+               });
+             }
            }
            
            // Mark order as cancelled

@@ -71,6 +71,7 @@ export async function POST(req: Request) {
       status: string;
       areaId: string | undefined;
       cooldownEndAt: Date;
+      stockItemId: string | null;
     }> = [];
     let firstProductName = "Multiple Items";
 
@@ -120,6 +121,7 @@ export async function POST(req: Request) {
           status: "PENDING_PAYMENT",
           areaId,
           cooldownEndAt,
+          stockItemId: null, // reserved inside the transaction below
         });
       }
     }
@@ -169,9 +171,10 @@ export async function POST(req: Request) {
 
     // Create master order with PENDING_PAYMENT status and deduct stock in transaction
     const order = await prisma.$transaction(async (tx) => {
-      // Deduct stock for each product
+      // Deduct stock for each product and reserve unique per-unit stock items (FIFO)
       for (const cartItem of cart) {
         const { productId, quantity } = cartItem;
+        let reservedUnits: Array<{ id: string }> = [];
         
         // Check if we have area-specific stock
         if (areaId) {
@@ -180,6 +183,26 @@ export async function POST(req: Request) {
           });
           
           if (areaDetail) {
+            // Reserve unique per-unit stock items (FIFO) if they exist
+            const availableCount = await tx.stockItem.count({
+              where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" }
+            });
+            if (availableCount > 0) {
+              if (availableCount < quantity) {
+                throw new Error(`Not enough unique units for product in this area. Requested: ${quantity}, Available: ${availableCount}`);
+              }
+              reservedUnits = await tx.stockItem.findMany({
+                where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
+                orderBy: { createdAt: "asc" },
+                take: quantity,
+                select: { id: true }
+              });
+              await tx.stockItem.updateMany({
+                where: { id: { in: reservedUnits.map((u) => u.id) } },
+                data: { status: "USED" }
+              });
+            }
+
             // Deduct from area-specific stock
             await tx.productAreaDetail.update({
               where: { id: areaDetail.id },
@@ -204,6 +227,17 @@ export async function POST(req: Request) {
           where: { id: productId },
           data: { stockQuantity: { decrement: quantity } }
         });
+
+        // Assign reserved per-unit stock items to this product's order items (FIFO)
+        if (reservedUnits.length > 0) {
+          let idx = 0;
+          for (const item of orderItemsData) {
+            if (item.productId === productId && item.stockItemId === null && idx < reservedUnits.length) {
+              item.stockItemId = reservedUnits[idx].id;
+              idx++;
+            }
+          }
+        }
       }
 
       // Create the order

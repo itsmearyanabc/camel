@@ -51,26 +51,20 @@ export async function POST(req: Request) {
           }
         }
 
-        // We only decrement stock if it was not already deducted during crypto-checkout.
-        // Wait, crypto-checkout already deducts stock? No, crypto-checkout did NOT deduct stock in the previous agent's code. Let's assume confirm-payment handles it.
-
-        if (!product || product.stockQuantity < 1) {
+        // NOTE: Stock was already deducted (and per-unit stock items reserved) during
+        // crypto-checkout when the order was created. Do NOT deduct again here, or
+        // stock will be drained twice. We only transition the item into cooldown.
+        if (!product) {
           anyOutOfStock = true;
           await tx.orderItem.update({
             where: { id: orderItem.id },
             data: {
               status: "PAID",
-              adminMessage: "Payment confirmed but this item went out of stock. Contact admin.",
+              adminMessage: "Payment confirmed but this product no longer exists. Contact admin.",
             },
           });
         } else {
-          // 2. Deduct stock
-          await tx.product.update({
-            where: { id: product.id },
-            data: { stockQuantity: { decrement: 1 } },
-          });
-
-          // 3. Update order item to COOLDOWN_ACTIVE
+          // Update order item to COOLDOWN_ACTIVE
           const cd = new Date();
           cd.setMinutes(cd.getMinutes() + actualCooldownMinutes);
 

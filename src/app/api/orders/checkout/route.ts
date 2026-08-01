@@ -107,6 +107,30 @@ export async function POST(req: Request) {
           cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + areaDetail.cooldownMinutes);
         }
 
+        // Reserve unique per-unit stock items (FIFO) for this area, if they exist.
+        let reservedUnits: Array<{ id: string }> = [];
+        if (areaDetail) {
+          const availableCount = await tx.stockItem.count({
+            where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" }
+          });
+
+          if (availableCount > 0) {
+            if (availableCount < quantity) {
+              throw new Error(`Not enough unique units for ${product.name} in this area. Requested: ${quantity}, Available: ${availableCount}`);
+            }
+            reservedUnits = await tx.stockItem.findMany({
+              where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
+              orderBy: { createdAt: "asc" },
+              take: quantity,
+              select: { id: true }
+            });
+            await tx.stockItem.updateMany({
+              where: { id: { in: reservedUnits.map((u) => u.id) } },
+              data: { status: "USED" }
+            });
+          }
+        }
+
         for (let i = 0; i < quantity; i++) {
           orderItemsData.push({
             productId: product.id,
@@ -114,6 +138,7 @@ export async function POST(req: Request) {
             status: "COOLDOWN_ACTIVE",
             areaId: areaId,
             cooldownEndAt,
+            stockItemId: reservedUnits[i] ? reservedUnits[i].id : null,
           });
         }
         

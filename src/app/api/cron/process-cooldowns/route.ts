@@ -64,13 +64,24 @@ export async function GET(req: Request) {
           where: { productId: item.productId }
         });
       }
-      
+
+      // If this order item reserved a unique per-unit stock item, use its URLs.
+      let stockItem = null;
+      if ((item as any).stockItemId) {
+        stockItem = await prisma.stockItem.findUnique({
+          where: { id: (item as any).stockItemId }
+        });
+      }
+
       if (areaDetail) {
-        locationLink = areaDetail.locationUrl || null;
-        pickupVideoUrl = areaDetail.videoUrl || null;
+        locationLink = (stockItem && stockItem.locationUrl) || areaDetail.locationUrl || null;
+        pickupVideoUrl = (stockItem && stockItem.videoUrl) || areaDetail.videoUrl || null;
         if (areaDetail.message) {
           adminMessage = areaDetail.message;
         }
+      } else if (stockItem) {
+        locationLink = stockItem.locationUrl || null;
+        pickupVideoUrl = stockItem.videoUrl || null;
       }
 
       // Update the OrderItem to ON_PICKUP

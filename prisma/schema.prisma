@@ -116,6 +116,7 @@ model ProductAreaDetail {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   stockEntries    StockEntry[]
+  stockItems      StockItem[]
 
   @@unique([productId, areaId])
 }
@@ -131,6 +132,20 @@ model StockEntry {
   createdAt       DateTime @default(now())
 
   @@index([productAreaDetailId])
+  @@index([createdAt])
+}
+
+model StockItem {
+  id                  String            @id @default(uuid())
+  productAreaDetailId String
+  productAreaDetail   ProductAreaDetail @relation(fields: [productAreaDetailId], references: [id], onDelete: Cascade)
+  locationUrl         String?
+  videoUrl            String?
+  status              String            @default("AVAILABLE") // AVAILABLE, USED
+  orderItemId         String?           // OrderItem that consumed this unit
+  createdAt           DateTime          @default(now())
+
+  @@index([productAreaDetailId, status])
   @@index([createdAt])
 }
 
@@ -183,6 +198,8 @@ model OrderItem {
 
   areaId          String?
   area            Area?          @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  stockItemId     String?        // Unique per-unit stock item reserved for this order item
 
   @@index([orderId])
   @@index([productId])

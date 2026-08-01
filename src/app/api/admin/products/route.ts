@@ -13,7 +13,12 @@ export async function GET() {
       category: { select: { id: true, name: true, prefixCode: true } },
       cities: { select: { id: true, name: true } },
       areas: { select: { id: true, name: true } },
-      areaDetails: { include: { area: { select: { id: true, name: true } } } },
+      areaDetails: {
+        include: {
+          area: { select: { id: true, name: true } },
+          stockItems: { where: { status: "AVAILABLE" }, orderBy: { createdAt: "asc" as const } },
+        },
+      },
     },
     orderBy: { createdAt: "desc" },
   });

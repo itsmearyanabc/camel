@@ -159,6 +159,16 @@ export default function ProductManagement() {
       const data = await res.json();
 
       if (res.ok) {
+        // Save per-unit area details (location/video links) for the new product.
+        const newProductId = data.product?.id;
+        if (newProductId && formData.areaDetails && formData.areaDetails.length > 0) {
+          await fetch(`/api/admin/products/${newProductId}/area-details`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ areaDetails: formData.areaDetails }),
+          });
+        }
+
         setMsg({ type: "success", text: "Product added successfully!" });
         setShowAddModal(false);
         resetForm();
@@ -930,29 +940,59 @@ export default function ProductManagement() {
                           }
                         }
 
-                        const detailIndex = formData.areaDetails.findIndex((d) => d.areaId === areaId);
-                        const detail =
-                          detailIndex >= 0
-                            ? formData.areaDetails[detailIndex]
-                            : {
-                                areaId,
-                                stockQuantity: 0,
-                                locationUrl: "",
-                                videoUrl: "",
-                                message: "",
-                                cooldownMinutes: 30,
-                              };
+                         const detailIndex = formData.areaDetails.findIndex((d) => d.areaId === areaId);
+                         const detail =
+                           detailIndex >= 0
+                             ? formData.areaDetails[detailIndex]
+                             : {
+                                 areaId,
+                                 stockQuantity: 0,
+                                 locationUrl: "",
+                                 videoUrl: "",
+                                 message: "",
+                                 cooldownMinutes: 30,
+                                 stockItems: [] as Array<{ locationUrl: string; videoUrl: string }>,
+                               };
 
-                        const updateDetail = (field: string, value: any) => {
-                          const newDetails = [...formData.areaDetails];
-                          const idx = newDetails.findIndex((d) => d.areaId === areaId);
-                          if (idx >= 0) {
-                            newDetails[idx] = { ...newDetails[idx], [field]: value };
-                          } else {
-                            newDetails.push({ ...detail, [field]: value });
-                          }
-                          setFormData({ ...formData, areaDetails: newDetails });
-                        };
+                         // Ensure stockItems array matches stockQuantity length.
+                         const qty = parseInt(detail.stockQuantity, 10) || 0;
+                         let stockItems: Array<{ locationUrl: string; videoUrl: string }> = Array.isArray(detail.stockItems)
+                           ? [...detail.stockItems]
+                           : [];
+                         // Seed from legacy single location/video if present and no items yet.
+                         if (stockItems.length === 0 && (detail.locationUrl || detail.videoUrl)) {
+                           stockItems = [{ locationUrl: detail.locationUrl || "", videoUrl: detail.videoUrl || "" }];
+                         }
+                         while (stockItems.length < qty) stockItems.push({ locationUrl: "", videoUrl: "" });
+                         if (stockItems.length > qty) stockItems = stockItems.slice(0, qty);
+
+                         const updateDetail = (field: string, value: any) => {
+                           const newDetails = [...formData.areaDetails];
+                           const idx = newDetails.findIndex((d) => d.areaId === areaId);
+                           const base = idx >= 0 ? newDetails[idx] : detail;
+                           const updated = { ...base, [field]: value, stockItems };
+                           if (idx >= 0) {
+                             newDetails[idx] = updated;
+                           } else {
+                             newDetails.push(updated);
+                           }
+                           setFormData({ ...formData, areaDetails: newDetails });
+                         };
+
+                         const updateStockItem = (itemIdx: number, field: "locationUrl" | "videoUrl", value: string) => {
+                           const newItems = [...stockItems];
+                           newItems[itemIdx] = { ...newItems[itemIdx], [field]: value };
+                           const newDetails = [...formData.areaDetails];
+                           const idx = newDetails.findIndex((d) => d.areaId === areaId);
+                           const base = idx >= 0 ? newDetails[idx] : detail;
+                           const updated = { ...base, stockItems: newItems };
+                           if (idx >= 0) {
+                             newDetails[idx] = updated;
+                           } else {
+                             newDetails.push(updated);
+                           }
+                           setFormData({ ...formData, areaDetails: newDetails });
+                         };
 
                         return (
                           <div
@@ -995,38 +1035,59 @@ export default function ProductManagement() {
                                 />
                               </div>
 
-                              {/* Location URL */}
-                              <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
-                                <label className="form-label" style={{ fontSize: "12px" }}>
-                                  📍 Location URL (Google Maps link)
+                              {/* Per-unit Location & Video URLs */}
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <label className="form-label" style={{ fontSize: "12px", marginBottom: "8px", display: "block" }}>
+                                  📦 Per-Unit Delivery Details ({qty} {qty === 1 ? "unit" : "units"})
                                 </label>
-                                <input
-                                  type="url"
-                                  className="form-input"
-                                  placeholder="https://maps.google.com/?q=25.2048,55.2708"
-                                  value={detail.locationUrl || ""}
-                                  onChange={(e) => updateDetail("locationUrl", e.target.value)}
-                                />
-                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                                  Customers will see distance from their location when they click this
+                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)", display: "block", marginBottom: "12px" }}>
+                                  Each unit gets a unique location & video link. Unit #1 is sold first, then #2, and so on. The same cooldown applies to all.
                                 </small>
-                              </div>
-
-                              {/* Video URL */}
-                              <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
-                                <label className="form-label" style={{ fontSize: "12px" }}>
-                                  🎥 Video URL (Product location video)
-                                </label>
-                                <input
-                                  type="url"
-                                  className="form-input"
-                                  placeholder="https://youtube.com/watch?v=..."
-                                  value={detail.videoUrl || ""}
-                                  onChange={(e) => updateDetail("videoUrl", e.target.value)}
-                                />
-                                <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                                  Video showing exact product location
-                                </small>
+                                {qty === 0 ? (
+                                  <div style={{ padding: "12px", background: "var(--bg-secondary)", borderRadius: "6px", fontSize: "12px", color: "var(--text-tertiary)" }}>
+                                    Set a stock quantity above to add per-unit links.
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                                    {stockItems.map((item, itemIdx) => (
+                                      <div
+                                        key={itemIdx}
+                                        style={{
+                                          padding: "12px",
+                                          border: "1px solid var(--border)",
+                                          borderRadius: "6px",
+                                          background: "var(--bg-secondary)",
+                                        }}
+                                      >
+                                        <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--accent)", marginBottom: "8px" }}>
+                                          Unit #{itemIdx + 1}
+                                        </div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                          <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label className="form-label" style={{ fontSize: "11px" }}>📍 Location URL</label>
+                                            <input
+                                              type="url"
+                                              className="form-input"
+                                              placeholder="https://maps.google.com/?q=..."
+                                              value={item.locationUrl || ""}
+                                              onChange={(e) => updateStockItem(itemIdx, "locationUrl", e.target.value)}
+                                            />
+                                          </div>
+                                          <div className="form-group" style={{ marginBottom: 0 }}>
+                                            <label className="form-label" style={{ fontSize: "11px" }}>🎥 Video URL</label>
+                                            <input
+                                              type="url"
+                                              className="form-input"
+                                              placeholder="https://youtube.com/watch?v=..."
+                                              value={item.videoUrl || ""}
+                                              onChange={(e) => updateStockItem(itemIdx, "videoUrl", e.target.value)}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
 
                               {/* Custom Message */}
