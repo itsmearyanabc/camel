@@ -77,6 +77,7 @@ model Area {
   products        Product[]
   areaDetails     ProductAreaDetail[]
   orderItems      OrderItem[]
+  restockSubscriptions RestockSubscription[]
 }
 
 model Product {
@@ -111,11 +112,14 @@ model RestockSubscription {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  areaId    String?  // null = subscribe to restock in ANY area (product-level)
+  area      Area?    @relation(fields: [areaId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
-  @@unique([productId, userId])
+  @@unique([productId, userId, areaId])
   @@index([productId])
   @@index([userId])
+  @@index([areaId])
 }
 
 model ProductAreaDetail {

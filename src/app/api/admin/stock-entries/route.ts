@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { notifyRestockSubscribers } from "@/lib/restock";
+import { notifyRestockSubscribers, notifyRestockSubscribersForArea } from "@/lib/restock";
 
 // GET - Fetch stock entries for a product area detail
 export async function GET(req: NextRequest) {
@@ -122,6 +122,9 @@ export async function POST(req: NextRequest) {
         }
       });
 
+      // Capture this area's stock before the update
+      const prevAreaStock = pad.stockQuantity;
+
       // Update the stock quantity
       const newQuantity = pad.stockQuantity + qty;
       if (newQuantity < 0) {
@@ -144,12 +147,16 @@ export async function POST(req: NextRequest) {
         data: { stockQuantity: totalStock }
       });
 
-      return { entry, newQuantity, totalStock };
+      return { entry, newQuantity, totalStock, prevAreaStock };
     });
 
-    // If this restock brought the product from out-of-stock back in stock, notify subscribers
-    if (type === "RESTOCK" && qty > 0 && prevTotalStock <= 0 && result.totalStock > 0) {
+    // If this restock brought THIS AREA from out-of-stock back in stock,
+    // notify per-area subscribers (and product-level "any area" subscribers).
+    if (type === "RESTOCK" && qty > 0 && result.prevAreaStock <= 0 && result.newQuantity > 0) {
       // Fire-and-forget; do not block the response
+      void notifyRestockSubscribersForArea(productId, areaId);
+    } else if (type === "RESTOCK" && qty > 0 && prevTotalStock <= 0 && result.totalStock > 0) {
+      // Fallback: product-level restock brought the whole product back in stock
       void notifyRestockSubscribers(productId);
     }
 

@@ -14,6 +14,7 @@ import styles from "./dashboard.module.css";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
 import SkeletonLoader from "@/components/SkeletonLoader";
+import RestockNotifyButton from "@/components/RestockNotifyButton";
 import { useLanguage } from "@/components/LanguageContext";
 
 interface Product {
@@ -613,10 +614,30 @@ export default function Dashboard() {
                                 ));
                               }
                               return (
-                                <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                                  {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
-                                </span>
+                                <>
+                                  <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
+                                    {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
+                                  </span>
+                                  {product.stockQuantity <= 0 && (
+                                    <RestockNotifyButton productId={product.id} compact />
+                                  )}
+                                </>
                               );
+                            })()}
+                            {/* Per-area Notify Me bells for out-of-stock areas (per flavour/variant) */}
+                            {(() => {
+                              const areaDetails = (product as any).areaDetails || [];
+                              const outOfStockAreas = areaDetails.filter((d: any) => d.stockQuantity <= 0);
+                              if (outOfStockAreas.length === 0) return null;
+                              return outOfStockAreas.map((d: any) => (
+                                <RestockNotifyButton
+                                  key={`notify-${d.areaId}`}
+                                  productId={product.id}
+                                  areaId={d.areaId}
+                                  label={d.area?.name || "Area"}
+                                  compact
+                                />
+                              ));
                             })()}
                             {(() => {
                               if (selectedCityId === "ALL") return null;

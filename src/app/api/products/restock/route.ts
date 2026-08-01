@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 // GET - Check if the current user is subscribed to a product's restock alerts
+// Optional areaId: checks a per-area subscription. If omitted, checks product-level (any area).
 export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session) {
@@ -11,13 +12,14 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const productId = searchParams.get("productId");
+  const areaId = searchParams.get("areaId"); // may be null
   if (!productId) {
     return NextResponse.json({ error: "productId is required" }, { status: 400 });
   }
 
   try {
-    const sub = await prisma.restockSubscription.findUnique({
-      where: { productId_userId: { productId, userId: session.userId } },
+    const sub = await prisma.restockSubscription.findFirst({
+      where: { productId, userId: session.userId, areaId: areaId || null },
     });
     return NextResponse.json({ subscribed: !!sub });
   } catch (error) {
@@ -26,24 +28,27 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - Subscribe the current user to a product's restock alerts
+// POST - Subscribe the current user to a product's restock alerts (optionally per-area)
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId } = await req.json();
+  const { productId, areaId } = await req.json();
   if (!productId) {
     return NextResponse.json({ error: "productId is required" }, { status: 400 });
   }
 
   try {
-    await prisma.restockSubscription.upsert({
-      where: { productId_userId: { productId, userId: session.userId } },
-      update: {},
-      create: { productId, userId: session.userId },
+    const existing = await prisma.restockSubscription.findFirst({
+      where: { productId, userId: session.userId, areaId: areaId || null },
     });
+    if (!existing) {
+      await prisma.restockSubscription.create({
+        data: { productId, userId: session.userId, areaId: areaId || null },
+      });
+    }
     return NextResponse.json({ success: true, subscribed: true });
   } catch (error) {
     console.error("Error subscribing to restock:", error);
@@ -51,21 +56,21 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE - Unsubscribe the current user from a product's restock alerts
+// DELETE - Unsubscribe the current user from a product's restock alerts (optionally per-area)
 export async function DELETE(req: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId } = await req.json();
+  const { productId, areaId } = await req.json();
   if (!productId) {
     return NextResponse.json({ error: "productId is required" }, { status: 400 });
   }
 
   try {
     await prisma.restockSubscription.deleteMany({
-      where: { productId, userId: session.userId },
+      where: { productId, userId: session.userId, areaId: areaId || null },
     });
     return NextResponse.json({ success: true, subscribed: false });
   } catch (error) {
