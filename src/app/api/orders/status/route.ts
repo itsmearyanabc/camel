@@ -44,6 +44,14 @@ export async function POST(req: Request) {
           let pickupVideoUrl = null;
           let adminMessage = "Your product is ready for pickup!";
 
+          // Prefer this order item's unique per-unit stock item URLs (never leak shared/other units).
+          let stockItem = null;
+          if ((item as any).stockItemId) {
+            stockItem = await prisma.stockItem.findUnique({
+              where: { id: (item as any).stockItemId }
+            });
+          }
+
           if (item.areaId) {
             const areaDetail = await prisma.productAreaDetail.findUnique({
               where: {
@@ -52,11 +60,15 @@ export async function POST(req: Request) {
             });
             
             if (areaDetail) {
-              locationLink = areaDetail.locationUrl || null;
-              pickupVideoUrl = areaDetail.videoUrl || null;
+              locationLink = (stockItem && stockItem.locationUrl) || areaDetail.locationUrl || null;
+              pickupVideoUrl = (stockItem && stockItem.videoUrl) || areaDetail.videoUrl || null;
               if (areaDetail.message) adminMessage = areaDetail.message;
             }
           }
+
+          if (!locationLink && stockItem) locationLink = stockItem.locationUrl || null;
+          if (!pickupVideoUrl && stockItem) pickupVideoUrl = stockItem.videoUrl || null;
+
 
           await prisma.orderItem.update({
             where: { id: item.id },

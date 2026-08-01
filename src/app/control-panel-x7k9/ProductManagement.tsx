@@ -466,19 +466,6 @@ export default function ProductManagement() {
           </div>
           <div>
             <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: "600" }}>
-              Category
-            </label>
-            <select className="form-input" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
-              <option value="ALL">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: "600" }}>
               Stock Status
             </label>
             <select className="form-input" value={filterStock} onChange={(e) => setFilterStock(e.target.value)}>
@@ -520,9 +507,6 @@ export default function ProductManagement() {
                 </th>
                 <th style={{ padding: "16px", textAlign: "left", fontWeight: "600", color: "var(--text-secondary)" }}>
                   Product
-                </th>
-                <th style={{ padding: "16px", textAlign: "left", fontWeight: "600", color: "var(--text-secondary)" }}>
-                  Category
                 </th>
                 <th style={{ padding: "16px", textAlign: "left", fontWeight: "600", color: "var(--text-secondary)" }}>
                   Price
@@ -599,15 +583,6 @@ export default function ProductManagement() {
                           )}
                         </div>
                       </div>
-                    </td>
-                    <td style={{ padding: "16px" }}>
-                      {product.categoryName ? (
-                        <span className="badge" style={{ background: "var(--bg-secondary)" }}>
-                          {product.categoryName}
-                        </span>
-                      ) : (
-                        <span style={{ color: "var(--text-tertiary)" }}>—</span>
-                      )}
                     </td>
                     <td style={{ padding: "16px" }}>
                       <span style={{ fontWeight: "600", color: "var(--green)", fontSize: "16px" }}>
@@ -751,22 +726,6 @@ export default function ProductManagement() {
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
                   />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  <select
-                    className="form-input"
-                    value={formData.categoryId}
-                    onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                  >
-                    <option value="">Select Category</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                      </option>
-                    ))}
-                  </select>
                 </div>
 
                 <div className="form-group">
@@ -1188,7 +1147,6 @@ export default function ProductManagement() {
                 <option value="">Select Action</option>
                 <option value="update-price">Update Price</option>
                 <option value="update-stock">Update Stock</option>
-                <option value="assign-category">Assign Category</option>
                 <option value="delete">Delete Products</option>
               </select>
             </div>
@@ -1217,20 +1175,6 @@ export default function ProductManagement() {
                   onChange={(e) => setBulkValue(e.target.value)}
                   placeholder="Enter quantity (+/-)"
                 />
-              </div>
-            )}
-
-            {bulkAction === "assign-category" && (
-              <div className="form-group">
-                <label className="form-label">Category</label>
-                <select className="form-input" value={bulkValue} onChange={(e) => setBulkValue(e.target.value)}>
-                  <option value="">Select Category</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
               </div>
             )}
 
