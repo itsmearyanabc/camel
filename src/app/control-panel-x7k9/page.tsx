@@ -41,6 +41,8 @@ export default function ClientAdminPanel() {
   const [cancellationReasons, setCancellationReasons] = useState<Record<string, string>>({});
   
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [decryptedPasswords, setDecryptedPasswords] = useState<Record<string, string>>({});
+  const [decryptingId, setDecryptingId] = useState<string | null>(null);
   const [adminFiles, setAdminFiles] = useState<Record<string, { base64: string; name: string; type: string }>>({});
   const [cryptoAddress, setCryptoAddress] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -202,6 +204,29 @@ export default function ClientAdminPanel() {
       fetchAll();
     } catch (e) {
       setMsg({ type: "error", text: "Failed to process deposit" });
+    }
+  };
+
+  const handleDecryptPassword = async (targetUser: any) => {
+    const key = window.prompt(`Enter the decryption key to reveal the password for "${targetUser.username}":`);
+    if (key === null) return; // cancelled
+    if (!key.trim()) { setMsg({ type: "error", text: "Decryption key is required" }); return; }
+    setMsg(null);
+    setDecryptingId(targetUser.id);
+    try {
+      const res = await fetch(`/api/admin/users/${targetUser.id}/decrypt-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: key.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setMsg({ type: "error", text: data.error || "Failed to decrypt password" }); return; }
+      setDecryptedPasswords(prev => ({ ...prev, [targetUser.id]: data.password }));
+      setVisiblePasswords(prev => ({ ...prev, [targetUser.id]: true }));
+    } catch (e) {
+      setMsg({ type: "error", text: "Failed to decrypt password" });
+    } finally {
+      setDecryptingId(null);
     }
   };
 
@@ -1133,16 +1158,27 @@ export default function ClientAdminPanel() {
                           {u.role === "STAFF" ? "NA" : u.telegramUsername ? `@${u.telegramUsername}` : "—"}
                         </td>
                         <td>
-                          {user?.role === "STAFF" ? "—" : u.passwordPlain ? (
+                          {!isAdmin ? (
+                            <span style={{ color: "var(--text-tertiary)" }}>—</span>
+                          ) : decryptedPasswords[u.id] ? (
                             <div style={{ display: "flex", alignItems: "center", gap: "8px" }} onClick={e => e.stopPropagation()}>
                               <span style={{ fontFamily: "monospace", fontSize: "13px", color: "var(--text-secondary)" }}>
-                                {visiblePasswords[u.id] ? u.passwordPlain : "••••••••"}
+                                {visiblePasswords[u.id] ? decryptedPasswords[u.id] : "••••••••"}
                               </span>
                               <button onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))} className="btn btn-ghost btn-sm" style={{ padding: "2px", fontSize: "16px" }}>
                                 {visiblePasswords[u.id] ? "👁" : "👁‍🗨"}
                               </button>
                             </div>
-                          ) : <span style={{ color: "var(--text-tertiary)" }}>N/A</span>}
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleDecryptPassword(u); }}
+                              disabled={decryptingId === u.id}
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: "12px", opacity: decryptingId === u.id ? 0.6 : 1 }}
+                            >
+                              {decryptingId === u.id ? "..." : "🔓 Decrypt"}
+                            </button>
+                          )}
                         </td>
                         <td style={{ fontWeight: "600", color: "var(--green)" }}>
                           {u.role === "STAFF" ? "—" : `$${Number(u.wallet?.balance || 0).toFixed(2)}`}
