@@ -21,6 +21,10 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
   const [locations, setLocations] = useState<any[]>([]);
   const [selectedCityId, setSelectedCityId] = useState<string>("");
   const [selectedAreaId, setSelectedAreaId] = useState<string>("");
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number; finalAmount: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
 
   useEffect(() => {
     fetch("/api/locations").then(r => r.json()).then(d => {
@@ -57,6 +61,37 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
   if (!isOpen) return null;
 
+  const finalTotal = appliedCoupon ? appliedCoupon.finalAmount : cartTotal;
+
+  const handleApplyCoupon = async () => {
+    setCouponError(null);
+    const code = couponInput.trim();
+    if (!code) return;
+    setIsValidatingCoupon(true);
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, orderAmount: cartTotal }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Invalid coupon");
+      setAppliedCoupon({ code: data.coupon.code, discount: data.discount, finalAmount: data.finalAmount });
+      setCouponInput("");
+    } catch (err: any) {
+      setCouponError(err.message);
+      setAppliedCoupon(null);
+    } finally {
+      setIsValidatingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError(null);
+    setCouponInput("");
+  };
+
   const handleCheckout = async () => {
     setError(null);
     if (!selectedAreaId) {
@@ -67,9 +102,9 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
     try {
       const endpoint = paymentMethod === "WALLET" ? "/api/orders/checkout" : "/api/orders/crypto-checkout";
-      const payload = paymentMethod === "WALLET"
-        ? { cart, paymentMethod: "WALLET", areaId: selectedAreaId }
-        : { cart, cryptoCurrency, areaId: selectedAreaId };
+       const payload = paymentMethod === "WALLET"
+        ? { cart, paymentMethod: "WALLET", areaId: selectedAreaId, couponCode: appliedCoupon?.code }
+        : { cart, cryptoCurrency, areaId: selectedAreaId, couponCode: appliedCoupon?.code };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -164,11 +199,55 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                   ))}
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "16px", borderTop: "1px solid var(--border)", marginBottom: "24px" }}>
-                  <span style={{ fontSize: "18px", color: "var(--text-secondary)" }}>Total:</span>
-                  <span style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
-                    {formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
-                  </span>
+                {/* Coupon Code */}
+                <div style={{ marginBottom: "16px", paddingTop: "16px", borderTop: "1px solid var(--border)" }}>
+                  <label className="form-label" style={{ marginBottom: "8px", display: "block" }}>Have a coupon code?</label>
+                  {appliedCoupon ? (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(52,199,89,0.1)", border: "1px solid var(--green)", borderRadius: "var(--radius-sm)" }}>
+                      <span style={{ fontWeight: "600", color: "var(--green)" }}>✓ {appliedCoupon.code} applied (−{formatPrice(appliedCoupon.discount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)})</span>
+                      <button onClick={handleRemoveCoupon} style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", fontSize: "13px" }}>Remove</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        className="form-input"
+                        style={{ flex: 1, textTransform: "uppercase" }}
+                        placeholder="Enter code"
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()}
+                      />
+                      <button className="btn btn-secondary" onClick={handleApplyCoupon} disabled={isValidatingCoupon || !couponInput.trim()} style={{ whiteSpace: "nowrap" }}>
+                        {isValidatingCoupon ? "..." : "Apply"}
+                      </button>
+                    </div>
+                  )}
+                  {couponError && <div style={{ color: "var(--error)", fontSize: "13px", marginTop: "6px" }}>{couponError}</div>}
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingTop: "4px", marginBottom: "24px" }}>
+                  {appliedCoupon && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Subtotal:</span>
+                        <span style={{ fontSize: "16px", color: "var(--text-secondary)" }}>
+                          {formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "14px", color: "var(--green)" }}>Discount ({appliedCoupon.code}):</span>
+                        <span style={{ fontSize: "16px", color: "var(--green)" }}>
+                          −{formatPrice(appliedCoupon.discount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "18px", color: "var(--text-secondary)" }}>Total:</span>
+                    <span style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
+                      {formatPrice(finalTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                    </span>
+                  </div>
                 </div>
 
                 <div style={{ marginBottom: "24px", background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
@@ -214,9 +293,9 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                     </button>
                   </div>
                   
-                  {paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal && (
+                  {paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal && (
                     <div className="alert alert-error" style={{ marginTop: "12px", padding: "8px 12px", fontSize: "13px" }}>
-                      Insufficient funds. You need {formatPrice(cartTotal - (user?.wallet?.balance || 0), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} more in your wallet.
+                      Insufficient funds. You need {formatPrice(finalTotal - (user?.wallet?.balance || 0), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} more in your wallet.
                     </div>
                   )}
                 </div>
@@ -238,11 +317,11 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
                 <button
                   className="btn btn-primary"
-                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal) ? 0.5 : 1 }}
+                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal) ? 0.5 : 1 }}
                   onClick={handleCheckout}
-                  disabled={isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < cartTotal)}
+                  disabled={isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal)}
                 >
-                  {isProcessing ? "Processing..." : `Pay ${formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}`}
+                  {isProcessing ? "Processing..." : `Pay ${formatPrice(finalTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}`}
                 </button>
               </>
             )}

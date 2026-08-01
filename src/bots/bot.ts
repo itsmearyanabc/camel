@@ -14,6 +14,14 @@ interface AuthState {
 }
 const userStates = new Map<number, AuthState>();
 
+// Pending purchase state for the optional coupon step during checkout
+interface PendingPurchase {
+  productId: string;
+  couponCode?: string;
+  discount?: number;
+}
+const pendingPurchases = new Map<number, PendingPurchase>();
+
 // Clean up stale auth states every 10 minutes
 setInterval(() => {
   const now = Date.now();
@@ -44,6 +52,34 @@ export function createTelegramBot(token: string, botName: string) {
       where: { telegramId: String(telegramId) },
       include: { wallet: true },
     });
+  }
+
+  // Validate a coupon for a user against an order amount. Returns discount or throws.
+  async function validateCouponForUser(code: string, userId: string, orderAmount: number) {
+    const coupon = await prisma.coupon.findUnique({
+      where: { code: code.toUpperCase() },
+      include: { couponUsages: { where: { userId } } },
+    });
+    if (!coupon) throw new Error("Invalid coupon code.");
+    if (!coupon.isActive) throw new Error("This coupon is no longer active.");
+    const now = new Date();
+    if (coupon.validFrom > now) throw new Error("This coupon is not yet valid.");
+    if (coupon.validUntil && coupon.validUntil < now) throw new Error("This coupon has expired.");
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) throw new Error("This coupon has reached its usage limit.");
+    if (coupon.userLimit && coupon.couponUsages.length >= coupon.userLimit) throw new Error("You have already used this coupon the maximum number of times.");
+    if (coupon.minOrderAmount && orderAmount < Number(coupon.minOrderAmount)) {
+      throw new Error(`Minimum order amount of $${Number(coupon.minOrderAmount).toFixed(2)} required for this coupon.`);
+    }
+
+    let discount = 0;
+    if (coupon.discountType === "PERCENTAGE") {
+      discount = (orderAmount * Number(coupon.discountValue)) / 100;
+      if (coupon.maxDiscount && discount > Number(coupon.maxDiscount)) discount = Number(coupon.maxDiscount);
+    } else if (coupon.discountType === "FIXED_AMOUNT") {
+      discount = Number(coupon.discountValue);
+      if (discount > orderAmount) discount = orderAmount;
+    }
+    return { coupon, discount: parseFloat(discount.toFixed(2)) };
   }
 
   function mainMenuKeyboard() {
@@ -221,7 +257,7 @@ export function createTelegramBot(token: string, botName: string) {
     await ctx.answerCallbackQuery();
   });
 
-  // Purchase Product (Buy)
+  // Purchase Product (Buy) — Step 1: show confirm screen with optional coupon
   bot.callbackQuery(/^buy_(.+)$/, async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
@@ -237,11 +273,87 @@ export function createTelegramBot(token: string, botName: string) {
       await ctx.answerCallbackQuery({ text: "Product not found", show_alert: true });
       return;
     }
+    if (product.stockQuantity < 1) {
+      await ctx.answerCallbackQuery({ text: "This compound is currently out of stock.", show_alert: true });
+      return;
+    }
+
+    pendingPurchases.set(telegramId, { productId });
+
+    const keyboard = new InlineKeyboard()
+      .text("✅ Confirm Purchase", `confirm_${productId}`)
+      .row()
+      .text("🎟️ Apply Coupon", `coupon_${productId}`)
+      .row()
+      .text("❌ Cancel", "shop_categories");
+
+    await ctx.editMessageText(
+      `🧪 *Order Summary*\n\n` +
+        `Compound: *${esc(product.name)}*\n` +
+        `Price: *$${Number(product.price).toFixed(2)}*\n\n` +
+        `You can apply a coupon code for a discount, or confirm to pay the full price from your wallet.`,
+      { parse_mode: "Markdown", reply_markup: keyboard }
+    );
+    await ctx.answerCallbackQuery();
+  });
+
+  // Step 2a: prompt for coupon code
+  bot.callbackQuery(/^coupon_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      return;
+    }
+    const productId = ctx.match[1];
+    pendingPurchases.set(telegramId, { productId });
+    await ctx.editMessageText(
+      `🎟️ *Apply Coupon*\n\nPlease type your coupon code now (or type /cancel to go back).`,
+      { parse_mode: "Markdown" }
+    );
+    await ctx.answerCallbackQuery();
+  });
+
+  // Step 3: confirm & place the order (with or without coupon)
+  bot.callbackQuery(/^confirm_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      return;
+    }
+
+    const productId = ctx.match[1];
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) {
+      await ctx.answerCallbackQuery({ text: "Product not found", show_alert: true });
+      return;
+    }
+
+    const pending = pendingPurchases.get(telegramId);
+    const couponCode = pending?.productId === productId ? pending.couponCode : undefined;
 
     try {
-      const order = await prisma.$transaction(async (tx) => {
+      const { order, finalAmount, discount } = await prisma.$transaction(async (tx) => {
+        const dbProduct = await tx.product.findUnique({ where: { id: productId } });
+        if (!dbProduct || dbProduct.stockQuantity < 1) {
+          throw new Error("This compound is currently out of stock.");
+        }
+
+        const basePrice = Number(product.price);
+        let discount = 0;
+        let coupon: any = null;
+        if (couponCode) {
+          const res = await validateCouponForUser(couponCode, user.id, basePrice);
+          coupon = res.coupon;
+          discount = res.discount;
+        }
+        const finalAmount = parseFloat((basePrice - discount).toFixed(2));
+
         const wallet = await tx.wallet.findUnique({ where: { userId: user.id } });
-        if (!wallet || Number(wallet.balance) < Number(product.price)) {
+        if (!wallet || Number(wallet.balance) < finalAmount) {
           throw new Error(
             `Insufficient wallet balance.\n\nPlease log in to our website to pay directly with Crypto (BTC, ETH, USDT, SOL, TRX) or to deposit funds.`
           );
@@ -250,22 +362,17 @@ export function createTelegramBot(token: string, botName: string) {
           throw new Error(`This item is priced in ${product.currency}, but your wallet uses ${wallet.currency}. Currency conversion is not available.`);
         }
 
-        const dbProduct = await tx.product.findUnique({ where: { id: productId } });
-        if (!dbProduct || dbProduct.stockQuantity < 1) {
-          throw new Error("This compound is currently out of stock.");
-        }
-
         await tx.wallet.update({
           where: { id: wallet.id },
-          data: { balance: { decrement: Number(product.price) } },
+          data: { balance: { decrement: finalAmount } },
         });
 
         await tx.walletLedger.create({
           data: {
             walletId: wallet.id,
             type: "PURCHASE",
-            amount: -Number(product.price),
-            description: `Telegram Bot Order: ${product.name}`,
+            amount: -finalAmount,
+            description: `Telegram Bot Order: ${product.name}` + (coupon ? ` (Coupon ${coupon.code})` : ""),
           },
         });
 
@@ -274,10 +381,10 @@ export function createTelegramBot(token: string, botName: string) {
           data: { stockQuantity: { decrement: 1 } },
         });
 
-        return tx.order.create({
+        const order = await tx.order.create({
           data: {
             userId: user.id,
-            totalAmount: product.price,
+            totalAmount: finalAmount,
             status: "COOLDOWN_ACTIVE",
             orderSource: "TELEGRAM",
             paymentMethod: "WALLET",
@@ -285,7 +392,7 @@ export function createTelegramBot(token: string, botName: string) {
               create: [
                 {
                   productId: product.id,
-                  priceAtPurchase: product.price,
+                  priceAtPurchase: finalAmount,
                   status: "COOLDOWN_ACTIVE",
                   cooldownEndAt: new Date(Date.now() + 30 * 1000),
                 }
@@ -293,7 +400,18 @@ export function createTelegramBot(token: string, botName: string) {
             }
           },
         });
+
+        if (coupon && discount > 0) {
+          await tx.couponUsage.create({
+            data: { couponId: coupon.id, userId: user.id, orderId: order.id, discount },
+          });
+          await tx.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
+        }
+
+        return { order, finalAmount, discount };
       });
+
+      pendingPurchases.delete(telegramId);
 
       const keyboard = new InlineKeyboard()
         .text("📦 Track Order Status", `order_${order.id}`)
@@ -304,12 +422,14 @@ export function createTelegramBot(token: string, botName: string) {
         `✅ *Order Placed!*\n\n` +
           `Order ID: \`${order.id}\`\n` +
           `Compound: *${esc(product.name)}*\n` +
-          `Paid: *$${Number(product.price).toFixed(2)}* (from Wallet)\n\n` +
+          (discount > 0 ? `Discount: *−$${discount.toFixed(2)}*\n` : "") +
+          `Paid: *$${finalAmount.toFixed(2)}* (from Wallet)\n\n` +
           `⚠️ *Order Cooldown is Active.* Your pickup details will be generated in 30 seconds.`,
         { parse_mode: "Markdown", reply_markup: keyboard }
       );
       await ctx.answerCallbackQuery({ text: "Order placed!" });
     } catch (e: unknown) {
+      pendingPurchases.delete(telegramId);
       const message = e instanceof Error ? e.message : "Checkout failed";
       await ctx.answerCallbackQuery({ text: `❌ ${message}`.slice(0, 200), show_alert: true });
     }
@@ -602,15 +722,65 @@ export function createTelegramBot(token: string, botName: string) {
     await ctx.answerCallbackQuery();
   });
 
-  // Handle text messages for Login / Signup state machine
+  // Handle text messages for Login / Signup state machine + coupon entry
   bot.on("message:text", async (ctx) => {
     const telegramId = ctx.from?.id;
     if (!telegramId) return;
 
+    const text = ctx.message.text.trim();
+
+    // Coupon entry takes priority (a purchase is in progress awaiting a code)
+    const pending = pendingPurchases.get(telegramId);
+    if (pending && !pending.couponCode) {
+      if (text === "/cancel") {
+        pendingPurchases.delete(telegramId);
+        await ctx.reply("❌ Coupon entry cancelled. Your order was not placed. Browse the shop with /start.");
+        return;
+      }
+      const user = await getUserByTelegram(telegramId);
+      if (!user) {
+        pendingPurchases.delete(telegramId);
+        await ctx.reply("❌ Account not linked. Type /start.");
+        return;
+      }
+      const product = await prisma.product.findUnique({ where: { id: pending.productId } });
+      if (!product) {
+        pendingPurchases.delete(telegramId);
+        await ctx.reply("❌ Product no longer available.");
+        return;
+      }
+      try {
+        const { discount } = await validateCouponForUser(text, user.id, Number(product.price));
+        const finalAmount = parseFloat((Number(product.price) - discount).toFixed(2));
+        pendingPurchases.set(telegramId, { productId: pending.productId, couponCode: text.toUpperCase(), discount });
+
+        const keyboard = new InlineKeyboard()
+          .text("✅ Confirm Purchase", `confirm_${pending.productId}`)
+          .row()
+          .text("❌ Cancel", "shop_categories");
+
+        await ctx.reply(
+          `🎟️ *Coupon Applied!*\n\n` +
+            `Compound: *${esc(product.name)}*\n` +
+            `Original Price: $${Number(product.price).toFixed(2)}\n` +
+            `Discount: *−$${discount.toFixed(2)}*\n` +
+            `*New Total: $${finalAmount.toFixed(2)}*\n\n` +
+            `Tap Confirm to complete your purchase.`,
+          { parse_mode: "Markdown", reply_markup: keyboard }
+        );
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : "Invalid coupon";
+        const keyboard = new InlineKeyboard()
+          .text("⬅️ Back to Order", `buy_${pending.productId}`)
+          .row()
+          .text("❌ Cancel", "shop_categories");
+        await ctx.reply(`❌ ${message}\n\nTry another code, or go back.`, { reply_markup: keyboard });
+      }
+      return;
+    }
+
     const state = userStates.get(telegramId);
     if (!state) return;
-
-    const text = ctx.message.text.trim();
 
     if (text === "/cancel") {
       userStates.delete(telegramId);

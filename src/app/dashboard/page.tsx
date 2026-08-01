@@ -18,6 +18,7 @@ import { useLanguage } from "@/components/LanguageContext";
 
 interface Product {
   id: string; name: string; description: string; price: number;
+  originalPrice?: number | null;
   currency: string;
   formula: string | null; casNumber: string | null; imageUrl: string | null;
   stockQuantity: number;
@@ -645,7 +646,20 @@ export default function Dashboard() {
                         )}
                       </div>
                       <div className="product-card-bottom">
-                        <span className="product-card-price">{formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}</span>
+                        <span className="product-card-price">
+                          {formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                          {product.originalPrice != null && Number(product.originalPrice) > Number(product.price) && (
+                            <>
+                              {" "}
+                              <span style={{ fontSize: "13px", color: "var(--text-tertiary)", textDecoration: "line-through", fontWeight: "400" }}>
+                                {formatPrice(Number(product.originalPrice), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                              </span>
+                              <span style={{ background: "var(--red)", color: "#fff", fontSize: "10px", fontWeight: "700", padding: "1px 6px", borderRadius: "10px", marginLeft: "6px", verticalAlign: "middle" }}>
+                                -{Math.round(((Number(product.originalPrice) - Number(product.price)) / Number(product.originalPrice)) * 100)}%
+                              </span>
+                            </>
+                          )}
+                        </span>
                         <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
                           {(() => {
                             let isAvailable = product.stockQuantity > 0;

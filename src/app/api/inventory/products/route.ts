@@ -28,6 +28,7 @@ export async function GET() {
       groupMap[groupKey].products.push({
         ...p,
         price: Number(p.price),
+        originalPrice: p.originalPrice != null ? Number(p.originalPrice) : null,
       });
     }
 

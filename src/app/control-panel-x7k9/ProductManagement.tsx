@@ -7,6 +7,7 @@ interface Product {
   name: string;
   description: string | null;
   price: number;
+  originalPrice: number | null;
   currency: string;
   formula: string | null;
   casNumber: string | null;
@@ -66,6 +67,7 @@ export default function ProductManagement() {
     name: "",
     description: "",
     price: "",
+    originalPrice: "",
     currency: "USD",
     formula: "",
     casNumber: "",
@@ -123,6 +125,7 @@ export default function ProductManagement() {
       name: "",
       description: "",
       price: "",
+      originalPrice: "",
       currency: "USD",
       formula: "",
       casNumber: "",
@@ -152,6 +155,7 @@ export default function ProductManagement() {
         body: JSON.stringify({
           ...formData,
           price: parseFloat(formData.price),
+          originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
           areaStocks,
         }),
       });
@@ -199,6 +203,7 @@ export default function ProductManagement() {
           productId: selectedProduct.id,
           ...formData,
           price: parseFloat(formData.price),
+          originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
           areaStocks,
         }),
       });
@@ -280,6 +285,7 @@ export default function ProductManagement() {
       name: product.name,
       description: product.description || "",
       price: product.price.toString(),
+      originalPrice: product.originalPrice != null ? product.originalPrice.toString() : "",
       currency: product.currency,
       formula: product.formula || "",
       casNumber: product.casNumber || "",
@@ -755,6 +761,24 @@ export default function ProductManagement() {
                   {userRole === "STAFF" && (
                     <small style={{ color: "var(--accent)" }}>Price can only be changed by Administrators</small>
                   )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Original Price (USD) — optional</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="form-input"
+                    placeholder="Leave blank for no discount"
+                    value={formData.originalPrice}
+                    onChange={(e) => setFormData({ ...formData, originalPrice: e.target.value })}
+                    disabled={userRole === "STAFF"}
+                    style={{ opacity: userRole === "STAFF" ? 0.6 : 1, cursor: userRole === "STAFF" ? "not-allowed" : "text" }}
+                  />
+                  <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                    Set higher than the sale price to show a strikethrough discount on the storefront
+                  </small>
                 </div>
 
                 <div className="form-group">

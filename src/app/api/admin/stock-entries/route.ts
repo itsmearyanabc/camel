@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { notifyRestockSubscribers } from "@/lib/restock";
 
 // GET - Fetch stock entries for a product area detail
 export async function GET(req: NextRequest) {
@@ -86,6 +87,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Capture the product's total stock before this entry
+    const prevProduct = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { stockQuantity: true }
+    });
+    const prevTotalStock = prevProduct?.stockQuantity ?? 0;
+
     // Use a transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
       // Find or create the ProductAreaDetail
@@ -138,6 +146,12 @@ export async function POST(req: NextRequest) {
 
       return { entry, newQuantity, totalStock };
     });
+
+    // If this restock brought the product from out-of-stock back in stock, notify subscribers
+    if (type === "RESTOCK" && qty > 0 && prevTotalStock <= 0 && result.totalStock > 0) {
+      // Fire-and-forget; do not block the response
+      void notifyRestockSubscribers(productId);
+    }
 
     return NextResponse.json({ 
       success: true, 

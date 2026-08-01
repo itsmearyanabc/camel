@@ -29,6 +29,7 @@ export async function GET() {
       name: p.name,
       description: p.description,
       price: p.price,
+      originalPrice: p.originalPrice ?? null,
       currency: p.currency,
       formula: p.formula,
       casNumber: p.casNumber,
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized. Only admins can create products." }, { status: 403 });
   }
 
-  const { name, description, price, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds, areaStocks } = await req.json();
+  const { name, description, price, originalPrice, formula, casNumber, imageUrl, productType, currency, stockQuantity, cityIds, areaIds, areaStocks } = await req.json();
 
   if (!name || name.trim().length < 2) {
     return NextResponse.json({ error: "Product name must be at least 2 characters" }, { status: 400 });
@@ -75,6 +76,7 @@ export async function POST(req: NextRequest) {
       name: name.trim(),
       description: description?.trim() || null,
       price: parseFloat(price),
+      originalPrice: originalPrice !== undefined && originalPrice !== null && originalPrice !== "" ? parseFloat(originalPrice) : null,
       currency: currency || "USD",
       formula: formula?.trim() || null,
       casNumber: casNumber?.trim() || null,
@@ -107,7 +109,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  const { productId, name, description, price, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType, areaStocks } = await req.json();
+  const { productId, name, description, price, originalPrice, formula, casNumber, imageUrl, currency, stockQuantity, cityIds, areaIds, productType, areaStocks } = await req.json();
 
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
@@ -135,6 +137,9 @@ export async function PUT(req: NextRequest) {
   
   if (session.role !== "STAFF") {
     if (price !== undefined) updateData.price = parseFloat(price);
+    if (originalPrice !== undefined) {
+      updateData.originalPrice = originalPrice === null || originalPrice === "" ? null : parseFloat(originalPrice);
+    }
     if (currency !== undefined) updateData.currency = currency;
   }
   if (formula !== undefined) updateData.formula = formula?.trim() || null;
