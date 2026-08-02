@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { createNOWPaymentInvoice, isNOWPaymentsConfigured } from "@/lib/nowpayments";
+import { createNOWPaymentInvoice, isNOWPaymentsConfigured, getPublicBaseUrl } from "@/lib/nowpayments";
+
+// Customers get an hour to complete a deposit before the request is closed out.
+const PAYMENT_WINDOW_MINUTES = 60;
 
 export async function GET(req: NextRequest) {
   try {
@@ -41,6 +44,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid deposit amount" }, { status: 400 });
     }
 
+    // Guard against absurd values reaching the gateway, and round to cents so
+    // the credited amount always matches what was invoiced.
+    if (depositAmount > 100000) {
+      return NextResponse.json({ error: "Deposit amount is too large" }, { status: 400 });
+    }
+    const roundedAmount = Math.round(depositAmount * 100) / 100;
+
     const wallet = await prisma.wallet.findUnique({
       where: { userId: session.userId },
     });
@@ -49,16 +59,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Wallet not found" }, { status: 404 });
     }
 
+    const gatewayEnabled = isNOWPaymentsConfigured();
+
     const depositRequest = await prisma.depositRequest.create({
       data: {
         userId: session.userId,
-        amount: depositAmount,
+        amount: roundedAmount,
         status: "PENDING",
+        paymentProvider: gatewayEnabled ? "NOWPAYMENTS" : null,
+        paymentStatus: gatewayEnabled ? "waiting" : null,
+        paymentExpiresAt: gatewayEnabled
+          ? new Date(Date.now() + PAYMENT_WINDOW_MINUTES * 60 * 1000)
+          : null,
       },
     });
 
     // Check if NOWPayments is configured
-    if (!isNOWPaymentsConfigured()) {
+    if (!gatewayEnabled) {
       console.warn("NOWPayments not configured, falling back to manual deposit");
       return NextResponse.json({ 
         success: true, 
@@ -72,29 +89,51 @@ export async function POST(req: Request) {
     }
 
     // Generate NOWPayments Invoice
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://camel971.com";
-    
+    const baseUrl = getPublicBaseUrl();
+    if (!baseUrl) {
+      await prisma.depositRequest.update({
+        where: { id: depositRequest.id },
+        data: { status: "REJECTED", paymentStatus: "misconfigured" },
+      });
+      console.error("NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_SITE_URL is not set - refusing to create invoice");
+      return NextResponse.json({
+        error: "Payment gateway is not configured. Please contact support.",
+      }, { status: 503 });
+    }
+
     const invoiceResult = await createNOWPaymentInvoice({
-      priceAmount: depositAmount,
+      priceAmount: roundedAmount,
       priceCurrency: "usd",
-      payCurrency: "usdttrc20", // Default to USDT TRC20, user can change on payment page
+      // No pay_currency: the hosted page lets the customer pick any coin.
       orderId: depositRequest.id,
-      orderDescription: `Wallet Deposit - $${depositAmount}`,
+      orderDescription: `Wallet Deposit - $${roundedAmount.toFixed(2)}`,
       ipnCallbackUrl: `${baseUrl}/api/webhooks/nowpayments`,
       successUrl: `${baseUrl}/dashboard?deposit=success`,
       cancelUrl: `${baseUrl}/dashboard?deposit=cancelled`,
     });
 
     if (!invoiceResult.success || !invoiceResult.invoice) {
+      await prisma.depositRequest.update({
+        where: { id: depositRequest.id },
+        data: { status: "REJECTED", paymentStatus: "gateway_error" },
+      });
       console.error("NOWPayments error:", invoiceResult.error);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: "Failed to generate payment gateway",
-        details: invoiceResult.error 
-      }, { status: 500 });
+        details: invoiceResult.error
+      }, { status: 502 });
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    await prisma.depositRequest.update({
+      where: { id: depositRequest.id },
+      data: {
+        providerInvoiceId: String(invoiceResult.invoice.id),
+        paymentUrl: invoiceResult.invoice.invoice_url,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
       paymentUrl: invoiceResult.invoice.invoice_url,
       invoiceId: invoiceResult.invoice.id,
       depositRequest: {

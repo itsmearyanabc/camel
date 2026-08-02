@@ -1,74 +1,178 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { verifyNOWPaymentsIPN } from "@/lib/nowpayments";
+import {
+  verifyNOWPaymentsIPN,
+  getNOWPaymentStatus,
+  NOWPAYMENTS_SUCCESS_STATUSES,
+  NOWPAYMENTS_FAILURE_STATUSES,
+} from "@/lib/nowpayments";
+import { releaseOrderReservation } from "@/lib/orderReservation";
+
+// Payment confirmation must never be served from a cache, and this route does
+// per-request work regardless.
+export const dynamic = "force-dynamic";
+
+/**
+ * Underpayment tolerance, in USD. Exchange-rate drift between invoice creation
+ * and settlement routinely lands a cent or two short; anything beyond this is
+ * treated as a genuine underpayment and held for manual review.
+ */
+const UNDERPAYMENT_TOLERANCE_USD = 0.5;
+
+function escapeTelegramMarkdown(text: string) {
+  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+}
+
+async function notifyTelegram(telegramId: string | null, message: string) {
+  const botToken = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
+  if (!telegramId || !botToken) return;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: telegramId,
+        text: message,
+        parse_mode: "MarkdownV2",
+      }),
+    });
+    if (!res.ok) {
+      console.error("Telegram notify failed:", res.status, await res.text());
+    }
+  } catch (err) {
+    // A failed notification must never fail the webhook - the payment is real
+    // either way and NOWPayments would retry the whole callback.
+    console.error("Telegram notify error:", err);
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
     const rawBody = await req.text();
-    let body;
-    
+    let body: Record<string, any>;
+
     try {
       body = JSON.parse(rawBody);
     } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // Get signature from headers
     const signature = req.headers.get("x-nowpayments-sig");
-    
+
     if (!signature) {
       console.error("NOWPayments webhook: Missing signature");
       return NextResponse.json({ error: "Missing signature" }, { status: 401 });
     }
 
-    // Verify IPN signature
-    const isValid = verifyNOWPaymentsIPN(body, signature);
-    
-    if (!isValid) {
+    if (!verifyNOWPaymentsIPN(body, signature)) {
       console.error("NOWPayments webhook: Invalid signature");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    const { payment_status, order_id, payment_id } = body;
+    const orderId: string | undefined = body.order_id;
+    const paymentId = body.payment_id != null ? String(body.payment_id) : null;
 
-    console.log(`NOWPayments webhook received: ${payment_status} for order ${order_id}`);
+    if (!orderId || !paymentId) {
+      console.error("NOWPayments webhook: missing order_id/payment_id", body);
+      return NextResponse.json({ error: "Malformed payload" }, { status: 400 });
+    }
 
-    // NOWPayments payment statuses:
-    // waiting, confirming, confirmed, sending, partially_paid, finished, failed, refunded, expired
+    // Re-fetch the payment from NOWPayments and treat that as the source of
+    // truth. The signature already proves authenticity, but this also defends
+    // against replayed bodies and any future drift in signing, and it is the
+    // only way to be certain about the amount actually settled.
+    let paymentStatus: string = body.payment_status;
+    let priceAmount = Number(body.price_amount);
+    let payCurrency: string | null = body.pay_currency ?? null;
 
-    if (payment_status === "finished" || payment_status === "confirmed") {
-      // Payment successful
-      
-      // 1. Check if it's a Deposit Request
-      const depositRequest = await prisma.depositRequest.findUnique({
-        where: { id: order_id }
-      });
+    const authoritative = await getNOWPaymentStatus(paymentId);
+    if (authoritative.success && authoritative.status) {
+      const s = authoritative.status;
+      if (String(s.order_id) !== String(orderId)) {
+        console.error(
+          `NOWPayments webhook: order_id mismatch. body=${orderId} api=${s.order_id}`
+        );
+        return NextResponse.json({ error: "Order mismatch" }, { status: 400 });
+      }
+      paymentStatus = s.payment_status;
+      priceAmount = Number(s.price_amount);
+      payCurrency = s.pay_currency ?? payCurrency;
+    } else {
+      // Verified signature but the API is unreachable. Proceed on the signed
+      // body rather than dropping a real payment, and make it loud in the logs.
+      console.warn(
+        `NOWPayments webhook: could not re-verify payment ${paymentId} (${authoritative.error}); trusting signed body`
+      );
+    }
 
-      if (depositRequest) {
+    console.log(
+      `NOWPayments webhook: ${paymentStatus} for ${orderId} (payment ${paymentId})`
+    );
+
+    const isSuccess = (NOWPAYMENTS_SUCCESS_STATUSES as readonly string[]).includes(paymentStatus);
+    const isFailure = (NOWPAYMENTS_FAILURE_STATUSES as readonly string[]).includes(paymentStatus);
+
+    // ---------------------------------------------------------------
+    // Wallet deposit
+    // ---------------------------------------------------------------
+    const depositRequest = await prisma.depositRequest.findUnique({
+      where: { id: orderId },
+      include: { user: true },
+    });
+
+    if (depositRequest) {
+      if (isSuccess) {
+        // Credit what actually settled, never more than was requested.
+        const expected = Number(depositRequest.amount);
+        if (Number.isFinite(priceAmount) && priceAmount + UNDERPAYMENT_TOLERANCE_USD < expected) {
+          console.error(
+            `NOWPayments deposit ${orderId} underpaid: expected ${expected}, got ${priceAmount}. Holding for review.`
+          );
+          await prisma.depositRequest.update({
+            where: { id: orderId },
+            data: {
+              status: "PROCESSING",
+              paymentStatus,
+              providerPaymentId: paymentId,
+              paidAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+              updatedAt: new Date(),
+            },
+          });
+          return NextResponse.json({ success: true, message: "Underpaid - held for review" });
+        }
+
         const result = await prisma.$transaction(async (tx) => {
-          const currentReq = await tx.depositRequest.findUnique({ where: { id: order_id } });
-          if (currentReq?.status === "APPROVED") return "ALREADY_PROCESSED";
+          const current = await tx.depositRequest.findUnique({ where: { id: orderId } });
+          if (!current || current.status === "APPROVED") return "ALREADY_PROCESSED";
 
           await tx.depositRequest.update({
-            where: { id: order_id },
-            data: { status: "APPROVED", updatedAt: new Date() }
+            where: { id: orderId },
+            data: {
+              status: "APPROVED",
+              paymentStatus,
+              providerPaymentId: paymentId,
+              paidAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+              updatedAt: new Date(),
+            },
           });
 
-          const wallet = await tx.wallet.findUnique({ where: { userId: currentReq!.userId } });
+          const wallet = await tx.wallet.findUnique({ where: { userId: current.userId } });
           if (wallet) {
-            const newBalance = Number(wallet.balance) + Number(currentReq!.amount);
             await tx.wallet.update({
               where: { id: wallet.id },
-              data: { balance: newBalance, updatedAt: new Date() }
+              data: {
+                balance: { increment: current.amount },
+                updatedAt: new Date(),
+              },
             });
 
             await tx.walletLedger.create({
               data: {
                 walletId: wallet.id,
                 type: "DEPOSIT",
-                amount: currentReq!.amount,
-                description: `NOWPayments automated deposit (Payment ID: ${payment_id})`,
-              }
+                amount: current.amount,
+                description: `NOWPayments deposit (Payment ID: ${paymentId})`,
+              },
             });
           }
           return "PROCESSED";
@@ -77,132 +181,213 @@ export async function POST(req: NextRequest) {
         if (result === "ALREADY_PROCESSED") {
           return NextResponse.json({ success: true, message: "Already processed" });
         }
-        
-        console.log(`Successfully processed NOWPayments deposit for ${order_id}`);
+
+        await prisma.notification.create({
+          data: {
+            userId: depositRequest.userId,
+            type: "GENERAL",
+            title: "Deposit confirmed",
+            message: `Your deposit of $${Number(depositRequest.amount).toFixed(2)} has been credited to your wallet.`,
+            link: "/dashboard",
+          },
+        });
+
+        await notifyTelegram(
+          depositRequest.user.telegramId,
+          `✅ *Deposit confirmed*\n\nYour wallet has been credited with $${escapeTelegramMarkdown(
+            Number(depositRequest.amount).toFixed(2)
+          )}\\.`
+        );
+
+        console.log(`Processed NOWPayments deposit ${orderId}`);
         return NextResponse.json({ success: true });
       }
 
-      // 2. Check if it's a Direct Order Checkout
-      const order = await prisma.order.findUnique({
-        where: { id: order_id }
+      if (isFailure) {
+        await prisma.depositRequest.updateMany({
+          where: { id: orderId, status: { notIn: ["APPROVED"] } },
+          data: { status: "REJECTED", paymentStatus, updatedAt: new Date() },
+        });
+        return NextResponse.json({ success: true });
+      }
+
+      // waiting / confirming / sending / partially_paid - just record progress.
+      await prisma.depositRequest.updateMany({
+        where: { id: orderId, status: { notIn: ["APPROVED"] } },
+        data: { paymentStatus, updatedAt: new Date() },
       });
+      return NextResponse.json({ success: true });
+    }
 
-      if (order) {
-        const result = await prisma.$transaction(async (tx) => {
-          const currentOrder = await tx.order.findUnique({ 
-            where: { id: order_id }, 
-            include: { items: true } 
-          });
-          
-          if (currentOrder?.status !== "PENDING_PAYMENT") {
-            return "ALREADY_PROCESSED";
-          }
+    // ---------------------------------------------------------------
+    // Direct product order
+    // ---------------------------------------------------------------
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { user: true },
+    });
 
-          // Mark order as COOLDOWN_ACTIVE so the delivery cron picks it up
-          await tx.order.update({
-            where: { id: order_id },
-            data: { status: "COOLDOWN_ACTIVE", updatedAt: new Date() }
-          });
-
-          // Update items: start cooldown from payment confirmation time
-          for (const item of currentOrder!.items) {
-            let cooldownMinutes = 0;
-            if (item.areaId) {
-              const areaDetail = await tx.productAreaDetail.findUnique({
-                where: { productId_areaId: { productId: item.productId, areaId: item.areaId } }
-              });
-              if (areaDetail && areaDetail.cooldownMinutes > 0) {
-                cooldownMinutes = areaDetail.cooldownMinutes;
-              }
-            }
-            const cd = new Date();
-            cd.setMinutes(cd.getMinutes() + cooldownMinutes);
-
-            await tx.orderItem.update({
-              where: { id: item.id },
-              data: { status: "COOLDOWN_ACTIVE", cooldownEndAt: cd }
-            });
-          }
-          
-          return "PROCESSED";
-        });
-
-        if (result === "ALREADY_PROCESSED") {
-          return NextResponse.json({ success: true, message: "Already processed" });
-        }
-        
-        console.log(`Successfully processed NOWPayments order for ${order_id}`);
-        return NextResponse.json({ success: true });
-      }
-
-      console.error("Order or Deposit not found:", order_id);
+    if (!order) {
+      console.error("NOWPayments webhook: order/deposit not found:", orderId);
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
 
-    } else if (payment_status === "failed" || payment_status === "expired" || payment_status === "refunded") {
-      // Payment failed or expired
-      
-      // Mark deposit as rejected
-      const depositReq = await prisma.depositRequest.findUnique({ where: { id: order_id } });
-      if (depositReq) {
-        await prisma.depositRequest.update({ 
-          where: { id: order_id }, 
-          data: { status: "REJECTED", updatedAt: new Date() } 
+    if (isSuccess) {
+      // What we actually charged, including the network-fee markup.
+      const expected = Number(order.cryptoAmountDue ?? order.totalAmount);
+
+      if (Number.isFinite(priceAmount) && priceAmount + UNDERPAYMENT_TOLERANCE_USD < expected) {
+        // Do not release goods. Leave stock reserved and flag for an admin -
+        // cancelling here would let someone underpay to free another buyer's hold.
+        console.error(
+          `NOWPayments order ${orderId} underpaid: expected ${expected}, got ${priceAmount}. Holding for review.`
+        );
+        await prisma.order.update({
+          where: { id: orderId },
+          data: {
+            paymentStatus: "underpaid",
+            providerPaymentId: paymentId,
+            paidAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+            paidCurrency: payCurrency,
+            // Stop the reclaim cron from cancelling an order that has real money against it.
+            paymentExpiresAt: null,
+            updatedAt: new Date(),
+          },
         });
+        return NextResponse.json({ success: true, message: "Underpaid - held for review" });
       }
-      
-      // Restore stock for cancelled orders
-      const orderReq = await prisma.order.findUnique({ 
-        where: { id: order_id },
-        include: { items: true }
-      });
-      
-      if (orderReq && orderReq.status === "PENDING_PAYMENT") {
-        await prisma.$transaction(async (tx) => {
-          // Restore stock for each item (each order item = 1 unit)
-          for (const item of orderReq.items) {
-            // Restore global stock
-            await tx.product.update({
-              where: { id: item.productId },
-              data: { stockQuantity: { increment: 1 } }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const currentOrder = await tx.order.findUnique({
+          where: { id: orderId },
+          include: { items: true },
+        });
+
+        if (!currentOrder || currentOrder.status !== "PENDING_PAYMENT") {
+          return "ALREADY_PROCESSED";
+        }
+
+        // Cooldown starts at payment confirmation, not at checkout, so a
+        // customer who takes 40 minutes to pay still gets the full window.
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            status: "COOLDOWN_ACTIVE",
+            paymentStatus,
+            providerPaymentId: paymentId,
+            paidAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+            paidCurrency: payCurrency,
+            paymentExpiresAt: null,
+            updatedAt: new Date(),
+          },
+        });
+
+        for (const item of currentOrder.items) {
+          let cooldownMinutes = 0;
+          if (item.areaId) {
+            const areaDetail = await tx.productAreaDetail.findUnique({
+              where: {
+                productId_areaId: { productId: item.productId, areaId: item.areaId },
+              },
             });
-
-            // Restore area-level stock
-            if (item.areaId) {
-              const areaDetail = await tx.productAreaDetail.findUnique({
-                where: { productId_areaId: { productId: item.productId, areaId: item.areaId } }
-              });
-              if (areaDetail) {
-                await tx.productAreaDetail.update({
-                  where: { id: areaDetail.id },
-                  data: { stockQuantity: { increment: 1 } }
-                });
-              }
-            }
-
-            // Release the reserved per-unit stock item back to AVAILABLE
-            if (item.stockItemId) {
-              await tx.stockItem.update({
-                where: { id: item.stockItemId },
-                data: { status: "AVAILABLE" }
-              });
+            if (areaDetail && areaDetail.cooldownMinutes > 0) {
+              cooldownMinutes = areaDetail.cooldownMinutes;
             }
           }
-          
-          // Mark order as cancelled
-          await tx.order.update({ 
-            where: { id: order_id }, 
-            data: { status: "CANCELLED", updatedAt: new Date() } 
+          const cd = new Date();
+          cd.setMinutes(cd.getMinutes() + cooldownMinutes);
+
+          await tx.orderItem.update({
+            where: { id: item.id },
+            data: { status: "COOLDOWN_ACTIVE", cooldownEndAt: cd },
           });
-        });
+        }
+
+        return "PROCESSED";
+      });
+
+      if (result === "ALREADY_PROCESSED") {
+        return NextResponse.json({ success: true, message: "Already processed" });
       }
-      
-      console.log(`NOWPayments payment ${payment_status} for order ${order_id}`);
+
+      await prisma.notification.create({
+        data: {
+          userId: order.userId,
+          type: "GENERAL",
+          title: "Payment confirmed",
+          message: `Payment received for order ${order.id.slice(0, 8)}. Your order is now being prepared.`,
+          link: `/dashboard/orders/${order.id}`,
+        },
+      });
+
+      await notifyTelegram(
+        order.user.telegramId,
+        `✅ *Payment confirmed*\n\nOrder \`${escapeTelegramMarkdown(
+          order.id.slice(0, 8)
+        )}\` is confirmed and now being prepared\\. You will be notified when it is ready for pickup\\.`
+      );
+
+      console.log(`Processed NOWPayments order ${orderId}`);
+      return NextResponse.json({ success: true });
+    }
+
+    if (isFailure) {
+      const released = await prisma.$transaction((tx) =>
+        releaseOrderReservation(tx, orderId, `Payment ${paymentStatus}`)
+      );
+
+      // A late "expired" for an order that was already paid and fulfilled must
+      // not overwrite its payment state, so only record this against orders
+      // still awaiting payment.
+      await prisma.order.updateMany({
+        where: { id: orderId, status: { in: ["PENDING_PAYMENT", "CANCELLED"] } },
+        data: { paymentStatus, providerPaymentId: paymentId, updatedAt: new Date() },
+      });
+
+      if (released === "RELEASED") {
+        await prisma.notification.create({
+          data: {
+            userId: order.userId,
+            type: "ORDER_CANCELLED",
+            title: "Payment not completed",
+            message: `Order ${order.id.slice(0, 8)} was cancelled because the payment ${paymentStatus}. Any reserved items have been released.`,
+            link: "/dashboard",
+          },
+        });
+
+        await notifyTelegram(
+          order.user.telegramId,
+          `❌ *Payment ${escapeTelegramMarkdown(paymentStatus)}*\n\nOrder \`${escapeTelegramMarkdown(
+            order.id.slice(0, 8)
+          )}\` was cancelled\\. You can place a new order at any time\\.`
+        );
+      }
+
+      console.log(`NOWPayments payment ${paymentStatus} for order ${orderId}`);
+      return NextResponse.json({ success: true });
+    }
+
+    // partially_paid and the in-flight statuses: record progress, keep the
+    // stock reserved, and stop the reclaim cron from cancelling an order that
+    // already has funds against it.
+    await prisma.order.updateMany({
+      where: { id: orderId, status: "PENDING_PAYMENT" },
+      data: {
+        paymentStatus,
+        providerPaymentId: paymentId,
+        ...(paymentStatus === "partially_paid" ? { paymentExpiresAt: null } : {}),
+        updatedAt: new Date(),
+      },
+    });
+
+    if (paymentStatus === "partially_paid") {
+      console.warn(`NOWPayments order ${orderId} is partially paid - awaiting the remainder`);
     }
 
     return NextResponse.json({ success: true });
-
   } catch (error) {
     console.error("Error processing NOWPayments webhook:", error);
+    // 500 makes NOWPayments retry, which is what we want for transient failures.
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

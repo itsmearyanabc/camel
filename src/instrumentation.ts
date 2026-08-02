@@ -97,12 +97,19 @@ export async function register() {
 
     console.log("=========================================");
 
+    // APP_URL is read at runtime; NEXT_PUBLIC_* is frozen at build time, so it
+    // is only a fallback here.
+    const cronBaseUrl = () =>
+      (process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
+        .trim()
+        .replace(/^["']|["']$/g, "")
+        .replace(/\/+$/, "");
+
     // Background Cron: trigger the cooldowns every minute
     const cronInterval = setInterval(() => {
       if (isShuttingDown) return;
-      const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
       const cronSecret = process.env.CRON_SECRET || "";
-      fetch(`${baseUrl}/api/cron/process-cooldowns`, {
+      fetch(`${cronBaseUrl()}/api/cron/process-cooldowns`, {
         headers: { "Authorization": `Bearer ${cronSecret}` }
       })
         .then(res => res.json())
@@ -114,6 +121,28 @@ export async function register() {
         .catch(err => console.error("[Cron] Failed to process cooldowns:", err));
     }, 60 * 1000);
 
+    // Background Cron: reclaim stock from unpaid crypto orders every 5 minutes.
+    // NOWPayments sends no webhook at all when a customer abandons the hosted
+    // invoice, so without this the reserved units would stay locked forever and
+    // the product would show as permanently out of stock.
+    const expirePaymentsInterval = setInterval(() => {
+      if (isShuttingDown) return;
+      const cronSecret = process.env.CRON_SECRET || "";
+      if (!cronSecret) return; // endpoint refuses unauthenticated calls by design
+      fetch(`${cronBaseUrl()}/api/cron/expire-payments`, {
+        headers: { "Authorization": `Bearer ${cronSecret}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.cancelledCount > 0 || data.rescuedCount > 0) {
+            console.log(
+              `[Cron] Expired ${data.cancelledCount} unpaid order(s), rescued ${data.rescuedCount}.`
+            );
+          }
+        })
+        .catch(err => console.error("[Cron] Failed to expire payments:", err));
+    }, 5 * 60 * 1000);
+
     if (!global.__telegram_bots_shutdown_registered) {
       global.__telegram_bots_shutdown_registered = true;
       const gracefulShutdown = async (signal: string) => {
@@ -121,6 +150,7 @@ export async function register() {
         isShuttingDown = true;
         console.log(`🛑 [Bots] ${signal} received. Stopping bots gracefully...`);
         clearInterval(cronInterval);
+        clearInterval(expirePaymentsInterval);
         for (const bot of activeBots) {
           try {
             await bot.stop();

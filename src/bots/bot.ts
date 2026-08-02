@@ -1,6 +1,8 @@
 import { Bot, InlineKeyboard } from "grammy";
 import { prisma } from "../lib/db";
 import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
+import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
+import { isNOWPaymentsConfigured } from "../lib/nowpayments";
 import bcrypt from "bcryptjs";
 
 // Session state storage for bot login/registration
@@ -280,9 +282,15 @@ export function createTelegramBot(token: string, botName: string) {
 
     pendingPurchases.set(telegramId, { productId });
 
+    const cryptoEnabled = isNOWPaymentsConfigured();
+
     const keyboard = new InlineKeyboard()
-      .text("✅ Confirm Purchase", `confirm_${productId}`)
-      .row()
+      .text("💳 Pay from Wallet", `confirm_${productId}`)
+      .row();
+    if (cryptoEnabled) {
+      keyboard.text("₿ Pay with Crypto", `paycrypto_${productId}`).row();
+    }
+    keyboard
       .text("🎟️ Apply Coupon", `coupon_${productId}`)
       .row()
       .text("❌ Cancel", "shop_categories");
@@ -291,10 +299,79 @@ export function createTelegramBot(token: string, botName: string) {
       `🧪 *Order Summary*\n\n` +
         `Compound: *${esc(product.name)}*\n` +
         `Price: *$${Number(product.price).toFixed(2)}*\n\n` +
-        `You can apply a coupon code for a discount, or confirm to pay the full price from your wallet.`,
+        `You can apply a coupon code for a discount, then choose how to pay` +
+        (cryptoEnabled ? ` — from your wallet balance, or directly with crypto.` : ` from your wallet.`),
       { parse_mode: "Markdown", reply_markup: keyboard }
     );
     await ctx.answerCallbackQuery();
+  });
+
+  // Step 3b: pay for the order directly with crypto via NOWPayments.
+  // Creates a PENDING_PAYMENT order that reserves the unit, then hands the
+  // customer a hosted invoice link. Confirmation arrives via the IPN webhook,
+  // which notifies this chat - the bot never marks an order paid itself.
+  bot.callbackQuery(/^paycrypto_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      return;
+    }
+
+    const productId = ctx.match[1];
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) {
+      await ctx.answerCallbackQuery({ text: "Product not found", show_alert: true });
+      return;
+    }
+
+    const pending = pendingPurchases.get(telegramId);
+    const couponCode = pending?.productId === productId ? pending.couponCode : undefined;
+
+    await ctx.answerCallbackQuery({ text: "Creating your invoice..." });
+
+    const result = await createCryptoOrderForProduct({
+      userId: user.id,
+      productId,
+      couponCode,
+      orderSource: "TELEGRAM",
+    });
+
+    if (!result.success || !result.paymentUrl) {
+      await ctx.editMessageText(
+        `❌ *Could not start crypto payment*\n\n${esc(result.error || "Please try again.")}`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard()
+            .text("⬅️ Back to Order", `buy_${productId}`)
+            .row()
+            .text("🧪 Back to Shop", "shop_categories"),
+        }
+      );
+      return;
+    }
+
+    pendingPurchases.delete(telegramId);
+
+    const keyboard = new InlineKeyboard()
+      .url("💰 Open Payment Page", result.paymentUrl)
+      .row()
+      .text("📦 Track Order Status", `order_${result.orderId}`)
+      .row()
+      .text("🧪 Back to Shop", "shop_categories");
+
+    await ctx.editMessageText(
+      `₿ *Crypto Payment Ready*\n\n` +
+        `Order ID: \`${result.orderId}\`\n` +
+        `Compound: *${esc(product.name)}*\n` +
+        ((result.discount ?? 0) > 0 ? `Discount: *−$${result.discount!.toFixed(2)}*\n` : "") +
+        `Amount Due: *$${result.amountDue!.toFixed(2)}*\n\n` +
+        `Tap *Open Payment Page* to pay with any supported coin.\n\n` +
+        `⏳ This item is reserved for you for *${PAYMENT_WINDOW_MINUTES} minutes*. ` +
+        `You will get a message here as soon as your payment is confirmed.`,
+      { parse_mode: "Markdown", reply_markup: keyboard }
+    );
   });
 
   // Step 2a: prompt for coupon code
@@ -355,7 +432,9 @@ export function createTelegramBot(token: string, botName: string) {
         const wallet = await tx.wallet.findUnique({ where: { userId: user.id } });
         if (!wallet || Number(wallet.balance) < finalAmount) {
           throw new Error(
-            `Insufficient wallet balance.\n\nPlease log in to our website to pay directly with Crypto (BTC, ETH, USDT, SOL, TRX) or to deposit funds.`
+            isNOWPaymentsConfigured()
+              ? `Insufficient wallet balance.\n\nGo back and choose "Pay with Crypto" to pay for this order directly.`
+              : `Insufficient wallet balance.\n\nPlease log in to our website to deposit funds.`
           );
         }
         if (wallet.currency !== product.currency) {
@@ -602,6 +681,16 @@ export function createTelegramBot(token: string, botName: string) {
       text += `\n`;
     });
 
+    // Let a customer who closed the invoice get back to it while the order is
+    // still holding their reserved stock.
+    if (order!.status === "PENDING_PAYMENT" && order!.paymentUrl) {
+      text +=
+        `⏳ *Awaiting payment.* Your item is reserved until you pay or the ` +
+        `payment window expires.\n\n`;
+      keyboard.url("💰 Open Payment Page", order!.paymentUrl).row();
+      keyboard.text("🔄 Refresh Status", `order_${order!.id}`).row();
+    }
+
     if (hasCooldown) {
       keyboard.text("🔄 Refresh Status", `order_${order!.id}`).row();
     }
@@ -754,10 +843,15 @@ export function createTelegramBot(token: string, botName: string) {
         const finalAmount = parseFloat((Number(product.price) - discount).toFixed(2));
         pendingPurchases.set(telegramId, { productId: pending.productId, couponCode: text.toUpperCase(), discount });
 
+        // Keep both payment routes available after a coupon is applied - the
+        // discount is carried on pendingPurchases and honoured by either.
         const keyboard = new InlineKeyboard()
-          .text("✅ Confirm Purchase", `confirm_${pending.productId}`)
-          .row()
-          .text("❌ Cancel", "shop_categories");
+          .text("💳 Pay from Wallet", `confirm_${pending.productId}`)
+          .row();
+        if (isNOWPaymentsConfigured()) {
+          keyboard.text("₿ Pay with Crypto", `paycrypto_${pending.productId}`).row();
+        }
+        keyboard.text("❌ Cancel", "shop_categories");
 
         await ctx.reply(
           `🎟️ *Coupon Applied!*\n\n` +
@@ -765,7 +859,7 @@ export function createTelegramBot(token: string, botName: string) {
             `Original Price: $${Number(product.price).toFixed(2)}\n` +
             `Discount: *−$${discount.toFixed(2)}*\n` +
             `*New Total: $${finalAmount.toFixed(2)}*\n\n` +
-            `Tap Confirm to complete your purchase.`,
+            `Choose how you would like to pay.`,
           { parse_mode: "Markdown", reply_markup: keyboard }
         );
       } catch (e: unknown) {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { useCart } from "./CartContext";
-import { formatPrice } from "@/lib/currencies";
+import { formatPrice, CRYPTO_CURRENCIES } from "@/lib/currencies";
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -14,7 +14,7 @@ interface CheckoutModalProps {
 export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess }: CheckoutModalProps) {
   const { cart, cartTotal, removeFromCart, updateQuantity, clearCart } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "CRYPTO">("WALLET");
-  const [cryptoCurrency, setCryptoCurrency] = useState("BTC");
+  const [cryptoCurrency, setCryptoCurrency] = useState("ANY");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cryptoPending, setCryptoPending] = useState<any>(null);
@@ -51,12 +51,12 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
     })).filter(city => city.areas && city.areas.length > 0);
   }, [locations, validAreaIds, cart.length]);
 
+  // Codes must match CRYPTO_CURRENCIES in src/lib/currencies.ts - the API
+  // rejects anything else. "ANY" lets the customer choose from every coin
+  // NOWPayments supports on the hosted invoice page.
   const cryptoOptions = [
-    { code: "BTC", name: "Bitcoin" },
-    { code: "ETH", name: "Ethereum" },
-    { code: "USDT", name: "Tether (TRC20)" },
-    { code: "SOL", name: "Solana" },
-    { code: "TRX", name: "Tron" },
+    { code: "ANY", name: "Let me choose at checkout" },
+    ...CRYPTO_CURRENCIES.map((c) => ({ code: c.code, name: c.name })),
   ];
 
   if (!isOpen) return null;
@@ -118,9 +118,20 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
       if (paymentMethod === "WALLET") {
         clearCart();
         onCheckoutSuccess();
-      } else {
-        setCryptoPending(data.order);
+        return;
       }
+
+      // NOWPayments path: hand the customer to the hosted invoice. The cart is
+      // cleared first because the stock is already reserved against the order -
+      // leaving it populated would let them check out the same units twice.
+      if (data.paymentUrl) {
+        clearCart();
+        window.location.href = data.paymentUrl;
+        return;
+      }
+
+      // Manual fallback: show our own address for the customer to pay directly.
+      setCryptoPending(data.order);
     } catch (err: any) {
       setError(err.message);
     } finally {

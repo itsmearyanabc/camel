@@ -134,11 +134,15 @@ export default function Dashboard() {
   // Crypto Modal State
   const [cryptoModalOpen, setCryptoModalOpen] = useState(false);
   const [selectedProductForCrypto, setSelectedProductForCrypto] = useState<string | null>(null);
-  const [cryptoCurrency, setCryptoCurrency] = useState("BTC");
+  const [cryptoCurrency, setCryptoCurrency] = useState("ANY");
   const [cryptoPaymentInfo, setCryptoPaymentInfo] = useState<any>(null);
   const [cryptoStep, setCryptoStep] = useState<"select" | "pay">("select");
 
+  // Codes must match CRYPTO_CURRENCIES in src/lib/currencies.ts.
+  // "ANY" defers the coin choice to the hosted NOWPayments invoice page,
+  // where every supported cryptocurrency is available.
   const cryptoOptions = [
+    { code: "ANY", label: "Any coin", icon: "🪙" },
     { code: "BTC", label: "Bitcoin (BTC)", icon: "₿" },
     { code: "ETH", label: "Ethereum (ETH)", icon: "Ξ" },
     { code: "USDT_ERC20", label: "USDT (ERC-20)", icon: "₮" },

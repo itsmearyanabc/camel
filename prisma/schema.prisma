@@ -183,16 +183,29 @@ model Order {
   cryptoAmountDue    String?        // Amount customer must send in chosen coin
   networkFee         Decimal?       @db.Decimal(12, 2) // Estimated network fee in USD
   paymentWalletAddress String?      // Specific address customer should pay to
-  coinbaseChargeId   String?        
+  coinbaseChargeId   String?
   coinbaseChargeUrl  String?
+
+  // Crypto payment gateway (NOWPayments) tracking
+  paymentProvider    String?        // NOWPAYMENTS
+  providerInvoiceId  String?        // NOWPayments invoice id
+  providerPaymentId  String?        @unique // NOWPayments payment id (idempotency + reconciliation)
+  paymentUrl         String?        // Hosted invoice URL, so the customer can resume paying
+  paymentStatus      String?        // Raw provider status: waiting/confirming/confirmed/finished/...
+  paidAmount         Decimal?       @db.Decimal(12, 2) // Amount actually credited, in priceCurrency
+  paidCurrency       String?        // Coin the customer actually paid with
+  paymentExpiresAt   DateTime?      // After this, an unpaid order is reclaimed and stock restored
+
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
-  
+
   items              OrderItem[]
   disputes           Dispute[]
 
   @@index([userId])
   @@index([status])
+  @@index([providerInvoiceId])
+  @@index([status, paymentExpiresAt])
 }
 
 model OrderItem {
@@ -270,11 +283,22 @@ model DepositRequest {
   cryptoCurrency String?  // BTC, ETH, USDT_ERC20, USDT_TRC20, SOL, TRX
   status         String   @default("PENDING") // PENDING, PROCESSING, APPROVED, REJECTED
   txHash         String?  // Transaction hash input by user
+
+  // Crypto payment gateway (NOWPayments) tracking
+  paymentProvider   String?   // NOWPAYMENTS
+  providerInvoiceId String?   // NOWPayments invoice id
+  providerPaymentId String?   @unique // NOWPayments payment id (idempotency + reconciliation)
+  paymentUrl        String?   // Hosted invoice URL, so the customer can resume paying
+  paymentStatus     String?   // Raw provider status
+  paidAmount        Decimal?  @db.Decimal(12, 2) // Amount actually credited
+  paymentExpiresAt  DateTime? // After this, an unpaid deposit request is closed out
+
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
+  @@index([providerInvoiceId])
 }
 
 model Review {
