@@ -52,6 +52,19 @@ export async function releaseOrderReservation(
           where: { id: areaDetail.id },
           data: { stockQuantity: { increment: 1 } },
         });
+
+        // Checkout wrote a negative SALE entry when it reserved this unit.
+        // Balance it out so the stock ledger reconciles against the real
+        // quantity instead of showing a sale that never happened.
+        await tx.stockEntry.create({
+          data: {
+            productAreaDetailId: areaDetail.id,
+            quantity: 1,
+            type: "RETURN",
+            notes: `${reason} - reservation released for order ${orderId.slice(0, 8)}`,
+            createdBy: order.userId,
+          },
+        });
       }
     }
 

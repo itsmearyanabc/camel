@@ -9,6 +9,7 @@
     "seed": "tsx --env-file=.env src/scripts/seed.ts",
     "test:orders": "tsx --env-file=.env src/scripts/test_client.ts",
     "bots": "tsx --env-file=.env src/bots/runner.ts",
+    "audit-rls": "tsx --env-file=.env scripts/audit-rls.ts",
     "reset-db": "tsx --env-file=.env src/scripts/reset_db_with_admin.ts",
     "wipe-customers": "tsx --env-file=.env src/scripts/wipe_customers.ts",
     "set-webhooks": "node scripts/set-webhooks.js",

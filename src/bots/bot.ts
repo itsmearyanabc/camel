@@ -3,12 +3,20 @@ import { prisma } from "../lib/db";
 import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
 import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
 import { isNOWPaymentsConfigured } from "../lib/nowpayments";
+import { t, BOT_LANGUAGES, isBotLanguage, languageLabel } from "../lib/botI18n";
+import {
+  formatMoney,
+  DISPLAY_CURRENCIES,
+  isDisplayCurrency,
+  currencyLabel,
+} from "../lib/botCurrency";
+import { encryptPassword, isEncryptionConfigured } from "../lib/encryption";
 import bcrypt from "bcryptjs";
 
 // Session state storage for bot login/registration
 interface AuthState {
-  action: "LOGIN" | "SIGNUP" | null;
-  step: "CAPTCHA" | "USERNAME" | "PASSWORD";
+  action: "LOGIN" | "SIGNUP" | "CHANGE_PASSWORD" | null;
+  step: "CAPTCHA" | "USERNAME" | "PASSWORD" | "CURRENT_PASSWORD";
   captchaAnswer?: number;
   username?: string;
   failedAttempts?: number;
@@ -84,22 +92,43 @@ export function createTelegramBot(token: string, botName: string) {
     return { coupon, discount: parseFloat(discount.toFixed(2)) };
   }
 
-  function mainMenuKeyboard() {
+  function mainMenuKeyboard(lang: string) {
     return new InlineKeyboard()
-      .text("🧪 Browse Shop", "shop_categories")
-      .text("💳 Wallet & Ledger", "wallet_menu")
+      .text(t(lang, "menu.shop"), "shop_categories")
+      .text(t(lang, "menu.wallet"), "wallet_menu")
       .row()
-      .text("📦 Track Orders", "orders_menu")
-      .text("⚖️ Disputes Log", "disputes_menu");
+      .text(t(lang, "menu.orders"), "orders_menu")
+      .text(t(lang, "menu.disputes"), "disputes_menu")
+      .row()
+      .text(t(lang, "menu.settings"), "settings_menu");
   }
 
-  function welcomeAuthText(user: { username: string; role: string; wallet?: { balance: number } | null }) {
+  async function welcomeAuthText(user: {
+    username: string;
+    role: string;
+    language: string;
+    wallet?: { balance: number; currency: string } | null;
+  }) {
+    const lang = user.language;
+    const balance = await formatMoney(user.wallet?.balance ?? 0, user.wallet?.currency);
     return (
-      `🧪 *Camel971* - Main Menu\n\n` +
-      `User: *${esc(user.username)}*\n` +
-      `Wallet Balance: *$${(user.wallet?.balance ?? 0).toFixed(2)}*\n\n` +
-      `Manage your orders, browse stock, or raise disputes below.`
+      `${t(lang, "menu.title")}\n\n` +
+      `${t(lang, "menu.user")}: *${esc(user.username)}*\n` +
+      `${t(lang, "menu.balance")}: *${balance}*\n\n` +
+      `${t(lang, "menu.hint")}`
     );
+  }
+
+  /** Shape welcomeAuthText expects, built from a Prisma user row. */
+  function userView(user: any) {
+    return {
+      username: user.username,
+      role: user.role,
+      language: user.language || "EN",
+      wallet: user.wallet
+        ? { balance: Number(user.wallet.balance), currency: user.wallet.currency || "USD" }
+        : null,
+    };
   }
 
   // 1. Start Command / Welcome Menu
@@ -112,27 +141,28 @@ export function createTelegramBot(token: string, botName: string) {
     const user = await getUserByTelegram(telegramId);
 
     if (!user) {
+      // No account yet, so no stored language preference — fall back to the
+      // language Telegram reports for this user before defaulting to English.
+      const guessed = (ctx.from?.language_code || "").slice(0, 2).toUpperCase();
+      const lang = isBotLanguage(guessed) ? guessed : "EN";
+
       const welcomeNoAuth =
-        `👋 Welcome to *Camel971* (Camel971 Bot)!\n\n` +
-        `We could not find an account linked to your Telegram ID: \`${telegramId}\`.\n\n` +
-        `Choose an option below to get started:`;
+        `${t(lang, "welcome.title")}\n\n` +
+        `${t(lang, "welcome.noAccount")} \`${telegramId}\`\n\n` +
+        `${t(lang, "welcome.choose")}`;
 
       const keyboard = new InlineKeyboard()
-        .text("🔑 Link Existing Account", "auth_login")
+        .text(t(lang, "welcome.link"), "auth_login")
         .row()
-        .text("📝 Create New Account", "auth_signup");
+        .text(t(lang, "welcome.create"), "auth_signup");
 
       await ctx.reply(welcomeNoAuth, { parse_mode: "Markdown", reply_markup: keyboard });
       return;
     }
 
-    await ctx.reply(welcomeAuthText({
-      username: user.username,
-      role: user.role,
-      wallet: user.wallet ? { balance: Number(user.wallet.balance) } : null,
-    }), {
+    await ctx.reply(await welcomeAuthText(userView(user)), {
       parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: mainMenuKeyboard(user.language || "EN"),
     });
   });
 
@@ -177,48 +207,237 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
-    await ctx.editMessageText(welcomeAuthText({
-      username: user.username,
-      role: user.role,
-      wallet: user.wallet ? { balance: Number(user.wallet.balance) } : null,
-    }), {
+    await ctx.editMessageText(await welcomeAuthText(userView(user)), {
       parse_mode: "Markdown",
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: mainMenuKeyboard(user.language || "EN"),
     });
+    await ctx.answerCallbackQuery();
+  });
+
+  // ============================================================
+  // Settings — language, display currency, profile, password
+  // ============================================================
+  async function renderSettings(ctx: any, user: any) {
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+
+    const text =
+      `${t(lang, "settings.title")}\n\n` +
+      `${t(lang, "settings.intro")}\n\n` +
+      `${t(lang, "profile.language")}: *${esc(languageLabel(lang))}*\n` +
+      `${t(lang, "profile.currency")}: *${esc(currencyLabel(currency))}*`;
+
+    const keyboard = new InlineKeyboard()
+      .text(t(lang, "settings.language"), "settings_language")
+      .text(t(lang, "settings.currency"), "settings_currency")
+      .row()
+      .text(t(lang, "settings.profile"), "settings_profile")
+      .row()
+      .text(t(lang, "settings.password"), "settings_password")
+      .row()
+      .text(t(lang, "common.backMain"), "main_menu");
+
+    await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
+  }
+
+  bot.callbackQuery("settings_menu", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    userStates.delete(telegramId);
+    await renderSettings(ctx, user);
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery("settings_language", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+
+    const keyboard = new InlineKeyboard();
+    BOT_LANGUAGES.forEach((l, i) => {
+      const mark = l.code === lang ? " ✅" : "";
+      keyboard.text(`${l.label}${mark}`, `setlang_${l.code}`);
+      if (i % 2 === 1) keyboard.row();
+    });
+    keyboard.row().text(t(lang, "common.backSettings"), "settings_menu");
+
+    await ctx.editMessageText(t(lang, "settings.chooseLanguage"), {
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^setlang_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+
+    const choice = ctx.match[1];
+    if (!isBotLanguage(choice)) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    await prisma.user.update({ where: { id: user.id }, data: { language: choice } });
+    await ctx.answerCallbackQuery({ text: t(choice, "settings.languageSet") });
+
+    // Re-read so the settings screen renders in the language just chosen.
+    const updated = await getUserByTelegram(telegramId);
+    if (updated) await renderSettings(ctx, updated);
+  });
+
+  bot.callbackQuery("settings_currency", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+    const current = user.wallet?.currency || "USD";
+
+    const keyboard = new InlineKeyboard();
+    DISPLAY_CURRENCIES.forEach((c, i) => {
+      const mark = c.code === current ? " ✅" : "";
+      keyboard.text(`${c.label}${mark}`, `setcur_${c.code}`);
+      if (i % 2 === 1) keyboard.row();
+    });
+    keyboard.row().text(t(lang, "common.backSettings"), "settings_menu");
+
+    await ctx.editMessageText(
+      `${t(lang, "settings.chooseCurrency")}\n\n${t(lang, "settings.currencyNote")}`,
+      { parse_mode: "Markdown", reply_markup: keyboard }
+    );
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(/^setcur_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+
+    const choice = ctx.match[1];
+    if (!isDisplayCurrency(choice) || !user.wallet) {
+      await ctx.answerCallbackQuery({ text: t(lang, "common.noWallet"), show_alert: true });
+      return;
+    }
+
+    // Balance is always held in USD; currency is a display preference only.
+    // Same rule the website's /api/wallet/change-currency applies.
+    await prisma.wallet.update({ where: { id: user.wallet.id }, data: { currency: choice } });
+    await ctx.answerCallbackQuery({ text: t(lang, "settings.currencySet") });
+
+    const updated = await getUserByTelegram(telegramId);
+    if (updated) await renderSettings(ctx, updated);
+  });
+
+  bot.callbackQuery("settings_profile", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+    const balance = await formatMoney(user.wallet?.balance ?? 0, currency);
+
+    const text =
+      `${t(lang, "profile.title")}\n\n` +
+      `${t(lang, "profile.username")}: *${esc(user.username)}*\n` +
+      `${t(lang, "profile.role")}: *${esc(user.role)}*\n` +
+      `${t(lang, "profile.telegram")}: \`${telegramId}\`\n` +
+      `${t(lang, "profile.memberSince")}: *${user.createdAt.toLocaleDateString("en-GB")}*\n` +
+      `${t(lang, "profile.balance")}: *${balance}*\n` +
+      `${t(lang, "profile.language")}: *${esc(languageLabel(lang))}*\n` +
+      `${t(lang, "profile.currency")}: *${esc(currencyLabel(currency))}*`;
+
+    const keyboard = new InlineKeyboard()
+      .text(t(lang, "common.backSettings"), "settings_menu")
+      .row()
+      .text(t(lang, "common.backMain"), "main_menu");
+
+    await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery("settings_password", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+
+    // Ask for the current password first, matching the website's
+    // /api/auth/change-password, so a hijacked Telegram session alone can't
+    // take over the account password.
+    userStates.set(telegramId, { action: "CHANGE_PASSWORD", step: "CURRENT_PASSWORD" });
+    await ctx.editMessageText(t(lang, "password.promptCurrent"), { parse_mode: "Markdown" });
     await ctx.answerCallbackQuery();
   });
 
   // 2. Browse Shop (All Products)
   bot.callbackQuery("shop_categories", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    const user = telegramId ? await getUserByTelegram(telegramId) : null;
+    const lang = user?.language || "EN";
+    const currency = user?.wallet?.currency || "USD";
+
     const products = await prisma.product.findMany();
     const keyboard = new InlineKeyboard();
 
     if (products.length === 0) {
-      keyboard.text("⬅️ Back to Main Menu", "main_menu");
-      await ctx.editMessageText("No products available currently.", { reply_markup: keyboard });
+      keyboard.text(t(lang, "common.backMain"), "main_menu");
+      await ctx.editMessageText(t(lang, "shop.none"), { reply_markup: keyboard });
       await ctx.answerCallbackQuery();
       return;
     }
 
-    let text = `🧪 *Complete Catalog*:\n\n`;
+    let text = `${t(lang, "shop.catalog")}\n\n`;
 
-    products.forEach((prod) => {
+    for (const prod of products) {
       const stockCount = prod.stockQuantity;
       const state = getStockState(stockCount);
+      const price = await formatMoney(prod.price, currency);
       text +=
         `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
-        `  Price: $${Number(prod.price).toFixed(2)} | Stock: ${state.replace(/_/g, " ")}\n\n`;
+        `  ${t(lang, "shop.price")}: ${price} | ${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n\n`;
 
       if (stockCount > 0) {
-        keyboard.text(`Order ${prod.name}`.slice(0, 64), `buy_${prod.id}`).row();
+        keyboard.text(t(lang, "shop.orderBtn", { name: prod.name }).slice(0, 64), `buy_${prod.id}`).row();
       }
-    });
+    }
 
-    keyboard.text("⬅️ Back to Main Menu", "main_menu");
+    keyboard.text(t(lang, "common.backMain"), "main_menu");
 
     await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
@@ -265,7 +484,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -282,25 +501,26 @@ export function createTelegramBot(token: string, botName: string) {
 
     pendingPurchases.set(telegramId, { productId });
 
+    const lang = user.language || "EN";
     const cryptoEnabled = isNOWPaymentsConfigured();
+    const price = await formatMoney(product.price, user.wallet?.currency);
 
     const keyboard = new InlineKeyboard()
-      .text("💳 Pay from Wallet", `confirm_${productId}`)
+      .text(t(lang, "buy.payWallet"), `confirm_${productId}`)
       .row();
     if (cryptoEnabled) {
-      keyboard.text("₿ Pay with Crypto", `paycrypto_${productId}`).row();
+      keyboard.text(t(lang, "buy.payCrypto"), `paycrypto_${productId}`).row();
     }
     keyboard
-      .text("🎟️ Apply Coupon", `coupon_${productId}`)
+      .text(t(lang, "buy.applyCoupon"), `coupon_${productId}`)
       .row()
-      .text("❌ Cancel", "shop_categories");
+      .text(t(lang, "common.cancel"), "shop_categories");
 
     await ctx.editMessageText(
-      `🧪 *Order Summary*\n\n` +
-        `Compound: *${esc(product.name)}*\n` +
-        `Price: *$${Number(product.price).toFixed(2)}*\n\n` +
-        `You can apply a coupon code for a discount, then choose how to pay` +
-        (cryptoEnabled ? ` — from your wallet balance, or directly with crypto.` : ` from your wallet.`),
+      `${t(lang, "buy.summary")}\n\n` +
+        `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
+        `${t(lang, "buy.price")}: *${price}*\n\n` +
+        t(lang, cryptoEnabled ? "buy.chooseBoth" : "buy.chooseWallet"),
       { parse_mode: "Markdown", reply_markup: keyboard }
     );
     await ctx.answerCallbackQuery();
@@ -315,7 +535,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -329,7 +549,10 @@ export function createTelegramBot(token: string, botName: string) {
     const pending = pendingPurchases.get(telegramId);
     const couponCode = pending?.productId === productId ? pending.couponCode : undefined;
 
-    await ctx.answerCallbackQuery({ text: "Creating your invoice..." });
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+
+    await ctx.answerCallbackQuery({ text: t(lang, "crypto.creating") });
 
     const result = await createCryptoOrderForProduct({
       userId: user.id,
@@ -340,13 +563,13 @@ export function createTelegramBot(token: string, botName: string) {
 
     if (!result.success || !result.paymentUrl) {
       await ctx.editMessageText(
-        `❌ *Could not start crypto payment*\n\n${esc(result.error || "Please try again.")}`,
+        `${t(lang, "crypto.failed")}\n\n${esc(result.error || "")}`,
         {
           parse_mode: "Markdown",
           reply_markup: new InlineKeyboard()
-            .text("⬅️ Back to Order", `buy_${productId}`)
+            .text(t(lang, "common.backOrder"), `buy_${productId}`)
             .row()
-            .text("🧪 Back to Shop", "shop_categories"),
+            .text(t(lang, "common.backShop"), "shop_categories"),
         }
       );
       return;
@@ -355,21 +578,25 @@ export function createTelegramBot(token: string, botName: string) {
     pendingPurchases.delete(telegramId);
 
     const keyboard = new InlineKeyboard()
-      .url("💰 Open Payment Page", result.paymentUrl)
+      .url(t(lang, "crypto.openPage"), result.paymentUrl)
       .row()
-      .text("📦 Track Order Status", `order_${result.orderId}`)
+      .text(t(lang, "menu.orders"), `order_${result.orderId}`)
       .row()
-      .text("🧪 Back to Shop", "shop_categories");
+      .text(t(lang, "common.backShop"), "shop_categories");
+
+    const discountLine =
+      (result.discount ?? 0) > 0
+        ? `${t(lang, "coupon.discount")}: *−${await formatMoney(result.discount!, currency)}*\n`
+        : "";
 
     await ctx.editMessageText(
-      `₿ *Crypto Payment Ready*\n\n` +
-        `Order ID: \`${result.orderId}\`\n` +
-        `Compound: *${esc(product.name)}*\n` +
-        ((result.discount ?? 0) > 0 ? `Discount: *−$${result.discount!.toFixed(2)}*\n` : "") +
-        `Amount Due: *$${result.amountDue!.toFixed(2)}*\n\n` +
-        `Tap *Open Payment Page* to pay with any supported coin.\n\n` +
-        `⏳ This item is reserved for you for *${PAYMENT_WINDOW_MINUTES} minutes*. ` +
-        `You will get a message here as soon as your payment is confirmed.`,
+      `${t(lang, "crypto.ready")}\n\n` +
+        `${t(lang, "crypto.orderId")}: \`${result.orderId}\`\n` +
+        `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
+        discountLine +
+        `${t(lang, "crypto.amountDue")}: *${await formatMoney(result.amountDue!, currency)}*\n\n` +
+        `${t(lang, "crypto.tapToPay")}\n\n` +
+        t(lang, "crypto.reserved", { minutes: PAYMENT_WINDOW_MINUTES }),
       { parse_mode: "Markdown", reply_markup: keyboard }
     );
   });
@@ -380,13 +607,14 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
+    const lang = user.language || "EN";
     const productId = ctx.match[1];
     pendingPurchases.set(telegramId, { productId });
     await ctx.editMessageText(
-      `🎟️ *Apply Coupon*\n\nPlease type your coupon code now (or type /cancel to go back).`,
+      `${t(lang, "coupon.title")}\n\n${t(lang, "coupon.prompt")}`,
       { parse_mode: "Markdown" }
     );
     await ctx.answerCallbackQuery();
@@ -398,7 +626,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -492,21 +720,26 @@ export function createTelegramBot(token: string, botName: string) {
 
       pendingPurchases.delete(telegramId);
 
+      const lang = user.language || "EN";
+      const currency = user.wallet?.currency || "USD";
+
       const keyboard = new InlineKeyboard()
-        .text("📦 Track Order Status", `order_${order.id}`)
+        .text(t(lang, "menu.orders"), `order_${order.id}`)
         .row()
-        .text("⬅️ Back to Shop", "shop_categories");
+        .text(t(lang, "common.backShop"), "shop_categories");
 
       await ctx.editMessageText(
-        `✅ *Order Placed!*\n\n` +
-          `Order ID: \`${order.id}\`\n` +
-          `Compound: *${esc(product.name)}*\n` +
-          (discount > 0 ? `Discount: *−$${discount.toFixed(2)}*\n` : "") +
-          `Paid: *$${finalAmount.toFixed(2)}* (from Wallet)\n\n` +
-          `⚠️ *Order Cooldown is Active.* Your pickup details will be generated in 30 seconds.`,
+        `${t(lang, "order.placed")}\n\n` +
+          `${t(lang, "crypto.orderId")}: \`${order.id}\`\n` +
+          `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
+          (discount > 0
+            ? `${t(lang, "coupon.discount")}: *−${await formatMoney(discount, currency)}*\n`
+            : "") +
+          `${t(lang, "order.paidWallet", { amount: await formatMoney(finalAmount, currency) })}\n\n` +
+          `${t(lang, "order.cooldown")}`,
         { parse_mode: "Markdown", reply_markup: keyboard }
       );
-      await ctx.answerCallbackQuery({ text: "Order placed!" });
+      await ctx.answerCallbackQuery({ text: t(lang, "order.placedToast") });
     } catch (e: unknown) {
       pendingPurchases.delete(telegramId);
       const message = e instanceof Error ? e.message : "Checkout failed";
@@ -520,7 +753,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
     if (!user.wallet) {
@@ -534,29 +767,35 @@ export function createTelegramBot(token: string, botName: string) {
       take: 5,
     });
 
+    const lang = user.language || "EN";
+    const currency = user.wallet.currency || "USD";
+
     let text =
-      `💳 *Wallet Information*\n\n` +
-      `Current Balance: *$${Number(user.wallet?.balance ?? 0).toFixed(2)}*\n\n` +
-      `*Recent Ledger History*:\n`;
+      `${t(lang, "wallet.title")}\n\n` +
+      `${t(lang, "wallet.current")}: *${await formatMoney(user.wallet.balance, currency)}*\n\n` +
+      `${t(lang, "wallet.history")}\n`;
 
     if (ledgers.length === 0) {
-      text += `_No recent wallet actions recorded._`;
+      text += t(lang, "wallet.noHistory");
     } else {
-      ledgers.forEach((log) => {
-        const sign = Number(log.amount) > 0 ? "+" : "";
+      for (const log of ledgers) {
+        const amount = Number(log.amount);
+        const sign = amount > 0 ? "+" : "−";
         text +=
           `• ${log.type === "DEPOSIT" || log.type === "REFUND" ? "🟢" : "🔴"} ` +
-          `*${esc(log.type)}*: ${sign}$${Number(log.amount).toFixed(2)} (${esc(log.description)})\n`;
-      });
+          `*${esc(log.type)}*: ${sign}${await formatMoney(Math.abs(amount), currency)} (${esc(log.description)})\n`;
+      }
     }
 
-    text += `\n\nℹ️ *To deposit funds using Crypto (BTC, ETH, SOL, etc.), please log in to our website.*`;
+    text += `\n\n${t(lang, "wallet.depositNote")}`;
 
-    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/^["']|["']$/g, "");
+    const siteUrl = (process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
+      .replace(/^["']|["']$/g, "")
+      .replace(/\/+$/, "");
     const keyboard = new InlineKeyboard()
-      .url("🌐 Visit Website to Deposit", siteUrl)
+      .url(t(lang, "wallet.visit"), siteUrl)
       .row()
-      .text("⬅️ Back to Main Menu", "main_menu");
+      .text(t(lang, "common.backMain"), "main_menu");
 
     await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
@@ -568,7 +807,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -579,22 +818,24 @@ export function createTelegramBot(token: string, botName: string) {
       take: 6,
     });
 
-    let text = `📦 *Your Active & Past Orders*:\n\n`;
+    const lang = user.language || "EN";
+    let text = `${t(lang, "orders.title")}\n\n`;
     const keyboard = new InlineKeyboard();
 
     if (orders.length === 0) {
-      text += `_No orders found. Buy chemical compounds in the Shop._`;
+      text += t(lang, "orders.none");
     } else {
       orders.forEach((o, index) => {
         const productName = o.items.length > 0 ? o.items[0].product.name : "Items";
         const title = o.items.length > 1 ? `${productName} +${o.items.length - 1}` : productName;
-        const dateStr = o.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        text += `${index + 1}. *Order #${o.id.substring(0, 8)}...* - ${esc(title)} (${esc(o.status)}) [${dateStr}]\n`;
-        keyboard.text(`View #${o.id.substring(0, 8)}`, `order_${o.id}`).row();
+        const dateStr = o.createdAt.toLocaleDateString("en-GB", { month: "short", day: "numeric" });
+        const shortId = o.id.substring(0, 8);
+        text += `${index + 1}. *#${shortId}* - ${esc(title)} (${esc(o.status)}) [${dateStr}]\n`;
+        keyboard.text(t(lang, "orders.view", { id: shortId }), `order_${o.id}`).row();
       });
     }
 
-    keyboard.text("⬅️ Back to Main Menu", "main_menu");
+    keyboard.text(t(lang, "common.backMain"), "main_menu");
 
     await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
@@ -606,7 +847,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -648,10 +889,13 @@ export function createTelegramBot(token: string, botName: string) {
       }
     }
 
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+
     let text =
-      `📦 *Order Details (#${orderId.substring(0,8)})*\n` +
-      `Value: *$${Number(order!.totalAmount).toFixed(2)}*\n` +
-      `Master Status: *${esc(order!.status)}*\n\n`;
+      `${t(lang, "orderDetail.title", { id: orderId.substring(0, 8) })}\n` +
+      `${t(lang, "orderDetail.value")}: *${await formatMoney(order!.totalAmount, currency)}*\n` +
+      `${t(lang, "orderDetail.masterStatus")}: *${esc(order!.status)}*\n\n`;
 
     const keyboard = new InlineKeyboard();
     let hasCooldown = false;
@@ -659,24 +903,24 @@ export function createTelegramBot(token: string, botName: string) {
 
     order!.items.forEach((item) => {
       text += `🧪 *${esc(item.product.name)}*\n`;
-      text += `Status: *${esc(item.status)}*\n`;
-      
+      text += `${t(lang, "orderDetail.status")}: *${esc(item.status)}*\n`;
+
       if (item.locationLink) {
-        text += `🗺️ *Location:* [View on Map](${item.locationLink})\n`;
+        text += `${t(lang, "orderDetail.location")} [${t(lang, "orderDetail.viewMap")}](${item.locationLink})\n`;
       }
       if (item.pickupVideoUrl) {
-        text += `🎥 *Video Guide:* [Watch Video](${item.pickupVideoUrl})\n`;
+        text += `${t(lang, "orderDetail.video")} [${t(lang, "orderDetail.watch")}](${item.pickupVideoUrl})\n`;
       }
-      
+
       if (item.status === "COOLDOWN_ACTIVE") {
         hasCooldown = true;
         const secLeft = Math.max(0, Math.ceil((new Date(item.cooldownEndAt!).getTime() - Date.now()) / 1000));
-        text += `⚠️ *Cooldown Timer Active.*\nEstimated delivery details in: *${secLeft} seconds*.\n`;
+        text += `${t(lang, "orderDetail.cooldownActive")}\n${t(lang, "orderDetail.eta", { seconds: secLeft })}\n`;
       } else if (item.status === "READY" || item.status === "COMPLETED") {
-        text += `📍 *Ready for collection*\n`;
+        text += `${t(lang, "orderDetail.ready")}\n`;
         if (item.status === "READY") canComplete = true;
       } else if (item.status === "REFUNDED") {
-        text += `ℹ️ *Refund credited.*\n`;
+        text += `${t(lang, "orderDetail.refunded")}\n`;
       }
       text += `\n`;
     });
@@ -684,25 +928,23 @@ export function createTelegramBot(token: string, botName: string) {
     // Let a customer who closed the invoice get back to it while the order is
     // still holding their reserved stock.
     if (order!.status === "PENDING_PAYMENT" && order!.paymentUrl) {
-      text +=
-        `⏳ *Awaiting payment.* Your item is reserved until you pay or the ` +
-        `payment window expires.\n\n`;
-      keyboard.url("💰 Open Payment Page", order!.paymentUrl).row();
-      keyboard.text("🔄 Refresh Status", `order_${order!.id}`).row();
+      text += `${t(lang, "crypto.awaiting")}\n\n`;
+      keyboard.url(t(lang, "crypto.openPage"), order!.paymentUrl).row();
+      keyboard.text(t(lang, "orderDetail.refresh"), `order_${order!.id}`).row();
     }
 
     if (hasCooldown) {
-      keyboard.text("🔄 Refresh Status", `order_${order!.id}`).row();
+      keyboard.text(t(lang, "orderDetail.refresh"), `order_${order!.id}`).row();
     }
     if (canComplete && order!.status === "READY") {
-      keyboard.text("✅ Confirm Collection (Complete All)", `complete_${order!.id}`).row();
+      keyboard.text(t(lang, "orderDetail.confirm"), `complete_${order!.id}`).row();
     }
 
     if (order!.status === "REFUNDED") {
-      text += `\nℹ️ *Refund credited.* The dispute was resolved and the money was returned to your wallet balance.`;
+      text += `\n${t(lang, "orderDetail.refunded")}`;
     }
 
-    keyboard.text("⬅️ Back to Orders List", "orders_menu");
+    keyboard.text(t(lang, "common.backOrders"), "orders_menu");
 
     await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
@@ -714,7 +956,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -779,7 +1021,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (!telegramId) return;
     const user = await getUserByTelegram(telegramId);
     if (!user) {
-      await ctx.answerCallbackQuery({ text: "Please /start and link your account first.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
       return;
     }
 
@@ -845,30 +1087,34 @@ export function createTelegramBot(token: string, botName: string) {
 
         // Keep both payment routes available after a coupon is applied - the
         // discount is carried on pendingPurchases and honoured by either.
+        const lang = user.language || "EN";
+        const currency = user.wallet?.currency || "USD";
+
         const keyboard = new InlineKeyboard()
-          .text("💳 Pay from Wallet", `confirm_${pending.productId}`)
+          .text(t(lang, "buy.payWallet"), `confirm_${pending.productId}`)
           .row();
         if (isNOWPaymentsConfigured()) {
-          keyboard.text("₿ Pay with Crypto", `paycrypto_${pending.productId}`).row();
+          keyboard.text(t(lang, "buy.payCrypto"), `paycrypto_${pending.productId}`).row();
         }
-        keyboard.text("❌ Cancel", "shop_categories");
+        keyboard.text(t(lang, "common.cancel"), "shop_categories");
 
         await ctx.reply(
-          `🎟️ *Coupon Applied!*\n\n` +
-            `Compound: *${esc(product.name)}*\n` +
-            `Original Price: $${Number(product.price).toFixed(2)}\n` +
-            `Discount: *−$${discount.toFixed(2)}*\n` +
-            `*New Total: $${finalAmount.toFixed(2)}*\n\n` +
-            `Choose how you would like to pay.`,
+          `${t(lang, "coupon.applied")}\n\n` +
+            `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
+            `${t(lang, "coupon.original")}: ${await formatMoney(product.price, currency)}\n` +
+            `${t(lang, "coupon.discount")}: *−${await formatMoney(discount, currency)}*\n` +
+            `*${t(lang, "coupon.newTotal")}: ${await formatMoney(finalAmount, currency)}*\n\n` +
+            `${t(lang, "coupon.choosePay")}`,
           { parse_mode: "Markdown", reply_markup: keyboard }
         );
       } catch (e: unknown) {
+        const lang = user.language || "EN";
         const message = e instanceof Error ? e.message : "Invalid coupon";
         const keyboard = new InlineKeyboard()
-          .text("⬅️ Back to Order", `buy_${pending.productId}`)
+          .text(t(lang, "common.backOrder"), `buy_${pending.productId}`)
           .row()
-          .text("❌ Cancel", "shop_categories");
-        await ctx.reply(`❌ ${message}\n\nTry another code, or go back.`, { reply_markup: keyboard });
+          .text(t(lang, "common.cancel"), "shop_categories");
+        await ctx.reply(`❌ ${message}\n\n${t(lang, "coupon.retry")}`, { reply_markup: keyboard });
       }
       return;
     }
@@ -880,6 +1126,78 @@ export function createTelegramBot(token: string, botName: string) {
       userStates.delete(telegramId);
       await ctx.reply("❌ Authentication cancelled. Type /start to try again.");
       return;
+    }
+
+    // ---- Change password (from Settings) ----
+    if (state.action === "CHANGE_PASSWORD") {
+      const user = await getUserByTelegram(telegramId);
+      if (!user) {
+        userStates.delete(telegramId);
+        await ctx.reply(t("EN", "common.linkFirst"));
+        return;
+      }
+      const lang = user.language || "EN";
+
+      // Passwords must not linger in the chat history.
+      await ctx.deleteMessage().catch(() => {});
+
+      if (state.step === "CURRENT_PASSWORD") {
+        const matches = await bcrypt.compare(text, user.passwordHash);
+        if (!matches) {
+          const attempts = (state.failedAttempts || 0) + 1;
+          if (attempts >= 3) {
+            userStates.delete(telegramId);
+            await ctx.reply(t(lang, "password.wrongCurrentFinal"), { parse_mode: "Markdown" });
+            return;
+          }
+          userStates.set(telegramId, { ...state, failedAttempts: attempts });
+          await ctx.reply(t(lang, "password.wrongCurrent"), { parse_mode: "Markdown" });
+          return;
+        }
+
+        userStates.set(telegramId, { action: "CHANGE_PASSWORD", step: "PASSWORD" });
+        await ctx.reply(t(lang, "password.prompt"), { parse_mode: "Markdown" });
+        return;
+      }
+
+      if (state.step === "PASSWORD") {
+        if (text.length < 8) {
+          await ctx.reply(t(lang, "password.tooShort"), { parse_mode: "Markdown" });
+          return;
+        }
+
+        try {
+          const salt = await bcrypt.genSalt(10);
+          const passwordHash = await bcrypt.hash(text, salt);
+
+          // Keep the admin-recovery copy in step with the new password, exactly
+          // as the website's change-password endpoint does.
+          let passwordEncrypted: string | null = null;
+          if (isEncryptionConfigured()) {
+            try {
+              passwordEncrypted = encryptPassword(text);
+            } catch (err) {
+              console.error("Failed to encrypt password:", err);
+            }
+          }
+
+          await prisma.user.update({
+            where: { id: user.id },
+            data: passwordEncrypted ? { passwordHash, passwordEncrypted } : { passwordHash },
+          });
+
+          userStates.delete(telegramId);
+          await ctx.reply(t(lang, "password.changed"), {
+            parse_mode: "Markdown",
+            reply_markup: new InlineKeyboard().text(t(lang, "common.backMain"), "main_menu"),
+          });
+        } catch (err) {
+          console.error("Bot change-password error:", err);
+          userStates.delete(telegramId);
+          await ctx.reply(t(lang, "password.failed"), { parse_mode: "Markdown" });
+        }
+        return;
+      }
     }
 
     if (state.step === "CAPTCHA") {

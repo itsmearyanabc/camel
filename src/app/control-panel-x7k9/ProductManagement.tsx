@@ -169,7 +169,7 @@ export default function ProductManagement() {
           await fetch(`/api/admin/products/${newProductId}/area-details`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ areaDetails: formData.areaDetails }),
+            body: JSON.stringify({ areaDetails: normalizeAreaDetails(formData.areaDetails) }),
           });
         }
 
@@ -184,6 +184,21 @@ export default function ProductManagement() {
       setMsg({ type: "error", text: "Error adding product" });
     }
   };
+
+  /**
+   * Trim each area's per-unit links down to its stock quantity, at save time only.
+   *
+   * While editing, the extra entries are deliberately kept in state so that
+   * lowering a quantity (or clearing the field mid-typing) never destroys the
+   * location/video links - raising it again brings them straight back. The
+   * truncation has to happen here instead, right before the data is persisted.
+   */
+  const normalizeAreaDetails = (areaDetails: any[]) =>
+    areaDetails.map((d: any) => {
+      const qty = parseInt(d.stockQuantity, 10) || 0;
+      const items = Array.isArray(d.stockItems) ? d.stockItems : [];
+      return { ...d, stockItems: items.slice(0, qty) };
+    });
 
   const handleEditProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,7 +231,7 @@ export default function ProductManagement() {
           await fetch(`/api/admin/products/${selectedProduct.id}/area-details`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ areaDetails: formData.areaDetails }),
+            body: JSON.stringify({ areaDetails: normalizeAreaDetails(formData.areaDetails) }),
           });
         }
 
@@ -838,15 +853,37 @@ export default function ProductManagement() {
 
                 <div className="form-group">
                   <label className="form-label">Global Stock Quantity</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="form-input"
-                    value={formData.stockQuantity}
-                    onChange={(e) => setFormData({ ...formData, stockQuantity: parseInt(e.target.value) || 0 })}
-                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setFormData({ ...formData, stockQuantity: Math.max(0, (formData.stockQuantity || 0) - 1) })}
+                      disabled={(formData.stockQuantity || 0) <= 0}
+                      aria-label="Decrease global stock quantity"
+                      style={{ padding: "8px 14px", fontSize: "18px", lineHeight: 1, opacity: (formData.stockQuantity || 0) <= 0 ? 0.4 : 1 }}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      className="form-input"
+                      value={formData.stockQuantity}
+                      onChange={(e) => setFormData({ ...formData, stockQuantity: Math.max(0, parseInt(e.target.value) || 0) })}
+                      style={{ textAlign: "center", flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setFormData({ ...formData, stockQuantity: (formData.stockQuantity || 0) + 1 })}
+                      aria-label="Increase global stock quantity"
+                      style={{ padding: "8px 14px", fontSize: "18px", lineHeight: 1 }}
+                    >
+                      +
+                    </button>
+                  </div>
                   <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
-                    This will be auto-calculated from area stocks if areas are selected
+                    Use + / − to adjust. This will be auto-calculated from area stocks if areas are selected.
                   </small>
                 </div>
 
@@ -937,7 +974,6 @@ export default function ProductManagement() {
                                  stockItems: [] as Array<{ locationUrl: string; videoUrl: string }>,
                                };
 
-                         // Ensure stockItems array matches stockQuantity length.
                          const qty = parseInt(detail.stockQuantity, 10) || 0;
                          let stockItems: Array<{ locationUrl: string; videoUrl: string }> = Array.isArray(detail.stockItems)
                            ? [...detail.stockItems]
@@ -946,8 +982,30 @@ export default function ProductManagement() {
                          if (stockItems.length === 0 && (detail.locationUrl || detail.videoUrl)) {
                            stockItems = [{ locationUrl: detail.locationUrl || "", videoUrl: detail.videoUrl || "" }];
                          }
+                         // Grow to match the quantity, but NEVER discard extras here.
+                         // Truncating in state is what used to wipe the delivery links
+                         // the moment someone backspaced the quantity field to empty.
+                         // normalizeAreaDetails() trims to quantity at save time instead,
+                         // so lowering and re-raising the number restores the links.
                          while (stockItems.length < qty) stockItems.push({ locationUrl: "", videoUrl: "" });
-                         if (stockItems.length > qty) stockItems = stockItems.slice(0, qty);
+                         const visibleItems = stockItems.slice(0, qty);
+                         const preservedCount = Math.max(0, stockItems.length - qty);
+
+                         const setQuantity = (next: number) => {
+                           const safe = Math.max(0, next);
+                           const grown = [...stockItems];
+                           while (grown.length < safe) grown.push({ locationUrl: "", videoUrl: "" });
+                           const newDetails = [...formData.areaDetails];
+                           const idx = newDetails.findIndex((d) => d.areaId === areaId);
+                           const base = idx >= 0 ? newDetails[idx] : detail;
+                           const updated = { ...base, stockQuantity: safe, stockItems: grown };
+                           if (idx >= 0) {
+                             newDetails[idx] = updated;
+                           } else {
+                             newDetails.push(updated);
+                           }
+                           setFormData({ ...formData, areaDetails: newDetails });
+                         };
 
                          const updateDetail = (field: string, value: any) => {
                            const newDetails = [...formData.areaDetails];
@@ -992,17 +1050,49 @@ export default function ProductManagement() {
                             </h5>
                             
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                              {/* Stock Quantity */}
+                              {/* Stock Quantity — stepper, so a stray backspace can't
+                                  blank the field and hide every per-unit link at once. */}
                               <div className="form-group" style={{ marginBottom: 0 }}>
                                 <label className="form-label" style={{ fontSize: "12px" }}>Stock Quantity *</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  className="form-input"
-                                  placeholder="0"
-                                  value={detail.stockQuantity || 0}
-                                  onChange={(e) => updateDetail("stockQuantity", parseInt(e.target.value) || 0)}
-                                />
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => setQuantity(qty - 1)}
+                                    disabled={qty <= 0}
+                                    aria-label="Decrease stock quantity"
+                                    style={{ padding: "8px 14px", fontSize: "18px", lineHeight: 1, opacity: qty <= 0 ? 0.4 : 1 }}
+                                  >
+                                    −
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    className="form-input"
+                                    placeholder="0"
+                                    value={qty}
+                                    onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+                                    style={{ textAlign: "center", flex: 1 }}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => setQuantity(qty + 1)}
+                                    aria-label="Increase stock quantity"
+                                    style={{ padding: "8px 14px", fontSize: "18px", lineHeight: 1 }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                                {preservedCount > 0 ? (
+                                  <small style={{ fontSize: "11px", color: "var(--accent)", display: "block", marginTop: "6px" }}>
+                                    ↩️ {preservedCount} hidden unit link{preservedCount === 1 ? "" : "s"} kept — raise the quantity to restore {preservedCount === 1 ? "it" : "them"}. Saving now removes {preservedCount === 1 ? "it" : "them"}.
+                                  </small>
+                                ) : (
+                                  <small style={{ fontSize: "11px", color: "var(--text-tertiary)", display: "block", marginTop: "6px" }}>
+                                    Use + / − to adjust. Delivery links are only removed when you save.
+                                  </small>
+                                )}
                               </div>
 
                               {/* Cooldown Minutes */}
@@ -1032,7 +1122,7 @@ export default function ProductManagement() {
                                   </div>
                                 ) : (
                                   <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                                    {stockItems.map((item, itemIdx) => (
+                                    {visibleItems.map((item, itemIdx) => (
                                       <div
                                         key={itemIdx}
                                         style={{

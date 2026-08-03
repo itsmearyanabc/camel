@@ -15,6 +15,7 @@ model User {
   telegramUsername    String?
   telegramId          String?          @unique
   role                String           @default("CUSTOMER") // CUSTOMER, STAFF, ADMIN, SUPERADMIN
+  language            String           @default("EN") // EN, RU, AR, TR, ZH, ES — used by the Telegram bot
   failedLoginAttempts Int              @default(0)
   lockUntil           DateTime?
   createdAt           DateTime         @default(now())
