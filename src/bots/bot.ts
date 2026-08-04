@@ -2,6 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { prisma } from "../lib/db";
 import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
 import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
+import { reserveProductStock, getAvailableAreasForProduct } from "../lib/stockReservation";
 import { isNOWPaymentsConfigured } from "../lib/nowpayments";
 import { t, BOT_LANGUAGES, isBotLanguage, languageLabel } from "../lib/botI18n";
 import {
@@ -27,6 +28,10 @@ const userStates = new Map<number, AuthState>();
 // Pending purchase state for the optional coupon step during checkout
 interface PendingPurchase {
   productId: string;
+  /** Chosen delivery area. Required before an order can be placed, so bot
+   *  orders move area stock the same way website orders do. */
+  areaId?: string;
+  areaLabel?: string;
   couponCode?: string;
   discount?: number;
 }
@@ -428,11 +433,23 @@ export function createTelegramBot(token: string, botName: string) {
       const stockCount = prod.stockQuantity;
       const state = getStockState(stockCount);
       const price = await formatMoney(prod.price, currency);
+
       text +=
         `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
-        `  ${t(lang, "shop.price")}: ${price} | ${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n\n`;
+        `  ${t(lang, "shop.price")}: ${price} | ${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n`;
 
-      if (stockCount > 0) {
+      // Show where it can actually be collected, the same way the website's
+      // product page lists its areas.
+      const areas = await getAvailableAreasForProduct(prod.id);
+      if (areas.length > 0) {
+        const list = areas
+          .map((a) => `${a.areaName} (${a.stockQuantity})`)
+          .join(", ");
+        text += `  📍 ${esc(list)}\n`;
+      }
+      text += `\n`;
+
+      if (stockCount > 0 && areas.length > 0) {
         keyboard.text(t(lang, "shop.orderBtn", { name: prod.name }).slice(0, 64), `buy_${prod.id}`).row();
       }
     }
@@ -478,6 +495,67 @@ export function createTelegramBot(token: string, botName: string) {
     await ctx.answerCallbackQuery();
   });
 
+  /**
+   * Order summary shown once a delivery area is chosen. Shared by the area
+   * picker and the coupon flow so both always show the same figures.
+   */
+  async function renderOrderSummary(
+    ctx: any,
+    user: any,
+    product: any,
+    pending: PendingPurchase,
+    cooldownMinutes: number,
+    viaReply = false
+  ) {
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+    const cryptoEnabled = isNOWPaymentsConfigured();
+
+    const basePrice = Number(product.price);
+    const discount = pending.discount || 0;
+    const finalAmount = parseFloat((basePrice - discount).toFixed(2));
+
+    const keyboard = new InlineKeyboard()
+      .text(t(lang, "buy.payWallet"), `confirm_${product.id}`)
+      .row();
+    if (cryptoEnabled) {
+      keyboard.text(t(lang, "buy.payCrypto"), `paycrypto_${product.id}`).row();
+    }
+    if (!pending.couponCode) {
+      keyboard.text(t(lang, "buy.applyCoupon"), `coupon_${product.id}`).row();
+    }
+    keyboard
+      .text(t(lang, "common.backOrder"), `buy_${product.id}`)
+      .row()
+      .text(t(lang, "common.cancel"), "shop_categories");
+
+    let text =
+      `${t(lang, "buy.summary")}\n\n` +
+      `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
+      `${t(lang, "area.label")}: *${esc(pending.areaLabel || "")}*\n`;
+
+    if (cooldownMinutes > 0) {
+      text += `${t(lang, "area.cooldown")}: *${t(lang, "area.minutes", { minutes: cooldownMinutes })}*\n`;
+    }
+
+    if (discount > 0) {
+      text += `${t(lang, "coupon.original")}: ${await formatMoney(basePrice, currency)}\n`;
+      text += `${t(lang, "coupon.discount")}: *−${await formatMoney(discount, currency)}*\n`;
+      text += `*${t(lang, "coupon.newTotal")}: ${await formatMoney(finalAmount, currency)}*\n\n`;
+    } else {
+      text += `${t(lang, "buy.price")}: *${await formatMoney(basePrice, currency)}*\n\n`;
+    }
+
+    text += t(lang, cryptoEnabled ? "buy.chooseBoth" : "buy.chooseWallet");
+
+    const opts = { parse_mode: "Markdown" as const, reply_markup: keyboard };
+    if (viaReply) {
+      await ctx.reply(text, opts);
+    } else {
+      await ctx.editMessageText(text, opts);
+    }
+  }
+
   // Purchase Product (Buy) — Step 1: show confirm screen with optional coupon
   bot.callbackQuery(/^buy_(.+)$/, async (ctx) => {
     const telegramId = ctx.from?.id;
@@ -499,30 +577,97 @@ export function createTelegramBot(token: string, botName: string) {
       return;
     }
 
-    pendingPurchases.set(telegramId, { productId });
-
     const lang = user.language || "EN";
-    const cryptoEnabled = isNOWPaymentsConfigured();
-    const price = await formatMoney(product.price, user.wallet?.currency);
 
-    const keyboard = new InlineKeyboard()
-      .text(t(lang, "buy.payWallet"), `confirm_${productId}`)
-      .row();
-    if (cryptoEnabled) {
-      keyboard.text(t(lang, "buy.payCrypto"), `paycrypto_${productId}`).row();
+    // Preserve any coupon already typed for this product if the customer comes
+    // back to change area; drop it if they switched product.
+    const existing = pendingPurchases.get(telegramId);
+    pendingPurchases.set(telegramId, {
+      productId,
+      couponCode: existing?.productId === productId ? existing.couponCode : undefined,
+      discount: existing?.productId === productId ? existing.discount : undefined,
+    });
+
+    // Delivery area first, exactly like the website. Without it a bot order
+    // could not decrement area stock or claim the right per-unit pickup links.
+    const areas = await getAvailableAreasForProduct(productId);
+
+    if (areas.length === 0) {
+      await ctx.editMessageText(
+        `${t(lang, "buy.summary")}\n\n` +
+          `${t(lang, "buy.compound")}: *${esc(product.name)}*\n\n` +
+          t(lang, "area.none"),
+        {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard().text(t(lang, "common.backShop"), "shop_categories"),
+        }
+      );
+      await ctx.answerCallbackQuery();
+      return;
     }
-    keyboard
-      .text(t(lang, "buy.applyCoupon"), `coupon_${productId}`)
-      .row()
-      .text(t(lang, "common.cancel"), "shop_categories");
 
+    const keyboard = new InlineKeyboard();
+    for (const a of areas) {
+      const label =
+        `${a.cityName} - ${a.areaName} (${t(lang, "area.left", { count: a.stockQuantity })})`;
+      // Callback data is capped at 64 bytes, so only the area id travels here;
+      // the product is already held in pendingPurchases.
+      keyboard.text(label.slice(0, 64), `pickarea_${a.areaId}`).row();
+    }
+    keyboard.text(t(lang, "common.backShop"), "shop_categories");
+
+    const price = await formatMoney(product.price, user.wallet?.currency);
     await ctx.editMessageText(
-      `${t(lang, "buy.summary")}\n\n` +
+      `${t(lang, "area.choose")}\n\n` +
         `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
         `${t(lang, "buy.price")}: *${price}*\n\n` +
-        t(lang, cryptoEnabled ? "buy.chooseBoth" : "buy.chooseWallet"),
+        t(lang, "area.intro"),
       { parse_mode: "Markdown", reply_markup: keyboard }
     );
+    await ctx.answerCallbackQuery();
+  });
+
+  // Step 2: area chosen — show the order summary and payment options.
+  bot.callbackQuery(/^pickarea_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+
+    const pending = pendingPurchases.get(telegramId);
+    if (!pending) {
+      await ctx.answerCallbackQuery({ text: t(lang, "common.somethingWrong"), show_alert: true });
+      return;
+    }
+
+    const areaId = ctx.match[1];
+    const product = await prisma.product.findUnique({ where: { id: pending.productId } });
+    if (!product) {
+      await ctx.answerCallbackQuery({ text: t(lang, "common.productNotFound"), show_alert: true });
+      return;
+    }
+
+    // Re-read availability: the area list was rendered a moment ago and the
+    // last unit may already be gone.
+    const areas = await getAvailableAreasForProduct(pending.productId);
+    const chosen = areas.find((a) => a.areaId === areaId);
+    if (!chosen) {
+      await ctx.answerCallbackQuery({ text: t(lang, "shop.outOfStock"), show_alert: true });
+      return;
+    }
+
+    const areaLabel = `${chosen.cityName} - ${chosen.areaName}`;
+    pendingPurchases.set(telegramId, { ...pending, areaId, areaLabel });
+
+    await renderOrderSummary(ctx, user, product, {
+      ...pending,
+      areaId,
+      areaLabel,
+    }, chosen.cooldownMinutes);
     await ctx.answerCallbackQuery();
   });
 
@@ -548,15 +693,30 @@ export function createTelegramBot(token: string, botName: string) {
 
     const pending = pendingPurchases.get(telegramId);
     const couponCode = pending?.productId === productId ? pending.couponCode : undefined;
+    const areaId = pending?.productId === productId ? pending.areaId : undefined;
 
     const lang = user.language || "EN";
     const currency = user.wallet?.currency || "USD";
+
+    // Same rule as the wallet path: no area, no order.
+    if (!areaId) {
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(
+        `${t(lang, "area.choose")}\n\n${t(lang, "area.intro")}`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard().text(t(lang, "common.backOrder"), `buy_${productId}`),
+        }
+      );
+      return;
+    }
 
     await ctx.answerCallbackQuery({ text: t(lang, "crypto.creating") });
 
     const result = await createCryptoOrderForProduct({
       userId: user.id,
       productId,
+      areaId,
       couponCode,
       orderSource: "TELEGRAM",
     });
@@ -612,7 +772,14 @@ export function createTelegramBot(token: string, botName: string) {
     }
     const lang = user.language || "EN";
     const productId = ctx.match[1];
-    pendingPurchases.set(telegramId, { productId });
+    // Keep the already-chosen delivery area — losing it here would send the
+    // order through without an areaId and skip area stock entirely.
+    const existing = pendingPurchases.get(telegramId);
+    pendingPurchases.set(telegramId, {
+      productId,
+      areaId: existing?.productId === productId ? existing.areaId : undefined,
+      areaLabel: existing?.productId === productId ? existing.areaLabel : undefined,
+    });
     await ctx.editMessageText(
       `${t(lang, "coupon.title")}\n\n${t(lang, "coupon.prompt")}`,
       { parse_mode: "Markdown" }
@@ -639,6 +806,22 @@ export function createTelegramBot(token: string, botName: string) {
 
     const pending = pendingPurchases.get(telegramId);
     const couponCode = pending?.productId === productId ? pending.couponCode : undefined;
+    const areaId = pending?.productId === productId ? pending.areaId : undefined;
+
+    // An order without a delivery area cannot decrement area stock or pick up
+    // the right per-unit links, so send the customer back to choose one.
+    if (!areaId) {
+      await ctx.answerCallbackQuery();
+      const lang = user.language || "EN";
+      await ctx.editMessageText(
+        `${t(lang, "area.choose")}\n\n${t(lang, "area.intro")}`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard().text(t(lang, "common.backOrder"), `buy_${productId}`),
+        }
+      );
+      return;
+    }
 
     try {
       const { order, finalAmount, discount } = await prisma.$transaction(async (tx) => {
@@ -683,10 +866,19 @@ export function createTelegramBot(token: string, botName: string) {
           },
         });
 
-        await tx.product.update({
-          where: { id: productId },
-          data: { stockQuantity: { decrement: 1 } },
+        // Moves area stock, global stock and the specific per-unit row - the
+        // same helper the website uses. Previously this only decremented the
+        // global count, which is why area stock never changed after a bot order
+        // and the delivery cron handed out links from an arbitrary area.
+        const { reservedUnitIds, cooldownMinutes } = await reserveProductStock(tx, {
+          productId,
+          areaId,
+          quantity: 1,
+          userId: user.id,
+          note: "Telegram wallet order",
         });
+
+        const cooldownEndAt = new Date(Date.now() + cooldownMinutes * 60 * 1000);
 
         const order = await tx.order.create({
           data: {
@@ -701,7 +893,9 @@ export function createTelegramBot(token: string, botName: string) {
                   productId: product.id,
                   priceAtPurchase: finalAmount,
                   status: "COOLDOWN_ACTIVE",
-                  cooldownEndAt: new Date(Date.now() + 30 * 1000),
+                  areaId,
+                  stockItemId: reservedUnitIds[0] || null,
+                  cooldownEndAt,
                 }
               ]
             }
@@ -1082,30 +1276,33 @@ export function createTelegramBot(token: string, botName: string) {
       }
       try {
         const { discount } = await validateCouponForUser(text, user.id, Number(product.price));
-        const finalAmount = parseFloat((Number(product.price) - discount).toFixed(2));
-        pendingPurchases.set(telegramId, { productId: pending.productId, couponCode: text.toUpperCase(), discount });
 
-        // Keep both payment routes available after a coupon is applied - the
-        // discount is carried on pendingPurchases and honoured by either.
+        // Carry the chosen delivery area through — the discount and the area
+        // both have to survive to the payment step.
+        const updated: PendingPurchase = {
+          productId: pending.productId,
+          areaId: pending.areaId,
+          areaLabel: pending.areaLabel,
+          couponCode: text.toUpperCase(),
+          discount,
+        };
+        pendingPurchases.set(telegramId, updated);
+
         const lang = user.language || "EN";
-        const currency = user.wallet?.currency || "USD";
 
-        const keyboard = new InlineKeyboard()
-          .text(t(lang, "buy.payWallet"), `confirm_${pending.productId}`)
-          .row();
-        if (isNOWPaymentsConfigured()) {
-          keyboard.text(t(lang, "buy.payCrypto"), `paycrypto_${pending.productId}`).row();
-        }
-        keyboard.text(t(lang, "common.cancel"), "shop_categories");
+        // Re-render the same summary the area picker produces, so the delivery
+        // area stays visible and stays attached to the order.
+        const areas = await getAvailableAreasForProduct(pending.productId);
+        const chosen = areas.find((a) => a.areaId === updated.areaId);
 
-        await ctx.reply(
-          `${t(lang, "coupon.applied")}\n\n` +
-            `${t(lang, "buy.compound")}: *${esc(product.name)}*\n` +
-            `${t(lang, "coupon.original")}: ${await formatMoney(product.price, currency)}\n` +
-            `${t(lang, "coupon.discount")}: *−${await formatMoney(discount, currency)}*\n` +
-            `*${t(lang, "coupon.newTotal")}: ${await formatMoney(finalAmount, currency)}*\n\n` +
-            `${t(lang, "coupon.choosePay")}`,
-          { parse_mode: "Markdown", reply_markup: keyboard }
+        await ctx.reply(`${t(lang, "coupon.applied")}`, { parse_mode: "Markdown" });
+        await renderOrderSummary(
+          ctx,
+          user,
+          product,
+          updated,
+          chosen?.cooldownMinutes ?? 0,
+          true
         );
       } catch (e: unknown) {
         const lang = user.language || "EN";

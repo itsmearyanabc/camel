@@ -98,7 +98,7 @@ export async function GET(req: Request) {
             type: "ORDER_CANCELLED",
             title: "Order expired",
             message: `Order ${order.id.slice(0, 8)} was cancelled because payment was not completed in time. The items are available again.`,
-            link: "/dashboard",
+            link: "/dashboard?tab=orders",
           },
         });
       }

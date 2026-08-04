@@ -106,6 +106,53 @@ export default function Dashboard() {
   const [shopMsg, setShopMsg] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [banner, setBanner] = useState<{ type: "error" | "success" | "info"; text: string } | null>(null);
+
+  // Act on the query string we are returned to: notification links carry
+  // ?tab=, and NOWPayments sends the customer back with ?payment= / ?deposit=.
+  // Without this the customer lands on the shop tab after paying with no
+  // acknowledgement that anything happened.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+
+    const tab = params.get("tab");
+    const validTabs: Tab[] = ["shop", "wallet", "orders", "disputes", "profile", "settings", "favorites", "reviews"];
+    if (tab && (validTabs as string[]).includes(tab)) {
+      setActiveTab(tab as Tab);
+    }
+
+    const payment = params.get("payment");
+    const deposit = params.get("deposit");
+
+    if (payment === "success") {
+      setActiveTab("orders");
+      setBanner({
+        type: "success",
+        text: "Payment received. Your order is confirmed and being prepared — you'll be notified as soon as it's ready.",
+      });
+    } else if (payment === "cancelled") {
+      setActiveTab("orders");
+      setBanner({
+        type: "info",
+        text: "Payment was cancelled. Your items stay reserved until the payment window closes, so you can still pay from the order below.",
+      });
+    } else if (deposit === "success") {
+      setActiveTab("wallet");
+      setBanner({
+        type: "success",
+        text: "Deposit received. Your wallet balance will update as soon as the network confirms the transaction.",
+      });
+    } else if (deposit === "cancelled") {
+      setActiveTab("wallet");
+      setBanner({ type: "info", text: "Deposit was cancelled. No funds were taken." });
+    }
+
+    // Clear the params so a refresh doesn't replay the banner.
+    if (tab || payment || deposit) {
+      window.history.replaceState({}, "", "/dashboard");
+    }
+  }, []);
 
   // Deposit gateway state
   const [depositRequests, setDepositRequests] = useState<any[]>([]);
@@ -521,6 +568,36 @@ export default function Dashboard() {
             <SkeletonLoader />
           ) : !user ? null : (
             <>
+              {banner && (
+                <div
+                  className={`alert ${banner.type === "success" ? "alert-success" : banner.type === "error" ? "alert-error" : ""}`}
+                  style={{
+                    marginBottom: "20px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "12px",
+                    ...(banner.type === "info"
+                      ? {
+                          background: "var(--surface-subtle)",
+                          border: "1px solid var(--border)",
+                          padding: "12px 16px",
+                          borderRadius: "var(--radius-md)",
+                        }
+                      : {}),
+                  }}
+                >
+                  <span>{banner.text}</span>
+                  <button
+                    onClick={() => setBanner(null)}
+                    aria-label="Dismiss"
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", fontSize: "18px", lineHeight: 1 }}
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
+
               {/* SHOP */}
           {activeTab === "shop" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>

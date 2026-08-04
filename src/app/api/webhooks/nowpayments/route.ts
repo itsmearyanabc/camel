@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
             type: "GENERAL",
             title: "Deposit confirmed",
             message: `Your deposit of $${Number(depositRequest.amount).toFixed(2)} has been credited to your wallet.`,
-            link: "/dashboard",
+            link: "/dashboard?tab=wallet",
           },
         });
 
@@ -316,7 +316,7 @@ export async function POST(req: NextRequest) {
           type: "GENERAL",
           title: "Payment confirmed",
           message: `Payment received for order ${order.id.slice(0, 8)}. Your order is now being prepared.`,
-          link: `/dashboard/orders/${order.id}`,
+          link: `/dashboard?tab=orders`,
         },
       });
 
@@ -351,7 +351,7 @@ export async function POST(req: NextRequest) {
             type: "ORDER_CANCELLED",
             title: "Payment not completed",
             message: `Order ${order.id.slice(0, 8)} was cancelled because the payment ${paymentStatus}. Any reserved items have been released.`,
-            link: "/dashboard",
+            link: "/dashboard?tab=orders",
           },
         });
 

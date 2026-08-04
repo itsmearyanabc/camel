@@ -187,35 +187,74 @@ export default function CouponManagement() {
     }
   };
 
+  const now = new Date();
+  const stats = {
+    total: coupons.length,
+    active: coupons.filter((c) => c.isActive).length,
+    expired: coupons.filter((c) => c.validUntil && new Date(c.validUntil) < now).length,
+    redeemed: coupons.reduce((sum, c) => sum + (c.usedCount || 0), 0),
+  };
+
+  /** Human-readable state, so an admin can see at a glance why a code isn't working. */
+  const couponState = (c: Coupon): { label: string; badge: string } => {
+    if (!c.isActive) return { label: "Inactive", badge: "badge-out_of_stock" };
+    if (c.validUntil && new Date(c.validUntil) < now) return { label: "Expired", badge: "badge-red" };
+    if (new Date(c.validFrom) > now) return { label: "Scheduled", badge: "badge-blue" };
+    if (c.usageLimit && c.usedCount >= c.usageLimit) return { label: "Used up", badge: "badge-orange" };
+    return { label: "Active", badge: "badge-green" };
+  };
+
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Coupon Management</h2>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+        <div>
+          <h2 style={{ fontSize: "22px", marginBottom: "4px" }}>Coupon Management</h2>
+          <p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
+            Create discount codes and track how often they are redeemed.
+          </p>
+        </div>
         <button
+          className="btn btn-primary"
           onClick={() => {
             setEditingCoupon(null);
             resetForm();
             setShowCreateModal(true);
           }}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
-          Create Coupon
+          + Create Coupon
         </button>
       </div>
 
+      {/* Summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px", marginBottom: "20px" }}>
+        {[
+          { label: "Total", value: stats.total },
+          { label: "Active", value: stats.active },
+          { label: "Expired", value: stats.expired },
+          { label: "Times redeemed", value: stats.redeemed },
+        ].map((s) => (
+          <div key={s.label} className="card" style={{ padding: "14px 16px" }}>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "4px" }}>{s.label}</div>
+            <div style={{ fontSize: "22px", fontWeight: 800 }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Filters */}
-      <div className="mb-4 flex gap-4">
+      <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
         <input
           type="text"
-          placeholder="Search coupons..."
+          className="form-input"
+          placeholder="Search by code or description..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="border rounded px-3 py-2 flex-1"
+          style={{ flex: "1 1 240px" }}
         />
         <select
+          className="form-input"
           value={filterActive}
           onChange={(e) => setFilterActive(e.target.value)}
-          className="border rounded px-3 py-2"
+          style={{ flex: "0 1 180px" }}
         >
           <option value="all">All Coupons</option>
           <option value="true">Active Only</option>
@@ -223,221 +262,359 @@ export default function CouponManagement() {
         </select>
       </div>
 
-      {/* Coupons Table */}
+      {/* Coupons */}
       {loading ? (
-        <div className="text-center py-8">Loading...</div>
+        <div className="card" style={{ textAlign: "center", padding: "40px", color: "var(--text-secondary)" }}>
+          Loading coupons…
+        </div>
+      ) : coupons.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ fontSize: "32px", marginBottom: "12px" }}>🎟️</div>
+          <h3 style={{ fontSize: "16px", marginBottom: "6px" }}>No coupons yet</h3>
+          <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "16px" }}>
+            {searchTerm || filterActive !== "all"
+              ? "No coupons match the current filters."
+              : "Create your first discount code to get started."}
+          </p>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              setEditingCoupon(null);
+              resetForm();
+              setShowCreateModal(true);
+            }}
+          >
+            + Create Coupon
+          </button>
+        </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full bg-white border">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border px-4 py-2">Code</th>
-                <th className="border px-4 py-2">Description</th>
-                <th className="border px-4 py-2">Discount</th>
-                <th className="border px-4 py-2">Usage</th>
-                <th className="border px-4 py-2">Valid Period</th>
-                <th className="border px-4 py-2">Status</th>
-                <th className="border px-4 py-2">Actions</th>
+        <div className="table-scroll-wrap" style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "820px" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                {["Code", "Discount", "Conditions", "Usage", "Valid Period", "Status", ""].map((h) => (
+                  <th
+                    key={h}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      color: "var(--text-secondary)",
+                      textTransform: "uppercase",
+                      letterSpacing: ".04em",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {coupons.map((coupon) => (
-                <tr key={coupon.id}>
-                  <td className="border px-4 py-2 font-mono font-bold">{coupon.code}</td>
-                  <td className="border px-4 py-2">{coupon.description || "-"}</td>
-                  <td className="border px-4 py-2">
-                    {coupon.discountType === "PERCENTAGE"
-                      ? `${coupon.discountValue}%`
-                      : `$${coupon.discountValue}`}
-                    {coupon.maxDiscount && ` (max $${coupon.maxDiscount})`}
-                  </td>
-                  <td className="border px-4 py-2">
-                    {coupon.usedCount}
-                    {coupon.usageLimit && ` / ${coupon.usageLimit}`}
-                  </td>
-                  <td className="border px-4 py-2 text-sm">
-                    <div>{new Date(coupon.validFrom).toLocaleDateString()}</div>
-                    {coupon.validUntil && (
-                      <div>to {new Date(coupon.validUntil).toLocaleDateString()}</div>
-                    )}
-                  </td>
-                  <td className="border px-4 py-2">
-                    <button
-                      onClick={() => toggleActive(coupon)}
-                      className={`px-2 py-1 rounded text-sm ${
-                        coupon.isActive
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {coupon.isActive ? "Active" : "Inactive"}
-                    </button>
-                  </td>
-                  <td className="border px-4 py-2">
-                    <button
-                      onClick={() => handleEdit(coupon)}
-                      className="text-blue-600 hover:underline mr-2"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(coupon.id)}
-                      className="text-red-600 hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {coupons.map((coupon) => {
+                const state = couponState(coupon);
+                const pct = coupon.usageLimit
+                  ? Math.min(100, Math.round((coupon.usedCount / coupon.usageLimit) * 100))
+                  : 0;
+                return (
+                  <tr key={coupon.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "12px" }}>
+                      <div style={{ fontFamily: "monospace", fontWeight: 800, fontSize: "14px" }}>{coupon.code}</div>
+                      {coupon.description && (
+                        <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px", maxWidth: "220px" }}>
+                          {coupon.description}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px", whiteSpace: "nowrap" }}>
+                      <span style={{ fontWeight: 700 }}>
+                        {coupon.discountType === "PERCENTAGE"
+                          ? `${coupon.discountValue}%`
+                          : `$${coupon.discountValue}`}
+                      </span>
+                      {coupon.maxDiscount ? (
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                          max ${coupon.maxDiscount}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td style={{ padding: "12px", fontSize: "12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                      {coupon.minOrderAmount ? <div>Min order ${coupon.minOrderAmount}</div> : null}
+                      {coupon.userLimit ? <div>{coupon.userLimit} per user</div> : null}
+                      {!coupon.minOrderAmount && !coupon.userLimit ? <span>—</span> : null}
+                    </td>
+                    <td style={{ padding: "12px", minWidth: "130px" }}>
+                      <div style={{ fontSize: "13px", fontWeight: 600 }}>
+                        {coupon.usedCount}
+                        {coupon.usageLimit ? ` / ${coupon.usageLimit}` : ""}
+                      </div>
+                      {coupon.usageLimit ? (
+                        <div style={{ height: "5px", background: "var(--surface-subtle)", borderRadius: "999px", marginTop: "5px", overflow: "hidden" }}>
+                          <div
+                            style={{
+                              width: `${pct}%`,
+                              height: "100%",
+                              background: pct >= 100 ? "var(--red)" : "var(--green)",
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>unlimited</div>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px", fontSize: "12px", whiteSpace: "nowrap" }}>
+                      <div>{new Date(coupon.validFrom).toLocaleDateString("en-GB")}</div>
+                      <div style={{ color: "var(--text-tertiary)" }}>
+                        {coupon.validUntil ? `to ${new Date(coupon.validUntil).toLocaleDateString("en-GB")}` : "no expiry"}
+                      </div>
+                    </td>
+                    <td style={{ padding: "12px" }}>
+                      <button
+                        onClick={() => toggleActive(coupon)}
+                        title={coupon.isActive ? "Click to deactivate" : "Click to activate"}
+                        className={`badge ${state.badge}`}
+                        style={{ cursor: "pointer", border: "none" }}
+                      >
+                        {state.label}
+                      </button>
+                    </td>
+                    <td style={{ padding: "12px", whiteSpace: "nowrap", textAlign: "right" }}>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handleEdit(coupon)}
+                        style={{ padding: "6px 12px", fontSize: "13px", marginRight: "8px" }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(coupon.id)}
+                        style={{
+                          padding: "6px 12px",
+                          fontSize: "13px",
+                          background: "none",
+                          border: "1px solid var(--red)",
+                          color: "var(--red)",
+                          borderRadius: "var(--radius-sm)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-          {coupons.length === 0 && (
-            <div className="text-center py-8 text-gray-500">No coupons found</div>
-          )}
         </div>
       )}
 
       {/* Create/Edit Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold mb-4">
-              {editingCoupon ? "Edit Coupon" : "Create New Coupon"}
-            </h3>
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}>
+          <div
+            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={() => {
+              setShowCreateModal(false);
+              setEditingCoupon(null);
+              resetForm();
+            }}
+          />
+          <div className="card" style={{ position: "relative", zIndex: 201, width: "100%", maxWidth: "680px", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ fontSize: "18px" }}>{editingCoupon ? "Edit Coupon" : "Create New Coupon"}</h3>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setEditingCoupon(null);
+                  resetForm();
+                }}
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: "24px", lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+
             <form onSubmit={handleSubmit}>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Coupon Code *</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Coupon Code *</label>
                   <input
                     type="text"
+                    className="form-input"
+                    style={{ textTransform: "uppercase", fontFamily: "monospace", fontWeight: 700 }}
+                    placeholder="SUMMER20"
                     value={formData.code}
                     onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    className="border rounded px-3 py-2 w-full"
                     required
                   />
+                  <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                    Customers type this at checkout. Case-insensitive.
+                  </small>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Discount Type *</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Discount Type *</label>
                   <select
+                    className="form-input"
                     value={formData.discountType}
                     onChange={(e) => setFormData({ ...formData, discountType: e.target.value as any })}
-                    className="border rounded px-3 py-2 w-full"
                   >
-                    <option value="PERCENTAGE">Percentage</option>
-                    <option value="FIXED_AMOUNT">Fixed Amount</option>
+                    <option value="PERCENTAGE">Percentage (%)</option>
+                    <option value="FIXED_AMOUNT">Fixed Amount ($)</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">
                     Discount Value * {formData.discountType === "PERCENTAGE" ? "(%)" : "($)"}
                   </label>
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
+                    className="form-input"
                     value={formData.discountValue}
                     onChange={(e) => setFormData({ ...formData, discountValue: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Max Discount ($)</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Max Discount ($)</label>
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
+                    className="form-input"
+                    placeholder="Optional"
                     value={formData.maxDiscount}
                     onChange={(e) => setFormData({ ...formData, maxDiscount: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
-                    placeholder="Optional"
+                    disabled={formData.discountType !== "PERCENTAGE"}
                   />
+                  <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                    {formData.discountType === "PERCENTAGE"
+                      ? "Caps how much a percentage discount can take off."
+                      : "Only applies to percentage discounts."}
+                  </small>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Min Order Amount ($)</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Min Order Amount ($)</label>
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
+                    className="form-input"
+                    placeholder="Optional"
                     value={formData.minOrderAmount}
                     onChange={(e) => setFormData({ ...formData, minOrderAmount: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
-                    placeholder="Optional"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Usage Limit</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Total Usage Limit</label>
                   <input
                     type="number"
+                    min="0"
+                    className="form-input"
+                    placeholder="Unlimited"
                     value={formData.usageLimit}
                     onChange={(e) => setFormData({ ...formData, usageLimit: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
-                    placeholder="Unlimited"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Per-User Limit</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Per-User Limit</label>
                   <input
                     type="number"
+                    min="0"
+                    className="form-input"
+                    placeholder="Unlimited"
                     value={formData.userLimit}
                     onChange={(e) => setFormData({ ...formData, userLimit: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
-                    placeholder="Unlimited"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valid From</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Valid From</label>
                   <input
                     type="date"
+                    className="form-input"
                     value={formData.validFrom}
                     onChange={(e) => setFormData({ ...formData, validFrom: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Valid Until</label>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Valid Until</label>
                   <input
                     type="date"
+                    className="form-input"
                     value={formData.validUntil}
                     onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
                   />
+                  <small style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                    Leave blank for no expiry.
+                  </small>
                 </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium mb-1">Description</label>
+
+                <div className="form-group" style={{ marginBottom: 0, gridColumn: "1 / -1" }}>
+                  <label className="form-label">Description</label>
                   <textarea
+                    className="form-input"
+                    rows={2}
+                    placeholder="Internal note — what this coupon is for"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="border rounded px-3 py-2 w-full"
-                    rows={2}
                   />
                 </div>
-                <div className="col-span-2">
-                  <label className="flex items-center">
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      padding: "12px",
+                      background: "var(--surface-subtle)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "var(--radius-md)",
+                      cursor: "pointer",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={formData.isActive}
                       onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                      className="mr-2"
                     />
-                    <span className="text-sm font-medium">Active</span>
+                    <span>
+                      <span style={{ fontWeight: 600, fontSize: "14px" }}>Active</span>
+                      <span style={{ display: "block", fontSize: "12px", color: "var(--text-secondary)" }}>
+                        Inactive coupons are rejected at checkout.
+                      </span>
+                    </span>
                   </label>
                 </div>
               </div>
-              <div className="flex justify-end gap-2 mt-6">
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "24px" }}>
                 <button
                   type="button"
+                  className="btn btn-secondary"
                   onClick={() => {
                     setShowCreateModal(false);
                     setEditingCoupon(null);
                     resetForm();
                   }}
-                  className="px-4 py-2 border rounded hover:bg-gray-100"
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  {editingCoupon ? "Update" : "Create"}
+                <button type="submit" className="btn btn-primary">
+                  {editingCoupon ? "Save Changes" : "Create Coupon"}
                 </button>
               </div>
             </form>

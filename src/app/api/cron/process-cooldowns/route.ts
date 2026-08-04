@@ -105,7 +105,9 @@ export async function GET(req: Request) {
           type: "ORDER_READY",
           title: `Order Ready for Pickup`,
           message: `Your order for ${item.product.name} is ready for pickup! ${adminMessage}`,
-          link: `/dashboard/orders/${item.orderId}`,
+          // The dashboard is a single tabbed page — there is no
+          // /dashboard/orders/<id> route, and linking to one 404s.
+          link: `/dashboard?tab=orders`,
         },
       });
 

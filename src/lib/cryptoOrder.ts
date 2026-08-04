@@ -8,6 +8,7 @@ import {
   getPublicBaseUrl,
 } from "./nowpayments";
 import { releaseOrderReservation } from "./orderReservation";
+import { reserveProductStock } from "./stockReservation";
 
 /** Minutes a customer has to pay before the reclaim cron restores the stock. */
 export const PAYMENT_WINDOW_MINUTES = 60;
@@ -37,11 +38,12 @@ export interface CryptoOrderResult {
 export async function createCryptoOrderForProduct(params: {
   userId: string;
   productId: string;
+  areaId?: string | null;
   cryptoCurrency?: string | null;
   couponCode?: string;
   orderSource: "TELEGRAM" | "WEBSITE";
 }): Promise<CryptoOrderResult> {
-  const { userId, productId, couponCode, orderSource } = params;
+  const { userId, productId, areaId, couponCode, orderSource } = params;
 
   if (!isNOWPaymentsConfigured()) {
     return { success: false, error: "Crypto payments are not available right now." };
@@ -116,9 +118,14 @@ export async function createCryptoOrderForProduct(params: {
         throw new Error("This order has no payable amount.");
       }
 
-      await tx.product.update({
-        where: { id: productId },
-        data: { stockQuantity: { decrement: 1 } },
+      // Moves area stock, global stock and the specific per-unit row together,
+      // exactly as the website cart does.
+      const { reservedUnitIds } = await reserveProductStock(tx, {
+        productId,
+        areaId,
+        quantity: 1,
+        userId,
+        note: `${orderSource === "TELEGRAM" ? "Telegram" : "Website"} crypto checkout`,
       });
 
       const order = await tx.order.create({
@@ -139,6 +146,9 @@ export async function createCryptoOrderForProduct(params: {
                 productId: dbProduct.id,
                 priceAtPurchase: finalAmount,
                 status: "PENDING_PAYMENT",
+                areaId: areaId || undefined,
+                stockItemId: reservedUnitIds[0] || null,
+                // Real cooldown starts when payment is confirmed, not now.
                 cooldownEndAt: new Date(),
               },
             ],
