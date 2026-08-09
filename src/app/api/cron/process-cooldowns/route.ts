@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { deliverReadyOrderItem, retryPendingTelegramDeliveries } from "@/lib/orderDelivery";
 
-// Helper for escaping markdown for Telegram
+// Helper for escaping markdown for Telegram (MarkdownV2). The backslash must
+// be in the set too: leaving it out turns a name containing one into a dangling
+// escape and Telegram rejects the whole message.
 function escapeTelegramMarkdown(text: string) {
-  return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, "\\$&");
+  return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
 }
 
 // Production: Require CRON_SECRET for authentication
@@ -17,9 +20,11 @@ if (!CRON_SECRET && process.env.NODE_ENV === "production") {
 
 export async function GET(req: Request) {
   try {
-    // Verify cron secret
+    // Verify cron secret. The empty-secret check matters: without it an unset
+    // CRON_SECRET makes `Authorization: Bearer ` a valid credential, leaving
+    // the endpoint open to anyone.
     const authHeader = req.headers.get("authorization");
-    if (!authHeader || authHeader !== `Bearer ${CRON_SECRET}`) {
+    if (!CRON_SECRET || authHeader !== `Bearer ${CRON_SECRET}`) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -37,160 +42,22 @@ export async function GET(req: Request) {
         cooldownEndAt: { lte: now },
         automatedMessageSent: false,
       },
-      include: {
-        order: { include: { user: true } },
-        product: true,
-      },
+      select: { id: true },
     });
 
-    const telegramMessagesToGroup: any[] = [];
-
+    // One message per unit. Units each carry their own location and video, so
+    // there is nothing meaningful left to group - and deliverReadyOrderItem is
+    // the same path the dashboard's status poll uses, so whichever fires first
+    // does the delivery exactly once.
     for (const item of readyItems) {
-      // Fetch product area detail for this item's area
-      let locationLink: string | null = null;
-      let pickupVideoUrl: string | null = null;
-      let adminMessage = "Your product is ready for pickup!";
-
-      let areaDetail = null;
-      if (item.areaId) {
-        areaDetail = await prisma.productAreaDetail.findUnique({
-          where: {
-            productId_areaId: { productId: item.productId, areaId: item.areaId }
-          }
-        });
-      } else {
-        // Fallback for older orders or Telegram orders without an areaId
-        areaDetail = await prisma.productAreaDetail.findFirst({
-          where: { productId: item.productId }
-        });
-      }
-
-      // If this order item reserved a unique per-unit stock item, use its URLs.
-      let stockItem = null;
-      if ((item as any).stockItemId) {
-        stockItem = await prisma.stockItem.findUnique({
-          where: { id: (item as any).stockItemId }
-        });
-      }
-
-      if (areaDetail) {
-        locationLink = (stockItem && stockItem.locationUrl) || areaDetail.locationUrl || null;
-        pickupVideoUrl = (stockItem && stockItem.videoUrl) || areaDetail.videoUrl || null;
-        if (areaDetail.message) {
-          adminMessage = areaDetail.message;
-        }
-      } else if (stockItem) {
-        locationLink = stockItem.locationUrl || null;
-        pickupVideoUrl = stockItem.videoUrl || null;
-      }
-
-      // Update the OrderItem to ON_PICKUP
-      await prisma.orderItem.update({
-        where: { id: item.id },
-        data: {
-          status: "ON_PICKUP",
-          locationLink,
-          pickupVideoUrl,
-          adminMessage,
-          automatedMessageSent: true,
-          adminMessageSentAt: new Date(),
-          onPickupAt: new Date(),
-        },
-      });
-
-      // Create website notification
-      await prisma.notification.create({
-        data: {
-          userId: item.order.userId,
-          type: "ORDER_READY",
-          title: `Order Ready for Pickup`,
-          message: `Your order for ${item.product.name} is ready for pickup! ${adminMessage}`,
-          // The dashboard is a single tabbed page — there is no
-          // /dashboard/orders/<id> route, and linking to one 404s.
-          link: `/dashboard?tab=orders`,
-        },
-      });
-
-      // Aggregate Telegram message for grouping
-      const user = item.order.user;
-      
-      // Debug logging
-      console.log("Telegram notification check:", {
-        userId: user.id,
-        username: user.username,
-        hasTelegramId: !!user.telegramId,
-        telegramId: user.telegramId,
-        hasBotToken: !!botToken,
-        botTokenLength: botToken?.length || 0,
-      });
-      
-      if (user.telegramId && botToken) {
-        const existingMsg = telegramMessagesToGroup.find(m => 
-          m.telegramId === user.telegramId && 
-          m.productId === item.productId &&
-          m.locationLink === locationLink &&
-          m.pickupVideoUrl === pickupVideoUrl &&
-          m.adminMessage === adminMessage
-        );
-        if (existingMsg) {
-          existingMsg.quantity += 1;
-        } else {
-          telegramMessagesToGroup.push({
-            telegramId: user.telegramId,
-            productId: item.productId,
-            productName: item.product.name,
-            locationLink,
-            pickupVideoUrl,
-            adminMessage,
-          });
-        }
-      }
-
-      // Update master order status to ON_PICKUP
-      await prisma.order.update({
-        where: { id: item.orderId },
-        data: { status: "ON_PICKUP" },
-      });
-
-      processedCount++;
-    } // End of readyItems loop
-
-    // Send grouped Telegram messages
-    for (const msg of telegramMessagesToGroup) {
-      let telegramMessage = `📦 *Automated Delivery for ${msg.quantity > 1 ? `${msg.quantity}x ` : ""}${escapeTelegramMarkdown(msg.productName)}*\n\n`;
-      telegramMessage += `📝 ${escapeTelegramMarkdown(msg.adminMessage)}\n\n`;
-      
-      if (msg.locationLink) {
-        const safeLink = msg.locationLink.replace(/([\\()])/g, "\\$1");
-        telegramMessage += `🗺️ *Location:* [View on Map](${safeLink})\n`;
-      }
-      if (msg.pickupVideoUrl) {
-        const safeVid = msg.pickupVideoUrl.replace(/([\\()])/g, "\\$1");
-        telegramMessage += `🎥 *Video Guide:* [Watch Video](${safeVid})\n`;
-      }
-
-      telegramMessage += `\nStatus: *READY FOR PICKUP*`;
-
-      try {
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: msg.telegramId,
-            text: telegramMessage,
-            parse_mode: "MarkdownV2",
-            disable_web_page_preview: false,
-          }),
-        });
-        
-        if (!res.ok) {
-          const errText = await res.text();
-          console.error("Telegram API Error:", res.status, errText, "Message:", telegramMessage);
-        }
-      } catch (err) {
-        console.error("Failed to send telegram message for grouped items", err);
-      }
+      const delivered = await deliverReadyOrderItem(item.id);
+      if (delivered) processedCount++;
     }
+
+    // Re-send any Telegram copy that failed on a previous run (outage, network
+    // blip) or that became sendable since - e.g. the customer linked their
+    // Telegram account after ordering. The website copy is already in place.
+    const telegramResent = await retryPendingTelegramDeliveries();
 
     // ============================================================
     // PASS 2: Auto-complete ON_PICKUP items older than 2 days
@@ -253,7 +120,7 @@ export async function GET(req: Request) {
       autoCompletedCount++;
     }
 
-    return NextResponse.json({ success: true, processedCount, autoCompletedCount });
+    return NextResponse.json({ success: true, processedCount, autoCompletedCount, telegramResent });
   } catch (error) {
     console.error("Process cooldowns error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -10,11 +10,24 @@ if (!baseUrl) {
   process.exit(1);
 }
 
+const webhookSecret = (process.env.TELEGRAM_WEBHOOK_SECRET || '').trim();
+
+if (!webhookSecret) {
+  console.error("❌ TELEGRAM_WEBHOOK_SECRET is not set in .env!");
+  console.error("   The webhook route rejects unsigned updates, so the bot would go silent.");
+  console.error("   Generate one with: openssl rand -hex 32");
+  process.exit(1);
+}
+
 function setWebhook(token, botId) {
   if (!token || token.startsWith("PLACEHOLDER")) return;
-  
+
   const webhookUrl = `${baseUrl}/api/telegram/webhook?bot=${botId}`;
-  const apiUrl = `https://api.telegram.org/bot${token}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
+  // Telegram echoes this back in X-Telegram-Bot-Api-Secret-Token on every
+  // update, which is what proves the request really came from Telegram.
+  const apiUrl = `https://api.telegram.org/bot${token}/setWebhook`
+    + `?url=${encodeURIComponent(webhookUrl)}`
+    + `&secret_token=${encodeURIComponent(webhookSecret)}`;
 
   https.get(apiUrl, (res) => {
     let data = '';

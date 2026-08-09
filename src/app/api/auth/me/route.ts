@@ -52,7 +52,16 @@ export async function GET() {
       },
     });
   } catch (error) {
-    // If the database connection fails, return a mock user so local testing works
+    console.error("Auth /me error:", error);
+
+    // Outside development a database failure must never be papered over with a
+    // stand-in account: doing so hands every signed-in visitor the same fake
+    // identity, complete with a fake wallet balance.
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "Service temporarily unavailable" }, { status: 503 });
+    }
+
+    // Local testing only: keep the dashboard usable without a database.
     return NextResponse.json({
       user: {
         id: "mock-user-123",

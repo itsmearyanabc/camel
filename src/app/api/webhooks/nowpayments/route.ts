@@ -264,6 +264,28 @@ export async function POST(req: NextRequest) {
         });
 
         if (!currentOrder || currentOrder.status !== "PENDING_PAYMENT") {
+          // A successful payment landing on a CANCELLED order means the money
+          // arrived after the reclaim released the stock. It must never pass
+          // silently: the customer has paid and holds nothing. Flag it loudly
+          // and record it on the order so an admin can refund or re-issue.
+          if (currentOrder?.status === "CANCELLED") {
+            console.error(
+              `[PAID AFTER CANCEL] Order ${orderId} received ${paymentStatus} ` +
+              `(payment ${paymentId}, ${priceAmount} ${payCurrency}) after it was cancelled. ` +
+              `Needs manual refund or re-issue.`
+            );
+            await tx.order.update({
+              where: { id: orderId },
+              data: {
+                paymentStatus: "paid_after_cancel",
+                providerPaymentId: paymentId,
+                paidAmount: Number.isFinite(priceAmount) ? priceAmount : null,
+                paidCurrency: payCurrency,
+                updatedAt: new Date(),
+              },
+            });
+            return "PAID_AFTER_CANCEL";
+          }
           return "ALREADY_PROCESSED";
         }
 
@@ -305,6 +327,24 @@ export async function POST(req: NextRequest) {
 
         return "PROCESSED";
       });
+
+      if (result === "PAID_AFTER_CANCEL") {
+        // Acknowledge so NOWPayments stops retrying, but tell the customer
+        // their money arrived too late rather than leaving them guessing.
+        await prisma.notification.create({
+          data: {
+            userId: order.userId,
+            type: "GENERAL",
+            title: "Payment received after order expired",
+            message:
+              `Your payment for order ${orderId.slice(0, 8)} arrived after the payment window closed, ` +
+              `so the items were released. Please contact support to have it refunded or re-issued.`,
+            link: "/dashboard?tab=orders",
+          },
+        }).catch((err) => console.error("paid-after-cancel notification failed:", err));
+
+        return NextResponse.json({ success: true, message: "Paid after cancel - flagged for review" });
+      }
 
       if (result === "ALREADY_PROCESSED") {
         return NextResponse.json({ success: true, message: "Already processed" });

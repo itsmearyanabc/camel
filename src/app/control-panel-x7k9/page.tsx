@@ -3,12 +3,13 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import DashboardAnalytics from "./DashboardAnalytics";
-import StockManagement from "./StockManagement";
 import CouponManagement from "./CouponManagement";
 import StaffManagement from "./StaffManagement";
 import ProductManagement from "./ProductManagement";
 
-type Tab = "dashboard" | "products" | "stock" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees" | "coupons";
+// Stock is managed entirely from the Inventory tab (per-area quantities and
+// per-unit delivery links), so there is no separate stock tab.
+type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees" | "coupons";
 
 export default function ClientAdminPanel() {
   const router = useRouter();
@@ -25,6 +26,10 @@ export default function ClientAdminPanel() {
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [selectedUserModal, setSelectedUserModal] = useState<any | null>(null);
   const [balanceAdjustAmount, setBalanceAdjustAmount] = useState("");
+  // Permanent user deletion — gated behind the admin's own password.
+  const [showDeleteUserConfirm, setShowDeleteUserConfirm] = useState(false);
+  const [deleteUserPassword, setDeleteUserPassword] = useState("");
+  const [deletingUser, setDeletingUser] = useState(false);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [disputes, setDisputes] = useState<any[]>([]);
   const [deposits, setDeposits] = useState<any[]>([]);
@@ -294,13 +299,55 @@ export default function ClientAdminPanel() {
       if (res.ok) {
         setMsg({ type: "success", text: "Balance adjusted successfully!" });
         setBalanceAdjustAmount("");
-        setSelectedUserModal(null);
+        closeUserModal();
         fetchAll();
       } else {
         setMsg({ type: "error", text: data.error || "Failed to adjust balance" });
       }
     } catch (e) {
       setMsg({ type: "error", text: "Error adjusting balance" });
+    }
+  };
+
+  const closeUserModal = () => {
+    setSelectedUserModal(null);
+    setShowDeleteUserConfirm(false);
+    setDeleteUserPassword("");
+  };
+
+  const handleDeleteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserModal) return;
+    if (!deleteUserPassword) {
+      setMsg({ type: "error", text: "Enter your password to confirm" });
+      return;
+    }
+    if (!confirm(
+      `Permanently delete "${selectedUserModal.username}" and ALL of their data ` +
+      `(orders, wallet, disputes, reviews, notifications)?\n\nThis cannot be undone.`
+    )) return;
+
+    setDeletingUser(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${selectedUserModal.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: deleteUserPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ type: "error", text: data.error || "Failed to delete user" });
+        return;
+      }
+      setMsg({ type: "success", text: `"${data.username}" and all associated data were permanently deleted.` });
+      closeUserModal();
+      fetchAll();
+    } catch {
+      setMsg({ type: "error", text: "Failed to delete user" });
+    } finally {
+      setDeletingUser(false);
+      setDeleteUserPassword("");
     }
   };
 
@@ -549,7 +596,6 @@ export default function ClientAdminPanel() {
   const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "dashboard", label: "Dashboard", icon: "📊" },
     { key: "products", label: "Inventory", icon: "📦" },
-    { key: "stock", label: "Stock Management", icon: "📊" },
     { key: "locations", label: "Locations", icon: "📍" },
     { key: "active-orders", label: "Active Orders", icon: "🚚" },
     { key: "all-orders", label: "All Orders", icon: "📋" },
@@ -799,13 +845,6 @@ export default function ClientAdminPanel() {
           {activeTab === "products" && (
             <div style={{ animation: "fadeIn 0.4s ease" }}>
               <ProductManagement />
-            </div>
-          )}
-
-          {/* STOCK MANAGEMENT TAB */}
-          {activeTab === "stock" && (
-            <div style={{ animation: "fadeIn 0.4s ease" }}>
-              <StockManagement />
             </div>
           )}
 
@@ -1196,9 +1235,9 @@ export default function ClientAdminPanel() {
 
           {/* User Profile Modal */}
           {selectedUserModal && (
-            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }} onClick={() => setSelectedUserModal(null)}>
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }} onClick={closeUserModal}>
               <div className="card" style={{ width: "100%", maxWidth: "800px", maxHeight: "90vh", overflowY: "auto", position: "relative" }} onClick={e => e.stopPropagation()}>
-                <button style={{ position: "absolute", top: "16px", right: "16px", background: "none", border: "none", fontSize: "24px", color: "var(--text-secondary)", cursor: "pointer" }} onClick={() => setSelectedUserModal(null)}>×</button>
+                <button style={{ position: "absolute", top: "16px", right: "16px", background: "none", border: "none", fontSize: "24px", color: "var(--text-secondary)", cursor: "pointer" }} onClick={closeUserModal}>×</button>
                 <h2 style={{ fontSize: "24px", marginBottom: "8px" }}>User Profile: {selectedUserModal.username}</h2>
                 <p style={{ color: "var(--text-secondary)", marginBottom: "24px" }}>
                   Role: <strong style={{ color: "var(--accent)" }}>{selectedUserModal.role}</strong> | 
@@ -1266,6 +1305,63 @@ export default function ClientAdminPanel() {
                   </div>
                 ) : (
                   <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "20px" }}>No orders found for this user.</p>
+                )}
+
+                {/* Danger Zone — permanent, password-confirmed erasure */}
+                {isAdmin && !["ADMIN", "SUPERADMIN"].includes(selectedUserModal.role) && selectedUserModal.id !== user?.id && (
+                  <div style={{ marginTop: "32px", border: "1px solid var(--red)", borderRadius: "var(--radius-md)", padding: "20px" }}>
+                    <h3 style={{ fontSize: "18px", marginBottom: "6px", color: "var(--red)" }}>⚠️ Danger Zone</h3>
+                    <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "16px" }}>
+                      Permanently deletes <strong>{selectedUserModal.username}</strong> along with their wallet,
+                      order history, disputes, reviews and notifications. Unpaid reservations are returned to stock.
+                      This cannot be undone.
+                    </p>
+
+                    {!showDeleteUserConfirm ? (
+                      <button
+                        onClick={() => setShowDeleteUserConfirm(true)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ color: "var(--red)", borderColor: "var(--red)" }}
+                      >
+                        🗑️ Permanently Delete User Data
+                      </button>
+                    ) : (
+                      <form onSubmit={handleDeleteUser} style={{ display: "flex", flexDirection: "column", gap: "12px", maxWidth: "420px" }}>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: "12px" }}>
+                            Enter <strong>your</strong> admin password to confirm
+                          </label>
+                          <input
+                            type="password"
+                            className="form-input"
+                            autoComplete="current-password"
+                            placeholder="Your password"
+                            value={deleteUserPassword}
+                            onChange={e => setDeleteUserPassword(e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            type="submit"
+                            className="btn btn-sm"
+                            disabled={deletingUser}
+                            style={{ background: "var(--red)", color: "white", opacity: deletingUser ? 0.6 : 1 }}
+                          >
+                            {deletingUser ? "Deleting..." : "Confirm Permanent Deletion"}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={deletingUser}
+                            onClick={() => { setShowDeleteUserConfirm(false); setDeleteUserPassword(""); }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

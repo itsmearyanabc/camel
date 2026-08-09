@@ -89,6 +89,14 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
     }
 
+    // This screen manages staff only. Without the role check, the id in the
+    // body could name an admin - letting anyone with admin access reset a
+    // fellow admin's (or ROOT's) password and take the account over.
+    const target = await prisma.user.findUnique({ where: { id: staffId }, select: { role: true } });
+    if (!target || target.role !== "STAFF") {
+      return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
+    }
+
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(newPassword, salt);
 
@@ -118,6 +126,13 @@ export async function DELETE(req: Request) {
 
     if (!staffId) {
       return NextResponse.json({ error: "Staff ID is required" }, { status: 400 });
+    }
+
+    // Only ever removes a STAFF account: the id arrives from the request body,
+    // so without this an admin account could be passed in and deleted here.
+    const target = await prisma.user.findUnique({ where: { id: staffId }, select: { role: true } });
+    if (!target || target.role !== "STAFF") {
+      return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
     }
 
     await prisma.user.delete({

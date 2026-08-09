@@ -4,9 +4,17 @@ import path from "path";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path: pathArray } = await params;
-  const filePath = path.join(process.cwd(), "public", "uploads", ...pathArray);
+  const uploadsRoot = path.join(process.cwd(), "public", "uploads");
+  const filePath = path.resolve(uploadsRoot, ...pathArray);
 
-  if (!fs.existsSync(filePath)) {
+  // The path segments come straight from the URL, so confirm the resolved file
+  // is still inside the uploads directory - otherwise a "../" segment that
+  // survives decoding would read arbitrary files from the server.
+  if (filePath !== uploadsRoot && !filePath.startsWith(uploadsRoot + path.sep)) {
+    return new NextResponse("File not found", { status: 404 });
+  }
+
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     return new NextResponse("File not found", { status: 404 });
   }
 

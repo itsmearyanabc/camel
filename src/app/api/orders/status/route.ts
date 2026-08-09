@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { deliverReadyOrderItem, retryPendingTelegramDeliveries } from "@/lib/orderDelivery";
 
 export async function POST(req: Request) {
   try {
@@ -34,65 +35,29 @@ export async function POST(req: Request) {
 
     let itemsUpdated = false;
 
-    // Check if cooldown has finished for each item
+    // Check if cooldown has finished for each item.
+    //
+    // This shares deliverReadyOrderItem with the cron rather than transitioning
+    // items itself. Doing it locally used to move the item out of
+    // COOLDOWN_ACTIVE without sending anything to Telegram, and the cron then
+    // could no longer find it - so any customer who happened to have the
+    // dashboard open when their cooldown expired silently lost their Telegram
+    // message. The shared helper writes the URLs, raises the website
+    // notification and messages Telegram, and only one caller can win.
+    const now = new Date();
     for (const item of order.items) {
-      if (item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt) {
-        const now = new Date();
-        if (now >= item.cooldownEndAt) {
-          
-          let locationLink = null;
-          let pickupVideoUrl = null;
-          let adminMessage = "Your product is ready for pickup!";
-
-          // Prefer this order item's unique per-unit stock item URLs (never leak shared/other units).
-          let stockItem = null;
-          if ((item as any).stockItemId) {
-            stockItem = await prisma.stockItem.findUnique({
-              where: { id: (item as any).stockItemId }
-            });
-          }
-
-          if (item.areaId) {
-            const areaDetail = await prisma.productAreaDetail.findUnique({
-              where: {
-                productId_areaId: { productId: item.productId, areaId: item.areaId }
-              }
-            });
-            
-            if (areaDetail) {
-              locationLink = (stockItem && stockItem.locationUrl) || areaDetail.locationUrl || null;
-              pickupVideoUrl = (stockItem && stockItem.videoUrl) || areaDetail.videoUrl || null;
-              if (areaDetail.message) adminMessage = areaDetail.message;
-            }
-          }
-
-          if (!locationLink && stockItem) locationLink = stockItem.locationUrl || null;
-          if (!pickupVideoUrl && stockItem) pickupVideoUrl = stockItem.videoUrl || null;
-
-
-          await prisma.orderItem.update({
-            where: { id: item.id },
-            data: { 
-              status: "ON_PICKUP",
-              locationLink,
-              pickupVideoUrl,
-              adminMessage,
-              adminMessageSentAt: new Date(),
-              onPickupAt: new Date(),
-            },
-          });
-          itemsUpdated = true;
-        }
+      if (item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt && now >= item.cooldownEndAt) {
+        const delivered = await deliverReadyOrderItem(item.id);
+        if (delivered) itemsUpdated = true;
       }
     }
 
-    if (itemsUpdated) {
-      // Update master order to PROCESSING
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { status: "PROCESSING" },
-      });
+    // Also retry any Telegram copy that previously failed to send. This poll is
+    // the one delivery driver that is always running, so it must not depend on
+    // the cron being scheduled for the customer to get their message.
+    await retryPendingTelegramDeliveries({ userId: order.userId });
 
+    if (itemsUpdated) {
       order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {

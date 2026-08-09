@@ -37,13 +37,44 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Rating and text are required" }, { status: 400 });
     }
 
+    // Rating feeds the star averages shown on the storefront; an unclamped
+    // value (or a non-number) skews every product score it touches.
+    const parsedRating = Number(rating);
+    if (!Number.isInteger(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+      return NextResponse.json({ error: "Rating must be a whole number from 1 to 5" }, { status: 400 });
+    }
+
+    if (typeof text !== "string" || text.trim().length < 3 || text.length > 2000) {
+      return NextResponse.json({ error: "Review text must be between 3 and 2000 characters" }, { status: 400 });
+    }
+
+    // Only buyers may review, and only once per product - otherwise anyone with
+    // an account can bulk-post ratings for products they never ordered.
+    if (productId) {
+      const purchased = await prisma.orderItem.findFirst({
+        where: { productId, order: { userId: session.userId } },
+        select: { id: true },
+      });
+      if (!purchased) {
+        return NextResponse.json({ error: "You can only review products you have ordered" }, { status: 403 });
+      }
+
+      const existing = await prisma.review.findFirst({
+        where: { productId, userId: session.userId },
+        select: { id: true },
+      });
+      if (existing) {
+        return NextResponse.json({ error: "You have already reviewed this product" }, { status: 400 });
+      }
+    }
+
     const review = await prisma.review.create({
       data: {
         productId: productId || null,
         userId: session.userId,
-        rating: Number(rating),
-        text,
-        location: location || null
+        rating: parsedRating,
+        text: text.trim(),
+        location: typeof location === "string" ? location.slice(0, 200) : null
       }
     });
 

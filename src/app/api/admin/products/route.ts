@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { notifyRestockSubscribersForArea } from "@/lib/restock";
 
 export async function GET() {
   const session = await getSession();
@@ -131,22 +132,27 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Price must be a positive number" }, { status: 400 });
   }
 
+  // Staff run inventory, not the catalogue: they may move stock and change where
+  // a product is offered, but every descriptive/pricing field is admin-only.
+  // Enforced here and not only in the UI, since the panel is just one caller.
+  const isStaff = session.role === "STAFF";
+
   const updateData: any = {};
-  if (name !== undefined) updateData.name = name.trim();
-  if (description !== undefined) updateData.description = description?.trim() || null;
-  
-  if (session.role !== "STAFF") {
+
+  if (!isStaff) {
+    if (name !== undefined) updateData.name = name.trim();
+    if (description !== undefined) updateData.description = description?.trim() || null;
     if (price !== undefined) updateData.price = parseFloat(price);
     if (originalPrice !== undefined) {
       updateData.originalPrice = originalPrice === null || originalPrice === "" ? null : parseFloat(originalPrice);
     }
     if (currency !== undefined) updateData.currency = currency;
+    if (formula !== undefined) updateData.formula = formula?.trim() || null;
+    if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
+    if (productType !== undefined) updateData.productType = productType?.trim() || null;
   }
-  if (formula !== undefined) updateData.formula = formula?.trim() || null;
-  if (casNumber !== undefined) updateData.casNumber = casNumber?.trim() || null;
-  if (imageUrl !== undefined) updateData.imageUrl = imageUrl?.trim() || null;
-  if (productType !== undefined) updateData.productType = productType?.trim() || null;
-  
+
   if (cityIds !== undefined) {
     updateData.cities = { set: cityIds.map((id: string) => ({ id })) };
   }
@@ -154,15 +160,65 @@ export async function PUT(req: NextRequest) {
     updateData.areas = { set: areaIds.map((id: string) => ({ id })) };
   }
 
+  // Un-selecting an area only detaches the `areas` relation, but the storefront
+  // and the Telegram bot both offer delivery straight from ProductAreaDetail
+  // rows. Left alone, a de-selected area keeps taking orders. Empty it out so
+  // "not available here" actually means it - the ledger rows are kept.
+  if (Array.isArray(areaIds)) {
+    const orphaned = await prisma.productAreaDetail.findMany({
+      where: { productId, areaId: { notIn: areaIds } },
+      select: { id: true },
+    });
+    if (orphaned.length > 0) {
+      const orphanedIds = orphaned.map((d) => d.id);
+      await prisma.stockItem.deleteMany({
+        where: { productAreaDetailId: { in: orphanedIds }, status: "AVAILABLE" },
+      });
+      await prisma.productAreaDetail.updateMany({
+        where: { id: { in: orphanedIds } },
+        data: { stockQuantity: 0 },
+      });
+    }
+  }
+
   // Handle area-wise stock allocation
+  const restockedAreaIds: string[] = [];
+
   if (areaStocks && Array.isArray(areaStocks)) {
     // Upsert stock for each area
     for (const { areaId, quantity } of areaStocks) {
-      await prisma.productAreaDetail.upsert({
+      const newQty = parseInt(quantity, 10) || 0;
+
+      // Read the previous quantity first: this is the only place in the save
+      // that still sees the "before" value, so both the stock ledger and the
+      // out-of-stock -> in-stock detection have to happen here.
+      const before = await prisma.productAreaDetail.findUnique({
         where: { productId_areaId: { productId, areaId } },
-        update: { stockQuantity: parseInt(quantity, 10) || 0 },
-        create: { productId, areaId, stockQuantity: parseInt(quantity, 10) || 0 },
+        select: { id: true, stockQuantity: true },
       });
+      const prevQty = before?.stockQuantity ?? 0;
+
+      const saved = await prisma.productAreaDetail.upsert({
+        where: { productId_areaId: { productId, areaId } },
+        update: { stockQuantity: newQty },
+        create: { productId, areaId, stockQuantity: newQty },
+      });
+
+      if (newQty !== prevQty) {
+        await prisma.stockEntry.create({
+          data: {
+            productAreaDetailId: saved.id,
+            quantity: newQty - prevQty,
+            type: newQty > prevQty ? "RESTOCK" : "ADJUSTMENT",
+            notes: `Inventory edit - stock set to ${newQty} unit(s)`,
+            createdBy: session.userId,
+          },
+        });
+      }
+
+      if (prevQty <= 0 && newQty > 0) {
+        restockedAreaIds.push(areaId);
+      }
     }
     // Auto-compute total stock as sum of all area stocks
     const allAreaDetails = await prisma.productAreaDetail.findMany({ where: { productId } });
@@ -177,6 +233,13 @@ export async function PUT(req: NextRequest) {
     where: { id: productId },
     data: updateData,
   });
+
+  // Fire-and-forget once the write has landed: customers waiting on this
+  // product in this area hear about it as soon as stock is added, exactly as
+  // they used to when restocking went through the old stock-entry screen.
+  for (const areaId of restockedAreaIds) {
+    void notifyRestockSubscribersForArea(productId, areaId);
+  }
 
   return NextResponse.json({ product: updatedProduct });
 }

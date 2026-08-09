@@ -4,6 +4,18 @@ import { prisma } from "./db";
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
+/**
+ * Interactive-transaction limits for checkout.
+ *
+ * Prisma defaults to a 5s transaction timeout and a 2s wait for a connection.
+ * A checkout runs roughly ten round-trips per cart line, and this deployment
+ * talks to Supabase's pooler in another region - so a multi-item cart can pass
+ * 5s on network latency alone and die with "Transaction already closed" (P2028)
+ * after the stock has been reserved. The higher ceiling costs nothing when the
+ * database is quick and prevents a class of failed checkouts when it is not.
+ */
+export const CHECKOUT_TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
+
 export interface ReservationResult {
   /** StockItem ids reserved for this line, in FIFO order. May be empty when an
    *  area tracks only an aggregate count rather than per-unit rows. */
@@ -82,16 +94,29 @@ export async function reserveProductStock(
         select: { id: true },
       });
       reservedUnitIds = units.map((u) => u.id);
-      await tx.stockItem.updateMany({
-        where: { id: { in: reservedUnitIds } },
+
+      // Claim by flipping AVAILABLE -> USED and checking how many rows actually
+      // changed. Selecting then blindly updating lets two buyers who read the
+      // same row both "win" it, and they would be sent the same pickup
+      // location. The status predicate makes the claim atomic: the loser
+      // updates 0 rows and rolls the whole transaction back.
+      const claimed = await tx.stockItem.updateMany({
+        where: { id: { in: reservedUnitIds }, status: "AVAILABLE" },
         data: { status: "USED" },
       });
+      if (claimed.count !== reservedUnitIds.length) {
+        throw new Error("Those units were just taken by another customer. Please try again.");
+      }
     }
 
-    await tx.productAreaDetail.update({
-      where: { id: areaDetail.id },
+    // Same idea for the counter: decrement only if there is still enough left.
+    const areaTaken = await tx.productAreaDetail.updateMany({
+      where: { id: areaDetail.id, stockQuantity: { gte: quantity } },
       data: { stockQuantity: { decrement: quantity } },
     });
+    if (areaTaken.count === 0) {
+      throw new Error("Not enough stock in this area. Please try again.");
+    }
 
     await tx.stockEntry.create({
       data: {
@@ -102,19 +127,27 @@ export async function reserveProductStock(
         createdBy: userId,
       },
     });
+
+    // Global stock mirrors the sum of area stock. The area check above is the
+    // real gate here, so this follows unconditionally - guarding it too would
+    // fail the sale whenever the mirror had drifted low.
+    await tx.product.update({
+      where: { id: productId },
+      data: { stockQuantity: { decrement: quantity } },
+    });
   } else {
-    if (product.stockQuantity < quantity) {
+    // No area: the global counter is the only gate, so decrement it
+    // conditionally and treat "nothing updated" as sold out.
+    const taken = await tx.product.updateMany({
+      where: { id: productId, stockQuantity: { gte: quantity } },
+      data: { stockQuantity: { decrement: quantity } },
+    });
+    if (taken.count === 0) {
       throw new Error(
         `Not enough stock. Requested: ${quantity}, Available: ${product.stockQuantity}`
       );
     }
   }
-
-  // Global stock mirrors the sum of area stock, so it always moves too.
-  await tx.product.update({
-    where: { id: productId },
-    data: { stockQuantity: { decrement: quantity } },
-  });
 
   return { reservedUnitIds, cooldownMinutes };
 }

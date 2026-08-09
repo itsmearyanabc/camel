@@ -26,8 +26,9 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Catalogue structure is admin-only; staff manage stock, not the catalogue.
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can create categories." }, { status: 403 });
   }
 
   const { name, description, prefixCode } = await req.json();
@@ -60,8 +61,9 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Catalogue structure is admin-only; staff manage stock, not the catalogue.
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can delete categories." }, { status: 403 });
   }
 
   const { categoryId } = await req.json();

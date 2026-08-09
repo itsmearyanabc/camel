@@ -1,5 +1,11 @@
-# Camel971— Render Infrastructure-as-Code
-# Deploy all services from this single file via Render Blueprint
+# Camel971 — Render Infrastructure-as-Code
+#
+# NOTE: this project is deployed on a self-hosted VPS, not on Render. This file
+# is kept only as a reference for a possible move back. The live deployment
+# schedules its jobs with system cron — see scripts/vps-cron.sh — and the two
+# cron services below are the Render equivalent of those.
+#
+# Deploy all services from this single file via Render Blueprint.
 
 services:
   # 1. Website (Customer + Admin on the same deployment)
@@ -29,4 +35,54 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
       - key: CRYPTO_WALLET_ADDRESS
+        sync: false
+      # Bearer token the cron jobs below authenticate with. Must be the same
+      # value in the web service and in every cron service. The endpoints
+      # reject every call when it is unset.
+      - key: CRON_SECRET
+        generateValue: true
+      # 64 hex chars. Without it the admin "decrypt password" tool reports that
+      # encryption is not configured and no passwords can be recovered.
+      # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: PASSWORD_ENCRYPTION_KEY
+        sync: false
+      # Only needed if the bots are switched from long-polling to webhooks.
+      # See src/instrumentation.ts — they currently long-poll in-process.
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+
+  # 2. Cooldown processor — releases pickup location + video to the customer
+  #    once the cooldown expires, on the website AND over Telegram, and retries
+  #    any Telegram message that previously failed to send.
+  - type: cron
+    name: camel971-cooldowns
+    runtime: node
+    plan: starter # Render cron jobs are not available on the free plan
+    schedule: "*/2 * * * *"
+    buildCommand: npm install
+    startCommand: >-
+      curl -fsS -H "Authorization: Bearer $CRON_SECRET"
+      "$NEXT_PUBLIC_SITE_URL/api/cron/process-cooldowns"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+
+  # 3. Payment reclaimer — cancels crypto orders whose payment window lapsed and
+  #    returns the reserved stock. Without it, abandoned checkouts hold stock
+  #    permanently and it can never be sold again.
+  - type: cron
+    name: camel971-expire-payments
+    runtime: node
+    plan: starter
+    schedule: "*/10 * * * *"
+    buildCommand: npm install
+    startCommand: >-
+      curl -fsS -H "Authorization: Bearer $CRON_SECRET"
+      "$NEXT_PUBLIC_SITE_URL/api/cron/expire-payments"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
         sync: false

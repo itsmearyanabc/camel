@@ -38,6 +38,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Cannot change a SUPERADMIN role." }, { status: 403 });
     }
 
+    // Admin accounts cannot be deleted, so they must not be demotable by a
+    // peer either - otherwise "demote to customer, then delete" walks straight
+    // around that rule. Only ROOT can move an admin out of the role.
+    if (target.role === "ADMIN" && actor.role !== "SUPERADMIN") {
+      return NextResponse.json(
+        { error: "Only SUPERADMIN can change an admin's role." },
+        { status: 403 }
+      );
+    }
+
     if (role === "ADMIN" && actor.role !== "SUPERADMIN") {
       return NextResponse.json({ error: "Only SUPERADMIN can assign ADMIN role." }, { status: 403 });
     }

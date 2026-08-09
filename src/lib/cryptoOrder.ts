@@ -8,7 +8,7 @@ import {
   getPublicBaseUrl,
 } from "./nowpayments";
 import { releaseOrderReservation } from "./orderReservation";
-import { reserveProductStock } from "./stockReservation";
+import { reserveProductStock, CHECKOUT_TX_OPTIONS } from "./stockReservation";
 
 /** Minutes a customer has to pay before the reclaim cron restores the stock. */
 export const PAYMENT_WINDOW_MINUTES = 60;
@@ -167,7 +167,7 @@ export async function createCryptoOrderForProduct(params: {
       }
 
       return { orderId: order.id, amountDue: finalAmount, discount };
-    });
+    }, CHECKOUT_TX_OPTIONS);
   } catch (e) {
     return {
       success: false,

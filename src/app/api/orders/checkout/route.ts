@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { CHECKOUT_TX_OPTIONS } from "@/lib/stockReservation";
 
 export async function POST(req: Request) {
   try {
@@ -19,6 +20,29 @@ export async function POST(req: Request) {
     if (paymentMethod !== "WALLET") {
       return NextResponse.json({ error: "Invalid payment method. Only WALLET is supported for this checkout." }, { status: 400 });
     }
+
+    // Quantities drive both the price and the stock decrement, so they must be
+    // whole positive numbers. A negative quantity would produce a negative
+    // total, and `decrement: negative` CREDITS the wallet - i.e. free money.
+    for (const line of cart) {
+      const quantity = Number(line?.quantity);
+      if (!line?.productId || typeof line.productId !== "string") {
+        return NextResponse.json({ error: "Invalid cart item" }, { status: 400 });
+      }
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+        return NextResponse.json({ error: "Invalid quantity in cart" }, { status: 400 });
+      }
+    }
+
+    // Collapse duplicate lines for the same product so the stock check cannot
+    // be sidestepped by sending the same productId on two lines.
+    const mergedCart = Array.from(
+      cart.reduce((acc: Map<string, number>, line: any) => {
+        acc.set(line.productId, (acc.get(line.productId) || 0) + Number(line.quantity));
+        return acc;
+      }, new Map<string, number>()),
+      ([productId, quantity]) => ({ productId, quantity })
+    );
 
     // Validate coupon if provided
     let coupon = null;
@@ -73,9 +97,9 @@ export async function POST(req: Request) {
       const updatedProductIds: string[] = [];
 
       // 2. Validate inventory and calculate total price
-      for (const cartItem of cart) {
+      for (const cartItem of mergedCart) {
         const { productId, quantity } = cartItem;
-        
+
         const product = await tx.product.findUnique({
           where: { id: productId },
         });
@@ -88,8 +112,15 @@ export async function POST(req: Request) {
           areaDetail = await tx.productAreaDetail.findUnique({
             where: { productId_areaId: { productId: product.id, areaId } }
           });
-          
-          if (areaDetail && areaDetail.stockQuantity < quantity) {
+
+          // No row means this product is simply not sold in that area. Without
+          // this the whole stock check was skipped, letting a caller order any
+          // quantity of anything by naming an area it isn't stocked in.
+          if (!areaDetail) {
+            throw new Error(`Not enough stock for ${product.name} in this area.`);
+          }
+
+          if (areaDetail.stockQuantity < quantity) {
             throw new Error(`Not enough stock for ${product.name} in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}`);
           }
         } else {
@@ -124,10 +155,17 @@ export async function POST(req: Request) {
               take: quantity,
               select: { id: true }
             });
-            await tx.stockItem.updateMany({
-              where: { id: { in: reservedUnits.map((u) => u.id) } },
+
+            // Claim atomically: only rows still AVAILABLE flip to USED. Without
+            // the status predicate two buyers who read the same row would both
+            // be assigned it and receive the same pickup location.
+            const claimed = await tx.stockItem.updateMany({
+              where: { id: { in: reservedUnits.map((u) => u.id) }, status: "AVAILABLE" },
               data: { status: "USED" }
             });
+            if (claimed.count !== reservedUnits.length) {
+              throw new Error("Not enough stock — those units were just taken by another customer.");
+            }
           }
         }
 
@@ -146,14 +184,19 @@ export async function POST(req: Request) {
           updatedProductIds.push(product.id);
         }
         
-        // Deduct stock - use area-specific if available, otherwise global
+        // Deduct stock - use area-specific if available, otherwise global.
+        // Both decrements carry their own "still enough left" predicate so a
+        // concurrent order cannot drive the counter negative between the check
+        // above and the write here.
         if (areaDetail) {
-          // Deduct from area-specific stock
-          await tx.productAreaDetail.update({
-            where: { id: areaDetail.id },
+          const areaTaken = await tx.productAreaDetail.updateMany({
+            where: { id: areaDetail.id, stockQuantity: { gte: quantity } },
             data: { stockQuantity: { decrement: quantity } }
           });
-          
+          if (areaTaken.count === 0) {
+            throw new Error(`Not enough stock for ${product.name} in this area.`);
+          }
+
           // Create stock entry for the sale
           await tx.stockEntry.create({
             data: {
@@ -164,18 +207,22 @@ export async function POST(req: Request) {
               createdBy: session.userId
             }
           });
-          
-          // Update global stock as well
+
+          // Global stock mirrors the sum of the areas; the area gate above is
+          // the real check, so this follows unconditionally.
           await tx.product.update({
             where: { id: product.id },
             data: { stockQuantity: { decrement: quantity } }
           });
         } else {
-          // Deduct from global stock only
-          await tx.product.update({
-            where: { id: product.id },
+          // No area: the global counter is the only gate.
+          const taken = await tx.product.updateMany({
+            where: { id: product.id, stockQuantity: { gte: quantity } },
             data: { stockQuantity: { decrement: quantity } }
           });
+          if (taken.count === 0) {
+            throw new Error(`Not enough stock for ${product.name}.`);
+          }
         }
       }
 
@@ -207,15 +254,17 @@ export async function POST(req: Request) {
 
       // 4. Handle Wallet Payment
       if (paymentMethod === "WALLET") {
-        if (Number(wallet.balance) < finalAmount) {
-          throw new Error("Insufficient wallet balance. Please deposit funds or select Crypto.");
-        }
-
-        // Deduct from wallet balance
-        await tx.wallet.update({
-          where: { id: wallet.id },
+        // Debit only if the balance still covers it. Reading the balance and
+        // then decrementing lets two checkouts fired at once both pass the
+        // check and spend the same money twice; the predicate makes the debit
+        // atomic, and 0 rows updated means the funds are no longer there.
+        const debited = await tx.wallet.updateMany({
+          where: { id: wallet.id, balance: { gte: finalAmount } },
           data: { balance: { decrement: finalAmount } },
         });
+        if (debited.count === 0) {
+          throw new Error("Insufficient wallet balance. Please deposit funds or select Crypto.");
+        }
 
         // Create ledger entry
         await tx.walletLedger.create({
@@ -271,7 +320,7 @@ export async function POST(req: Request) {
       }
 
       return createdOrder;
-    });
+    }, CHECKOUT_TX_OPTIONS);
 
     return NextResponse.json({ success: true, order });
   } catch (error: any) {

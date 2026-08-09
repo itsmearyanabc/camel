@@ -47,7 +47,15 @@ export async function GET(req: Request) {
         const check = await getNOWPaymentStatus(order.providerPaymentId);
         if (check.success && check.status) {
           const status = check.status.payment_status;
-          if ((NOWPAYMENTS_SUCCESS_STATUSES as readonly string[]).includes(status)) {
+          // "confirming"/"sending" mean the customer's coins are already on the
+          // chain and NOWPayments is waiting on confirmations. Cancelling those
+          // releases the stock and the later success IPN then finds the order
+          // no longer PENDING_PAYMENT, so the customer has paid and gets
+          // nothing. Only "waiting" - an invoice with no funds against it - is
+          // a genuinely abandoned checkout.
+          const inFlight = status === "confirming" || status === "sending";
+
+          if (inFlight || (NOWPAYMENTS_SUCCESS_STATUSES as readonly string[]).includes(status)) {
             console.warn(
               `expire-payments: order ${order.id} is actually ${status}; extending instead of cancelling`
             );

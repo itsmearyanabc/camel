@@ -2,7 +2,7 @@ import { Bot, InlineKeyboard } from "grammy";
 import { prisma } from "../lib/db";
 import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
 import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
-import { reserveProductStock, getAvailableAreasForProduct } from "../lib/stockReservation";
+import { reserveProductStock, getAvailableAreasForProduct, CHECKOUT_TX_OPTIONS } from "../lib/stockReservation";
 import { isNOWPaymentsConfigured } from "../lib/nowpayments";
 import { t, BOT_LANGUAGES, isBotLanguage, languageLabel } from "../lib/botI18n";
 import {
@@ -910,7 +910,7 @@ export function createTelegramBot(token: string, botName: string) {
         }
 
         return { order, finalAmount, discount };
-      });
+      }, CHECKOUT_TX_OPTIONS);
 
       pendingPurchases.delete(telegramId);
 

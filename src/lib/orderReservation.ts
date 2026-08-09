@@ -5,6 +5,81 @@ import { prisma } from "./db";
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /**
+ * Statuses where the customer has not yet been given the pickup details.
+ *
+ * Cancelling from one of these can safely put the unit back on the shelf.
+ * Cancelling an ON_PICKUP or COMPLETED item must NOT: its location and video
+ * have already been sent, and re-listing that unit would send a second
+ * customer to a spot that is already spoken for.
+ */
+const PRE_DELIVERY_STATUSES = ["ORDERED", "PENDING_PAYMENT", "PROCESSING", "PAID", "COOLDOWN_ACTIVE"];
+
+/**
+ * Put a single order item's stock back after it is cancelled.
+ *
+ * Admins cancel individual items from the control panel, and that path used to
+ * change the status and nothing else - the reserved unit stayed USED and both
+ * counters stayed decremented, so a cancelled order silently destroyed a unit
+ * of stock along with its location and video links.
+ *
+ * Call inside the caller's transaction, BEFORE writing the new status, so the
+ * pre-delivery guard still sees the old one.
+ *
+ * @returns "RESTORED" if stock went back, "SKIPPED" if the item was already
+ *          cancelled or had already been handed to the customer.
+ */
+export async function restoreOrderItemStock(
+  tx: Tx,
+  orderItemId: string,
+  reason: string
+): Promise<"RESTORED" | "SKIPPED"> {
+  const item = await tx.orderItem.findUnique({ where: { id: orderItemId } });
+
+  if (!item || !PRE_DELIVERY_STATUSES.includes(item.status)) {
+    return "SKIPPED";
+  }
+
+  // Each OrderItem row is exactly one unit.
+  await tx.product.update({
+    where: { id: item.productId },
+    data: { stockQuantity: { increment: 1 } },
+  });
+
+  if (item.areaId) {
+    const areaDetail = await tx.productAreaDetail.findUnique({
+      where: { productId_areaId: { productId: item.productId, areaId: item.areaId } },
+    });
+    if (areaDetail) {
+      await tx.productAreaDetail.update({
+        where: { id: areaDetail.id },
+        data: { stockQuantity: { increment: 1 } },
+      });
+
+      await tx.stockEntry.create({
+        data: {
+          productAreaDetailId: areaDetail.id,
+          quantity: 1,
+          type: "RETURN",
+          notes: `${reason} - order item ${orderItemId.slice(0, 8)} cancelled`,
+          createdBy: null,
+        },
+      });
+    }
+  }
+
+  // The specific unit goes back to the pool with its links intact, keeping its
+  // original createdAt so FIFO offers it again first.
+  if (item.stockItemId) {
+    await tx.stockItem.update({
+      where: { id: item.stockItemId },
+      data: { status: "AVAILABLE" },
+    });
+  }
+
+  return "RESTORED";
+}
+
+/**
  * Releases everything a PENDING_PAYMENT order reserved and marks it CANCELLED.
  *
  * Crypto checkout reserves stock up front so two customers can't buy the last

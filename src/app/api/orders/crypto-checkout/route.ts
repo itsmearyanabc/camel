@@ -9,6 +9,7 @@ import {
   getPublicBaseUrl,
 } from "@/lib/nowpayments";
 import { releaseOrderReservation } from "@/lib/orderReservation";
+import { CHECKOUT_TX_OPTIONS } from "@/lib/stockReservation";
 
 // How long a customer has to complete payment before the reclaim cron restores
 // the stock they were holding.
@@ -142,8 +143,15 @@ export async function POST(req: Request) {
         areaDetail = await prisma.productAreaDetail.findUnique({
           where: { productId_areaId: { productId: product.id, areaId } }
         });
-        
-        if (areaDetail && areaDetail.stockQuantity < quantity) {
+
+        // A missing row means the product is not sold in that area. Treating it
+        // as "no check needed" let a caller order any quantity of anything by
+        // naming an area the product was never stocked in.
+        if (!areaDetail) {
+          return NextResponse.json({ error: `Not enough stock for ${product.name} in this area.` }, { status: 400 });
+        }
+
+        if (areaDetail.stockQuantity < quantity) {
           return NextResponse.json({ error: `Not enough stock for ${product.name} in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}` }, { status: 400 });
         }
       } else {
@@ -238,52 +246,82 @@ export async function POST(req: Request) {
           const areaDetail = await tx.productAreaDetail.findUnique({
             where: { productId_areaId: { productId, areaId } }
           });
-          
-          if (areaDetail) {
-            // Reserve unique per-unit stock items (FIFO) if they exist
-            const availableCount = await tx.stockItem.count({
-              where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" }
-            });
-            if (availableCount > 0) {
-              if (availableCount < quantity) {
-                throw new Error(`Not enough unique units for product in this area. Requested: ${quantity}, Available: ${availableCount}`);
-              }
-              reservedUnits = await tx.stockItem.findMany({
-                where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
-                orderBy: { createdAt: "asc" },
-                take: quantity,
-                select: { id: true }
-              });
-              await tx.stockItem.updateMany({
-                where: { id: { in: reservedUnits.map((u) => u.id) } },
-                data: { status: "USED" }
-              });
-            }
 
-            // Deduct from area-specific stock
-            await tx.productAreaDetail.update({
-              where: { id: areaDetail.id },
-              data: { stockQuantity: { decrement: quantity } }
-            });
-            
-            // Create stock entry for the sale
-            await tx.stockEntry.create({
-              data: {
-                productAreaDetailId: areaDetail.id,
-                quantity: -quantity,
-                type: "SALE",
-                notes: `Crypto order checkout - ${quantity} unit(s)`,
-                createdBy: session.userId
-              }
-            });
+          // Re-check inside the transaction. The validation above ran before
+          // the transaction opened, so without this two buyers racing for the
+          // last unit can both pass it and drive stock negative.
+          if (!areaDetail) {
+            throw new Error("This product is not available in the selected area.");
           }
+          if (areaDetail.stockQuantity < quantity) {
+            throw new Error(`Not enough stock. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}`);
+          }
+
+          // Reserve unique per-unit stock items (FIFO) if they exist
+          const availableCount = await tx.stockItem.count({
+            where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" }
+          });
+          if (availableCount > 0) {
+            if (availableCount < quantity) {
+              throw new Error(`Not enough unique units for product in this area. Requested: ${quantity}, Available: ${availableCount}`);
+            }
+            reservedUnits = await tx.stockItem.findMany({
+              where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
+              orderBy: { createdAt: "asc" },
+              take: quantity,
+              select: { id: true }
+            });
+
+            // Claim atomically: only rows still AVAILABLE flip to USED. Without
+            // the status predicate two buyers who read the same row would both
+            // be assigned it and receive the same pickup location.
+            const claimed = await tx.stockItem.updateMany({
+              where: { id: { in: reservedUnits.map((u) => u.id) }, status: "AVAILABLE" },
+              data: { status: "USED" }
+            });
+            if (claimed.count !== reservedUnits.length) {
+              throw new Error("Not enough stock — those units were just taken by another customer.");
+            }
+          }
+
+          // Deduct from area-specific stock, only if enough is still there.
+          const areaTaken = await tx.productAreaDetail.updateMany({
+            where: { id: areaDetail.id, stockQuantity: { gte: quantity } },
+            data: { stockQuantity: { decrement: quantity } }
+          });
+          if (areaTaken.count === 0) {
+            throw new Error("Not enough stock in this area. Please try again.");
+          }
+
+          // Create stock entry for the sale
+          await tx.stockEntry.create({
+            data: {
+              productAreaDetailId: areaDetail.id,
+              quantity: -quantity,
+              type: "SALE",
+              notes: `Crypto order checkout - ${quantity} unit(s)`,
+              createdBy: session.userId
+            }
+          });
         }
         
-        // Always deduct from global stock
-        await tx.product.update({
-          where: { id: productId },
-          data: { stockQuantity: { decrement: quantity } }
-        });
+        // Always deduct from global stock. With an area, the area gate above is
+        // the real check and this just mirrors it; without one, the global
+        // counter is the only gate, so guard it.
+        if (areaId) {
+          await tx.product.update({
+            where: { id: productId },
+            data: { stockQuantity: { decrement: quantity } }
+          });
+        } else {
+          const taken = await tx.product.updateMany({
+            where: { id: productId, stockQuantity: { gte: quantity } },
+            data: { stockQuantity: { decrement: quantity } }
+          });
+          if (taken.count === 0) {
+            throw new Error("Not enough stock. Please try again.");
+          }
+        }
 
         // Assign reserved per-unit stock items to this product's order items (FIFO)
         if (reservedUnits.length > 0) {
@@ -339,7 +377,7 @@ export async function POST(req: Request) {
       }
 
       return createdOrder;
-    });
+    }, CHECKOUT_TX_OPTIONS);
     const productName = mergedCart.length > 1
       ? `${firstProductName} and ${mergedCart.length - 1} more`
       : firstProductName;

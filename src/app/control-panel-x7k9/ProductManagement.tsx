@@ -30,6 +30,20 @@ interface Product {
   createdAt: string;
 }
 
+/**
+ * One unit of stock while it is being edited.
+ *
+ * `id` is present for units that already exist in the database and MUST be sent
+ * back on save: the API uses it to tell an untouched unit from a new one, and
+ * to drop any unit that was sold while this form was open. Dropping the id
+ * would let a sold unit's location and video be re-issued to another customer.
+ */
+interface StockItemDraft {
+  id?: string;
+  locationUrl: string;
+  videoUrl: string;
+}
+
 interface Category {
   id: string;
   name: string;
@@ -84,12 +98,30 @@ export default function ProductManagement() {
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<string>("");
   const [bulkValue, setBulkValue] = useState<string>("");
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   useEffect(() => {
     fetchData();
   }, []);
 
   const [userRole, setUserRole] = useState<string>("");
+
+  /**
+   * Staff run inventory, not the catalogue.
+   *
+   * They may move stock, change which areas a product is offered in, and set
+   * the per-unit delivery links / cooldown / message. Everything describing or
+   * pricing the product - and creating or deleting products altogether - is
+   * admin-only. The API enforces the same split, so this is presentation, not
+   * the security boundary.
+   */
+  const isStaff = userRole === "STAFF";
+
+  /** Props that grey out a catalogue field when a staff member is editing. */
+  const adminOnlyField = {
+    disabled: isStaff,
+    style: { opacity: isStaff ? 0.6 : 1, cursor: isStaff ? "not-allowed" : "text" } as React.CSSProperties,
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -144,10 +176,8 @@ export default function ProductManagement() {
     setMsg(null);
 
     try {
-      const areaStocks = formData.areaDetails.map((d: any) => ({
-        areaId: d.areaId,
-        quantity: d.stockQuantity?.toString() || "0",
-      }));
+      const fullAreaDetails = buildFullAreaDetails(formData.areaIds, formData.areaDetails);
+      const areaStocks = buildAreaStocks(fullAreaDetails);
 
       const res = await fetch("/api/admin/products", {
         method: "POST",
@@ -165,11 +195,11 @@ export default function ProductManagement() {
       if (res.ok) {
         // Save per-unit area details (location/video links) for the new product.
         const newProductId = data.product?.id;
-        if (newProductId && formData.areaDetails && formData.areaDetails.length > 0) {
+        if (newProductId && fullAreaDetails.length > 0) {
           await fetch(`/api/admin/products/${newProductId}/area-details`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ areaDetails: normalizeAreaDetails(formData.areaDetails) }),
+            body: JSON.stringify({ areaDetails: normalizeAreaDetails(fullAreaDetails) }),
           });
         }
 
@@ -200,38 +230,84 @@ export default function ProductManagement() {
       return { ...d, stockItems: items.slice(0, qty) };
     });
 
+  /** Cooldown shown for an area the admin hasn't touched yet. */
+  const DEFAULT_COOLDOWN_MINUTES = 30;
+
+  /**
+   * One entry per selected area, filling in the defaults the form displays.
+   *
+   * Ticking an area's checkbox does not add anything to `areaDetails` until its
+   * quantity or links are edited. Building the payload from `areaDetails` alone
+   * therefore (a) attached the area to the product with no stock row behind it,
+   * so the storefront offered delivery there and checkout had nothing to sell,
+   * and (b) silently saved a 0-minute cooldown while the form showed 30 -
+   * handing the pickup location over instantly. Driving this off `areaIds`
+   * keeps the saved data equal to what is on screen.
+   */
+  const buildFullAreaDetails = (areaIds: string[], areaDetails: any[]) =>
+    areaIds.map((areaId) => {
+      const detail = areaDetails.find((d: any) => d.areaId === areaId);
+      return {
+        areaId,
+        stockQuantity: 0,
+        locationUrl: "",
+        videoUrl: "",
+        message: "",
+        cooldownMinutes: DEFAULT_COOLDOWN_MINUTES,
+        stockItems: [],
+        ...(detail || {}),
+      };
+    });
+
+  const buildAreaStocks = (fullAreaDetails: any[]) =>
+    fullAreaDetails.map((d: any) => ({
+      areaId: d.areaId,
+      quantity: (parseInt(d.stockQuantity, 10) || 0).toString(),
+    }));
+
   const handleEditProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct) return;
     setMsg(null);
 
     try {
-      const areaStocks = formData.areaDetails.map((d: any) => ({
-        areaId: d.areaId,
-        quantity: d.stockQuantity?.toString() || "0",
-      }));
+      const fullAreaDetails = buildFullAreaDetails(formData.areaIds, formData.areaDetails);
+      const areaStocks = buildAreaStocks(fullAreaDetails);
+
+      // Staff only ever send the inventory half of the form. The API discards
+      // catalogue fields from a staff session anyway; not sending them keeps
+      // the request honest about what is actually being changed.
+      const payload = isStaff
+        ? {
+            productId: selectedProduct.id,
+            cityIds: formData.cityIds,
+            areaIds: formData.areaIds,
+            stockQuantity: formData.stockQuantity,
+            areaStocks,
+          }
+        : {
+            productId: selectedProduct.id,
+            ...formData,
+            price: parseFloat(formData.price),
+            originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
+            areaStocks,
+          };
 
       const res = await fetch("/api/admin/products", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: selectedProduct.id,
-          ...formData,
-          price: parseFloat(formData.price),
-          originalPrice: formData.originalPrice ? parseFloat(formData.originalPrice) : null,
-          areaStocks,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
 
       if (res.ok) {
         // Update area details if provided
-        if (formData.areaDetails && formData.areaDetails.length > 0) {
+        if (fullAreaDetails.length > 0) {
           await fetch(`/api/admin/products/${selectedProduct.id}/area-details`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ areaDetails: normalizeAreaDetails(formData.areaDetails) }),
+            body: JSON.stringify({ areaDetails: normalizeAreaDetails(fullAreaDetails) }),
           });
         }
 
@@ -281,17 +357,73 @@ export default function ProductManagement() {
       return;
     }
 
-    if (!confirm(`Apply ${bulkAction} to ${selectedProducts.size} product(s)?`)) return;
+    const ids = Array.from(selectedProducts);
 
-    try {
-      // Implement bulk actions here
-      setMsg({ type: "success", text: `Bulk action applied to ${selectedProducts.size} products` });
-      setSelectedProducts(new Set());
-      setShowBulkModal(false);
-      fetchData();
-    } catch (e) {
-      setMsg({ type: "error", text: "Error applying bulk action" });
+    if (bulkAction === "update-price") {
+      const price = parseFloat(bulkValue);
+      if (!Number.isFinite(price) || price <= 0) {
+        setMsg({ type: "error", text: "Enter a price greater than 0" });
+        return;
+      }
+      if (!confirm(`Set the price of ${ids.length} product(s) to $${price.toFixed(2)}?`)) return;
+
+      setBulkRunning(true);
+      try {
+        const results = await Promise.all(
+          ids.map((productId) =>
+            fetch("/api/admin/products", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ productId, price }),
+            })
+          )
+        );
+        const failed = results.filter((r) => !r.ok).length;
+        setMsg(
+          failed
+            ? { type: "error", text: `Updated ${ids.length - failed} of ${ids.length} — ${failed} failed` }
+            : { type: "success", text: `Price updated on ${ids.length} product(s)` }
+        );
+      } catch (e) {
+        setMsg({ type: "error", text: "Error applying bulk price update" });
+      } finally {
+        setBulkRunning(false);
+      }
+    } else if (bulkAction === "delete") {
+      if (!confirm(`Permanently delete ${ids.length} product(s)? This cannot be undone.`)) return;
+
+      setBulkRunning(true);
+      try {
+        const results = await Promise.all(
+          ids.map((productId) =>
+            fetch("/api/admin/products", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ productId }),
+            })
+          )
+        );
+        const failed = results.filter((r) => !r.ok).length;
+        setMsg(
+          failed
+            ? { type: "error", text: `Deleted ${ids.length - failed} of ${ids.length} — ${failed} failed` }
+            : { type: "success", text: `Deleted ${ids.length} product(s)` }
+        );
+      } catch (e) {
+        setMsg({ type: "error", text: "Error deleting products" });
+      } finally {
+        setBulkRunning(false);
+      }
+    } else {
+      setMsg({ type: "error", text: "Unsupported action" });
+      return;
     }
+
+    setSelectedProducts(new Set());
+    setBulkAction("");
+    setBulkValue("");
+    setShowBulkModal(false);
+    fetchData();
   };
 
   const openEditModal = (product: Product) => {
@@ -420,22 +552,35 @@ export default function ProductManagement() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
         <div>
-          <h2 style={{ fontSize: "28px", fontWeight: "700", marginBottom: "4px" }}>Product Management</h2>
+          <h2 style={{ fontSize: "28px", fontWeight: "700", marginBottom: "4px" }}>
+            {isStaff ? "Inventory" : "Product Management"}
+          </h2>
           <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-            Manage your product catalog, inventory, and pricing
+            {isStaff
+              ? "Manage stock levels, areas, and per-unit delivery details"
+              : "Manage your product catalog, inventory, and pricing"}
           </p>
         </div>
-        <div style={{ display: "flex", gap: "12px" }}>
-          {selectedProducts.size > 0 && (
-            <button onClick={() => setShowBulkModal(true)} className="btn btn-secondary">
-              Bulk Actions ({selectedProducts.size})
+        {!isStaff && (
+          <div style={{ display: "flex", gap: "12px" }}>
+            {selectedProducts.size > 0 && (
+              <button onClick={() => setShowBulkModal(true)} className="btn btn-secondary">
+                Bulk Actions ({selectedProducts.size})
+              </button>
+            )}
+            <button onClick={() => { resetForm(); setShowAddModal(true); }} className="btn btn-primary">
+              ➕ Add Product
             </button>
-          )}
-          <button onClick={() => { resetForm(); setShowAddModal(true); }} className="btn btn-primary">
-            ➕ Add Product
-          </button>
-        </div>
+          </div>
+        )}
       </div>
+
+      {isStaff && (
+        <div className="alert" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "13px" }}>
+          ℹ️ Product details and pricing are set by administrators. You can adjust stock quantities,
+          area availability, per-unit location &amp; video links, cooldown, and the pickup message.
+        </div>
+      )}
 
       {/* Message */}
       {msg && (
@@ -518,14 +663,16 @@ export default function ProductManagement() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg-secondary)" }}>
-                <th style={{ padding: "16px", textAlign: "left", width: "40px" }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedProducts.size === filteredProducts.length && filteredProducts.length > 0}
-                    onChange={toggleSelectAll}
-                    style={{ cursor: "pointer" }}
-                  />
-                </th>
+                {!isStaff && (
+                  <th style={{ padding: "16px", textAlign: "left", width: "40px" }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedProducts.size === filteredProducts.length && filteredProducts.length > 0}
+                      onChange={toggleSelectAll}
+                      style={{ cursor: "pointer" }}
+                    />
+                  </th>
+                )}
                 <th style={{ padding: "16px", textAlign: "left", fontWeight: "600", color: "var(--text-secondary)" }}>
                   Product
                 </th>
@@ -546,7 +693,7 @@ export default function ProductManagement() {
             <tbody>
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: "48px", textAlign: "center", color: "var(--text-secondary)" }}>
+                  <td colSpan={isStaff ? 5 : 6} style={{ padding: "48px", textAlign: "center", color: "var(--text-secondary)" }}>
                     <div style={{ fontSize: "48px", marginBottom: "16px" }}>📦</div>
                     <p>No products found</p>
                   </td>
@@ -560,14 +707,16 @@ export default function ProductManagement() {
                       background: selectedProducts.has(product.id) ? "var(--bg-secondary)" : "transparent",
                     }}
                   >
-                    <td style={{ padding: "16px" }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedProducts.has(product.id)}
-                        onChange={() => toggleProductSelection(product.id)}
-                        style={{ cursor: "pointer" }}
-                      />
-                    </td>
+                    {!isStaff && (
+                      <td style={{ padding: "16px" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.has(product.id)}
+                          onChange={() => toggleProductSelection(product.id)}
+                          style={{ cursor: "pointer" }}
+                        />
+                      </td>
+                    )}
                     <td style={{ padding: "16px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                         {product.imageUrl ? (
@@ -652,15 +801,17 @@ export default function ProductManagement() {
                           className="btn btn-ghost btn-sm"
                           style={{ color: "var(--accent)" }}
                         >
-                          ✏️ Edit
+                          {isStaff ? "📦 Manage Stock" : "✏️ Edit"}
                         </button>
-                        <button
-                          onClick={() => handleDeleteProduct(product.id)}
-                          className="btn btn-ghost btn-sm"
-                          style={{ color: "var(--red)" }}
-                        >
-                          🗑️ Delete
-                        </button>
+                        {!isStaff && (
+                          <button
+                            onClick={() => handleDeleteProduct(product.id)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: "var(--red)" }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -728,7 +879,7 @@ export default function ProductManagement() {
             </button>
 
             <h2 style={{ fontSize: "24px", marginBottom: "24px" }}>
-              {showAddModal ? "Add New Product" : "Edit Product"}
+              {showAddModal ? "Add New Product" : isStaff ? `Manage Stock — ${selectedProduct?.name ?? ""}` : "Edit Product"}
             </h2>
 
             <form onSubmit={showAddModal ? handleAddProduct : handleEditProduct}>
@@ -736,6 +887,11 @@ export default function ProductManagement() {
                 {/* Basic Info */}
                 <div style={{ gridColumn: "1 / -1" }}>
                   <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--accent)" }}>Basic Information</h3>
+                  {isStaff && (
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "-8px", marginBottom: "16px" }}>
+                      🔒 Read-only — product details are managed by administrators.
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -746,6 +902,7 @@ export default function ProductManagement() {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     required
+                    {...adminOnlyField}
                   />
                 </div>
 
@@ -757,6 +914,7 @@ export default function ProductManagement() {
                     placeholder="e.g. Powder, Liquid, Capsule"
                     value={formData.productType}
                     onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
+                    {...adminOnlyField}
                   />
                 </div>
 
@@ -770,12 +928,8 @@ export default function ProductManagement() {
                     value={formData.price}
                     onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                     required
-                    disabled={userRole === "STAFF"}
-                    style={{ opacity: userRole === "STAFF" ? 0.6 : 1, cursor: userRole === "STAFF" ? "not-allowed" : "text" }}
+                    {...adminOnlyField}
                   />
-                  {userRole === "STAFF" && (
-                    <small style={{ color: "var(--accent)" }}>Price can only be changed by Administrators</small>
-                  )}
                 </div>
 
                 <div className="form-group">
@@ -788,8 +942,7 @@ export default function ProductManagement() {
                     placeholder="Leave blank for no discount"
                     value={formData.originalPrice}
                     onChange={(e) => setFormData({ ...formData, originalPrice: e.target.value })}
-                    disabled={userRole === "STAFF"}
-                    style={{ opacity: userRole === "STAFF" ? 0.6 : 1, cursor: userRole === "STAFF" ? "not-allowed" : "text" }}
+                    {...adminOnlyField}
                   />
                   <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
                     Set higher than the sale price to show a strikethrough discount on the storefront
@@ -804,6 +957,7 @@ export default function ProductManagement() {
                     placeholder="e.g. NaCl, H2SO4"
                     value={formData.formula}
                     onChange={(e) => setFormData({ ...formData, formula: e.target.value })}
+                    {...adminOnlyField}
                   />
                 </div>
 
@@ -815,6 +969,7 @@ export default function ProductManagement() {
                     placeholder="e.g. 7647-14-5"
                     value={formData.casNumber}
                     onChange={(e) => setFormData({ ...formData, casNumber: e.target.value })}
+                    {...adminOnlyField}
                   />
                 </div>
 
@@ -825,6 +980,7 @@ export default function ProductManagement() {
                     rows={3}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    {...adminOnlyField}
                   />
                 </div>
 
@@ -832,10 +988,12 @@ export default function ProductManagement() {
                 <div className="form-group" style={{ gridColumn: "1 / -1" }}>
                   <label className="form-label">Product Image</label>
                   <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                    <label className="btn btn-secondary" style={{ cursor: "pointer", margin: 0 }}>
-                      📷 Upload Image
-                      <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
-                    </label>
+                    {!isStaff && (
+                      <label className="btn btn-secondary" style={{ cursor: "pointer", margin: 0 }}>
+                        📷 Upload Image
+                        <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: "none" }} />
+                      </label>
+                    )}
                     {formData.imageUrl && (
                       <img
                         src={formData.imageUrl}
@@ -970,12 +1128,12 @@ export default function ProductManagement() {
                                  locationUrl: "",
                                  videoUrl: "",
                                  message: "",
-                                 cooldownMinutes: 30,
-                                 stockItems: [] as Array<{ locationUrl: string; videoUrl: string }>,
+                                 cooldownMinutes: DEFAULT_COOLDOWN_MINUTES,
+                                 stockItems: [] as Array<StockItemDraft>,
                                };
 
                          const qty = parseInt(detail.stockQuantity, 10) || 0;
-                         let stockItems: Array<{ locationUrl: string; videoUrl: string }> = Array.isArray(detail.stockItems)
+                         let stockItems: Array<StockItemDraft> = Array.isArray(detail.stockItems)
                            ? [...detail.stockItems]
                            : [];
                          // Seed from legacy single location/video if present and no items yet.
@@ -1103,8 +1261,8 @@ export default function ProductManagement() {
                                   min="0"
                                   className="form-input"
                                   placeholder="30"
-                                  value={detail.cooldownMinutes || 30}
-                                  onChange={(e) => updateDetail("cooldownMinutes", parseInt(e.target.value) || 30)}
+                                  value={detail.cooldownMinutes ?? DEFAULT_COOLDOWN_MINUTES}
+                                  onChange={(e) => updateDetail("cooldownMinutes", Math.max(0, parseInt(e.target.value) || 0))}
                                 />
                               </div>
 
@@ -1202,7 +1360,7 @@ export default function ProductManagement() {
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  {showAddModal ? "Add Product" : "Save Changes"}
+                  {showAddModal ? "Add Product" : isStaff ? "Save Stock Changes" : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -1257,10 +1415,11 @@ export default function ProductManagement() {
 
             <div className="form-group">
               <label className="form-label">Action</label>
+              {/* Stock is per-area and per-unit, so it has no meaningful bulk
+                  form - it is edited product by product in the modal above. */}
               <select className="form-input" value={bulkAction} onChange={(e) => setBulkAction(e.target.value)}>
                 <option value="">Select Action</option>
                 <option value="update-price">Update Price</option>
-                <option value="update-stock">Update Stock</option>
                 <option value="delete">Delete Products</option>
               </select>
             </div>
@@ -1271,6 +1430,7 @@ export default function ProductManagement() {
                 <input
                   type="number"
                   step="0.01"
+                  min="0.01"
                   className="form-input"
                   value={bulkValue}
                   onChange={(e) => setBulkValue(e.target.value)}
@@ -1279,25 +1439,12 @@ export default function ProductManagement() {
               </div>
             )}
 
-            {bulkAction === "update-stock" && (
-              <div className="form-group">
-                <label className="form-label">Stock Adjustment</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={bulkValue}
-                  onChange={(e) => setBulkValue(e.target.value)}
-                  placeholder="Enter quantity (+/-)"
-                />
-              </div>
-            )}
-
             <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "24px" }}>
-              <button onClick={() => setShowBulkModal(false)} className="btn btn-secondary">
+              <button onClick={() => setShowBulkModal(false)} className="btn btn-secondary" disabled={bulkRunning}>
                 Cancel
               </button>
-              <button onClick={handleBulkAction} className="btn btn-primary">
-                Apply
+              <button onClick={handleBulkAction} className="btn btn-primary" disabled={bulkRunning}>
+                {bulkRunning ? "Applying..." : "Apply"}
               </button>
             </div>
           </div>

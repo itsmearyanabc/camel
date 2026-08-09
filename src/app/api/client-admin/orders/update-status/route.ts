@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { restoreOrderItemStock } from "@/lib/orderReservation";
 
 export async function POST(req: Request) {
   try {
@@ -33,6 +34,15 @@ export async function POST(req: Request) {
     }
 
     const updatedOrderItem = await prisma.$transaction(async (tx) => {
+      // Cancelling has to hand the reserved unit back before the status moves -
+      // the restore checks the *current* status to tell an undelivered item
+      // from one whose location the customer already has. Without this the unit
+      // stayed USED and both stock counters stayed decremented, so cancelling
+      // an order quietly destroyed that unit and its location/video links.
+      if (status === "CANCELLED") {
+        await restoreOrderItemStock(tx, orderItemId, "Cancelled by staff");
+      }
+
       const item = await tx.orderItem.update({
         where: { id: orderItemId },
         data: { status },

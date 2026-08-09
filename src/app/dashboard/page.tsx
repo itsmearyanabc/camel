@@ -171,6 +171,13 @@ export default function Dashboard() {
   const [pwMsg, setPwMsg] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [pwLoading, setPwLoading] = useState(false);
 
+  // Permanent account deletion state
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteMsg, setDeleteMsg] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   // Telegram settings state
   const [tgIdInput, setTgIdInput] = useState("");
   const [tgUsernameInput, setTgUsernameInput] = useState("");
@@ -310,6 +317,37 @@ export default function Dashboard() {
       setPwMsg({ type: "error", text: "An error occurred" });
     }
     setPwLoading(false);
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteMsg(null);
+    if (deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      setDeleteMsg({ type: "error", text: 'Type DELETE in the confirmation box to continue' });
+      return;
+    }
+    if (!window.confirm("This permanently erases your account and all of your data. This cannot be undone. Continue?")) {
+      return;
+    }
+    setDeleteLoading(true);
+    try {
+      const res = await fetch("/api/auth/delete-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: deletePassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDeleteMsg({ type: "error", text: data.error || "Failed to delete account" });
+        setDeleteLoading(false);
+        return;
+      }
+      // The server already dropped the session cookie; leave the app entirely.
+      window.location.href = "/";
+    } catch {
+      setDeleteMsg({ type: "error", text: "An error occurred" });
+      setDeleteLoading(false);
+    }
   };
 
   const handleTelegramSubmit = async (e: React.FormEvent) => {
@@ -1682,6 +1720,95 @@ export default function Dashboard() {
                     </a>
                   </div>
                 </div>
+              </div>
+
+              {/* Delete Account */}
+              <div className="card" style={{ marginTop: "24px", border: "1px solid var(--red)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                  <span style={{ fontSize: "24px" }}>⚠️</span>
+                  <div>
+                    <h3 style={{ marginBottom: "2px", color: "var(--red)" }}>Delete Account</h3>
+                    <p style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>
+                      Permanently erase your account and all of your data
+                    </p>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px", maxWidth: "640px" }}>
+                  This removes your profile, wallet balance and ledger, order history, disputes, reviews,
+                  notifications and restock alerts. Any wallet balance is forfeited and the action
+                  <strong> cannot be undone</strong>.
+                </p>
+
+                {deleteMsg && (
+                  <div className={`alert ${deleteMsg.type === "error" ? "alert-error" : "alert-success"}`} style={{ marginBottom: "16px" }}>
+                    {deleteMsg.text}
+                  </div>
+                )}
+
+                {!showDeleteAccount ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ color: "var(--red)", borderColor: "var(--red)", width: "fit-content" }}
+                    onClick={() => setShowDeleteAccount(true)}
+                  >
+                    🗑️ Delete My Account
+                  </button>
+                ) : (
+                  <form onSubmit={handleDeleteAccount} style={{ display: "flex", flexDirection: "column", gap: "16px", maxWidth: "480px" }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="delete-password">Your Password</label>
+                      <input
+                        id="delete-password"
+                        type="password"
+                        className="form-input"
+                        autoComplete="current-password"
+                        value={deletePassword}
+                        onChange={(e) => setDeletePassword(e.target.value)}
+                        required
+                        placeholder="Enter your password"
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" htmlFor="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
+                      <input
+                        id="delete-confirm"
+                        type="text"
+                        className="form-input"
+                        value={deleteConfirmText}
+                        onChange={(e) => setDeleteConfirmText(e.target.value)}
+                        required
+                        placeholder="DELETE"
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", gap: "12px" }}>
+                      <button
+                        type="submit"
+                        className="btn"
+                        disabled={deleteLoading}
+                        style={{ background: "var(--red)", color: "white", opacity: deleteLoading ? 0.6 : 1 }}
+                      >
+                        {deleteLoading ? "Deleting..." : "Permanently Delete Account"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={deleteLoading}
+                        onClick={() => {
+                          setShowDeleteAccount(false);
+                          setDeletePassword("");
+                          setDeleteConfirmText("");
+                          setDeleteMsg(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             </div>
           )}
