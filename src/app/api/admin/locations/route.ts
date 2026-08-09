@@ -18,8 +18,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Cities and areas are catalogue structure, not inventory: staff may read
+  // them (to stock a product in an area) but only admins may create them.
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can add locations." }, { status: 403 });
   }
 
   const { type, name, cityId } = await req.json();
@@ -50,8 +52,11 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await getSession();
-  if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Admin-only. Deleting a city cascades through its areas into every
+  // ProductAreaDetail and StockItem beneath them, wiping stock counts and the
+  // per-unit location/video links for every product sold there.
+  if (!session || !["ADMIN", "SUPERADMIN"].includes(session.role)) {
+    return NextResponse.json({ error: "Unauthorized. Only admins can delete locations." }, { status: 403 });
   }
 
   const { type, id } = await req.json();

@@ -851,35 +851,46 @@ export default function ClientAdminPanel() {
           {/* LOCATIONS TAB */}
           {activeTab === "locations" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Locations Management</h2>
-              
-              <div className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
-                <div className="card">
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add City</h3>
-                  <form onSubmit={handleAddCity} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="City Name" value={newCityName} onChange={e => setNewCityName(e.target.value)} required />
-                    </div>
-                    <button type="submit" className="btn btn-primary btn-sm">Add City</button>
-                  </form>
-                </div>
+              <h2 className="cp-heading" style={{ fontSize: "28px" }}>
+                {isAdmin ? "Locations Management" : "Locations"}
+              </h2>
 
-                <div className="card">
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Area</h3>
-                  <form onSubmit={handleAddArea} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <select className="form-input" value={selectedCityForArea} onChange={e => setSelectedCityForArea(e.target.value)} required>
-                        <option value="">Select City...</option>
-                        {locations.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <input className="form-input" placeholder="Area Name" value={newAreaName} onChange={e => setNewAreaName(e.target.value)} required />
-                    </div>
-                    <button type="submit" className="btn btn-primary btn-sm">Add Area</button>
-                  </form>
+              {/* Creating cities and areas is admin-only. Everything else on
+                  this tab is unchanged for staff. */}
+              {isAdmin ? (
+                <div className="cp-grid-form" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+                  <div className="card">
+                    <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add City</h3>
+                    <form onSubmit={handleAddCity} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <input className="form-input" placeholder="City Name" value={newCityName} onChange={e => setNewCityName(e.target.value)} required />
+                      </div>
+                      <button type="submit" className="btn btn-primary btn-sm">Add City</button>
+                    </form>
+                  </div>
+
+                  <div className="card">
+                    <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Add Area</h3>
+                    <form onSubmit={handleAddArea} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <select className="form-input" value={selectedCityForArea} onChange={e => setSelectedCityForArea(e.target.value)} required>
+                          <option value="">Select City...</option>
+                          {locations.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <input className="form-input" placeholder="Area Name" value={newAreaName} onChange={e => setNewAreaName(e.target.value)} required />
+                      </div>
+                      <button type="submit" className="btn btn-primary btn-sm">Add Area</button>
+                    </form>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="alert" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "13px" }}>
+                  ℹ️ Cities and areas are managed by administrators. You can stock products
+                  into the existing areas from the Inventory tab.
+                </div>
+              )}
 
               <div className="card">
                 <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Existing Locations</h3>
@@ -888,14 +899,18 @@ export default function ClientAdminPanel() {
                     <div key={city.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "16px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
                         <h4 style={{ fontSize: "18px", color: "var(--text-primary)" }}>{city.name}</h4>
-                        <button onClick={() => handleDeleteLocation(city.id, "city")} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Delete City</button>
+                        {isAdmin && (
+                          <button onClick={() => handleDeleteLocation(city.id, "city")} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Delete City</button>
+                        )}
                       </div>
                       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                         {city.areas?.length === 0 && <li style={{ color: "var(--text-secondary)", fontSize: "13px" }}>No areas added.</li>}
                         {city.areas?.map((area: any) => (
                           <li key={area.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
                             <span>{area.name}</span>
-                            <button onClick={() => handleDeleteLocation(area.id, "area")} className="btn btn-ghost btn-sm" style={{ padding: "0 8px", color: "var(--red)" }}>Del</button>
+                            {isAdmin && (
+                              <button onClick={() => handleDeleteLocation(area.id, "area")} className="btn btn-ghost btn-sm" style={{ padding: "0 8px", color: "var(--red)" }}>Del</button>
+                            )}
                           </li>
                         ))}
                       </ul>
