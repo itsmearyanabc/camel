@@ -162,17 +162,20 @@ export default function NotificationBell() {
             onClick={() => setShowDropdown(false)}
           />
           <div
-            className="card"
+            className="card overlay-panel"
             style={{
               position: "absolute",
               top: "100%",
               right: 0,
               marginTop: "8px",
-              width: "380px",
-              maxHeight: "500px",
+              // Never wider than the viewport: at 380px fixed this ran off the
+              // edge of a phone screen and the panel could not be read.
+              width: "min(380px, calc(100vw - 24px))",
+              maxHeight: "min(500px, 70vh)",
               overflowY: "auto",
               zIndex: 1000,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+              padding: 0,
+              boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
             }}
           >
             <div

@@ -181,7 +181,12 @@ export default function DashboardNav({
               style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px" }}
             >
               <img src={languages.find(l => l.code === activeLanguage)?.iconUrl || "https://flagcdn.com/w40/gb.png"} alt="flag" style={{ width: "20px", borderRadius: "2px" }} aria-hidden="true" />
-              {languages.find(l => l.code === activeLanguage)?.name || "English"}
+              {/* Label drops away on phones - the flag alone still identifies
+                  the language, and the words were what pushed the avatar off
+                  the right edge of the bar. */}
+              <span className={styles.navLabelText}>
+                {languages.find(l => l.code === activeLanguage)?.name || "English"}
+              </span>
             </button>
             <nav
               className={`${styles.menuPanel} ${languageOpen ? styles.menuPanelOpen : ""}`}
@@ -217,8 +222,10 @@ export default function DashboardNav({
             <button
               type="button"
               onClick={() => setMenuOpen(!menuOpen)}
+              className={styles.avatarButton}
               style={{
                 width: "36px", height: "36px",
+                minWidth: "36px",
                 borderRadius: "50%",
                 border: "2px solid var(--border)",
                 background: "linear-gradient(135deg, var(--accent) 0%, var(--purple) 100%)",

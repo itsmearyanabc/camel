@@ -2,7 +2,9 @@
 .topnav { position:sticky; top:18px; z-index:30; max-width:1180px; width:calc(100% - 48px); min-height:68px; margin:22px auto 0; padding:0 24px; display:flex; align-items:center; justify-content:space-between; gap:18px; background:rgba(255,255,255,.78); border:1px solid var(--border); border-radius:999px; box-shadow:0 18px 45px rgba(28,30,36,.12); backdrop-filter:blur(22px); transition:background-color .35s var(--ease), border-color .35s var(--ease), box-shadow .35s var(--ease); }
 :global(:root[data-theme="night"]) .topnav { background:rgba(47,47,47,.95); border-color:rgba(255,255,255,.08); box-shadow:0 18px 52px rgba(0,0,0,.46); }
 .brandButton { border:0; background:transparent; color:var(--text-primary); cursor:pointer; font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:800; letter-spacing:0; line-height:1; }
-.account { position:relative; display:flex; align-items:center; gap:26px; flex:0 0 auto; }
+.account { position:relative; display:flex; align-items:center; gap:26px; flex:0 1 auto; min-width:0; }
+.avatarButton { flex:0 0 auto; }
+.navLabelText { display:inline; }
 .navIconButton,.languageButton,.menuButton { height:38px; border:0; background:transparent; color:var(--text-primary); cursor:pointer; font:inherit; font-weight:800; transition:color .2s var(--ease), transform .2s var(--ease), opacity .2s var(--ease); }
 .navIconButton:hover,.languageButton:hover,.menuButton:hover { transform:translateY(-1px); opacity:.78; }
 .navIconButton { min-width:28px; font-size:22px; line-height:1; }
@@ -11,8 +13,8 @@
 .menuWrap { position:relative; display:flex; align-items:center; }
 .menuButton { width:30px; display:grid; place-items:center; gap:4px; }
 .menuButton span { width:19px; height:2px; display:block; border-radius:4px; background:currentColor; }
-.menuPanel { position:absolute; top:calc(100% + 18px); right:-12px; width:min(290px,calc(100vw - 32px)); padding:12px; display:grid; gap:5px; border:1px solid var(--border); border-radius:22px; background:color-mix(in srgb,var(--bg-elevated) 96%,transparent); box-shadow:var(--shadow-lg); backdrop-filter:blur(22px); opacity:0; pointer-events:none; transform:translateY(-8px) scale(.98); transform-origin:top right; transition:opacity .2s var(--ease), transform .2s var(--ease); }
-:global(:root[data-theme="night"]) .menuPanel { background:rgba(34,34,34,.96); border-color:rgba(255,255,255,.09); }
+.menuPanel { position:absolute; top:calc(100% + 18px); right:-12px; width:min(290px,calc(100vw - 32px)); padding:12px; display:grid; gap:5px; border:1px solid var(--border); border-radius:22px; background:var(--panel-bg); box-shadow:0 12px 32px rgba(0,0,0,.28); backdrop-filter:none; opacity:0; pointer-events:none; transform:translateY(-8px) scale(.98); transform-origin:top right; transition:opacity .2s var(--ease), transform .2s var(--ease); }
+:global(:root[data-theme="night"]) .menuPanel { background:var(--panel-bg); border-color:var(--panel-border); }
 .menuPanelOpen { opacity:1; pointer-events:auto; transform:translateY(0) scale(1); }
 .menuUser { display:flex; align-items:center; gap:10px; padding:8px 8px 12px; border-bottom:1px solid var(--border); margin-bottom:5px; }
 .menuUser div:last-child { display:grid; gap:1px; }
@@ -51,6 +53,8 @@
 
 @media(max-width:768px){
   .hideOnMobile { display: none !important; }
+  .navLabelText { display:none; }
+  .brandButton { max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hideOnDesktop { display: flex !important; }
   .topnav{width:calc(100% - 20px);min-height:56px;top:8px;margin-top:10px;padding:0 14px;gap:6px}
   .account{gap:8px}

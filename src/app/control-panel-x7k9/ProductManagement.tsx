@@ -116,6 +116,7 @@ export default function ProductManagement() {
   const [variants, setVariants] = useState<VariantDraft[]>([]);
   const [addingNewType, setAddingNewType] = useState(false);
   const [uploadingMediaFor, setUploadingMediaFor] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
   // Live save feedback, pinned bottom-right so it is visible no matter how far
   // down the modal the admin has scrolled.
@@ -593,6 +594,62 @@ export default function ProductManagement() {
     setShowEditModal(true);
   };
 
+  const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+  const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+  const UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+
+  /**
+   * Upload one file with real progress.
+   *
+   * XHR rather than fetch: fetch cannot report upload progress, so a large
+   * video over a phone connection looked identical to a hung request - which
+   * is exactly how it was reported. It also lets a stalled request be aborted
+   * instead of leaving the form stuck on "Uploading…" forever.
+   */
+  const uploadOneFile = (file: File, onProgress: (percent: number) => void) =>
+    new Promise<DeliveryMedia>((resolve, reject) => {
+      const body = new FormData();
+      body.append("file", file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/admin/upload-media");
+      xhr.timeout = UPLOAD_TIMEOUT_MS;
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+
+      xhr.onload = () => {
+        // A reverse proxy that rejects the body (nginx client_max_body_size)
+        // answers with an HTML error page, not JSON. Parsing blindly threw and
+        // surfaced as a meaningless "network error", so report the status.
+        let data: any = null;
+        try {
+          data = JSON.parse(xhr.responseText);
+        } catch {
+          reject(
+            new Error(
+              xhr.status === 413
+                ? `rejected as too large by the server (HTTP 413) — raise nginx client_max_body_size`
+                : `unexpected server response (HTTP ${xhr.status})`
+            )
+          );
+          return;
+        }
+        if (xhr.status >= 200 && xhr.status < 300 && data?.url) {
+          resolve({ url: data.url, type: data.type });
+        } else {
+          reject(new Error(data?.error || `upload failed (HTTP ${xhr.status})`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error("network error — connection dropped"));
+      xhr.ontimeout = () => reject(new Error("timed out — the file may be too large for this connection"));
+      xhr.onabort = () => reject(new Error("cancelled"));
+
+      xhr.send(body);
+    });
+
   const handleMediaUpload = async (
     files: FileList | null,
     slotKey: string,
@@ -600,34 +657,57 @@ export default function ProductManagement() {
   ) => {
     if (!files || files.length === 0) return;
 
-    setUploadingMediaFor(slotKey);
+    // Copy out of the live FileList straight away: clearing the input later
+    // empties it, and these are read across awaits.
+    const picked = Array.from(files);
     const uploaded: DeliveryMedia[] = [];
     const failures: string[] = [];
 
-    // Sequential on purpose: a 50MB video per request is already heavy, and
-    // firing several at once on a small VPS just makes them all time out.
-    for (const file of Array.from(files)) {
-      const body = new FormData();
-      body.append("file", file);
-      try {
-        const res = await fetch("/api/admin/upload-media", { method: "POST", body });
-        const data = await res.json();
-        if (res.ok && data.url) {
-          uploaded.push({ url: data.url, type: data.type });
-        } else {
-          failures.push(`${file.name}: ${data.error || "upload failed"}`);
+    setUploadingMediaFor(slotKey);
+    try {
+      for (let i = 0; i < picked.length; i++) {
+        const file = picked[i];
+        const isVideo = file.type.startsWith("video/");
+        const limit = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+
+        // Checked here as well as on the server: an over-size file would
+        // otherwise be pushed all the way up a phone connection only to be
+        // refused on arrival.
+        if (file.size > limit) {
+          failures.push(
+            `${file.name}: ${(file.size / 1024 / 1024).toFixed(1)}MB exceeds the ` +
+              `${isVideo ? "50MB video" : "8MB image"} limit`
+          );
+          continue;
         }
-      } catch {
-        failures.push(`${file.name}: network error`);
+
+        const position = picked.length > 1 ? ` (${i + 1}/${picked.length})` : "";
+        setUploadProgress(`Uploading${position} 0%`);
+        try {
+          const media = await uploadOneFile(file, (percent) =>
+            setUploadProgress(`Uploading${position} ${percent}%`)
+          );
+          uploaded.push(media);
+        } catch (err) {
+          failures.push(`${file.name}: ${err instanceof Error ? err.message : "upload failed"}`);
+        }
       }
+    } finally {
+      // Always clears, whatever happened above - the button must never be left
+      // reading "Uploading…" with no way back.
+      setUploadingMediaFor(null);
+      setUploadProgress(null);
     }
 
-    setUploadingMediaFor(null);
     if (uploaded.length > 0) onUploaded(uploaded);
+
     if (failures.length > 0) {
-      setMsg({ type: "error", text: failures.join(" • ") });
+      setSaveState({ status: "error", text: failures.join(" • ") });
     } else if (uploaded.length > 0) {
-      setMsg({ type: "success", text: `${uploaded.length} file(s) uploaded. Save to apply.` });
+      setSaveState({
+        status: "success",
+        text: `${uploaded.length} file(s) uploaded — press Save to apply`,
+      });
     }
   };
 
@@ -1918,7 +1998,9 @@ export default function ProductManagement() {
                                                 opacity: uploadingMediaFor ? 0.6 : 1,
                                               }}
                                             >
-                                              {uploadingMediaFor === `${areaId}-${itemIdx}` ? "Uploading…" : "📤 Upload image / video"}
+                                              {uploadingMediaFor === `${areaId}-${itemIdx}`
+                                                ? uploadProgress || "Uploading…"
+                                                : "📤 Upload image / video"}
                                               <input
                                                 type="file"
                                                 accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"

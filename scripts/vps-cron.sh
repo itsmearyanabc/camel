@@ -20,6 +20,7 @@
 #
 #   */2 * * * * /var/www/camel971/scripts/vps-cron.sh cooldowns >> /var/log/camel971-cron.log 2>&1
 #   */10 * * * * /var/www/camel971/scripts/vps-cron.sh payments  >> /var/log/camel971-cron.log 2>&1
+#   30 4 * * *   /var/www/camel971/scripts/vps-cron.sh media     >> /var/log/camel971-cron.log 2>&1
 #
 # Verify it is working:
 #   tail -f /var/log/camel971-cron.log
@@ -47,8 +48,9 @@ BASE_URL="${CRON_BASE_URL:-http://127.0.0.1:3000}"
 case "${1:-}" in
   cooldowns) ENDPOINT="/api/cron/process-cooldowns" ;;
   payments)  ENDPOINT="/api/cron/expire-payments" ;;
+  media)     ENDPOINT="/api/cron/cleanup-media" ;;
   *)
-    echo "usage: $0 {cooldowns|payments}"
+    echo "usage: $0 {cooldowns|payments|media}"
     exit 2
     ;;
 esac

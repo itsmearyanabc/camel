@@ -235,21 +235,31 @@ export default function ClientAdminPanel() {
     }
   };
 
-  const handleUpdateCrypto = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /**
+   * Zero the leftover per-coin network fees.
+   *
+   * NOWPayments prices the network fee itself, but any FEE_* value still on
+   * file is added to the customer's total when they pick that specific coin -
+   * so it has to be clearable now that the editor for it is gone.
+   */
+  const handleClearNetworkFees = async () => {
+    if (!confirm("Stop adding network fees to customer totals? Prices will drop by the fee amount for orders paid in a specific coin.")) return;
     setMsg(null);
     try {
-      const updates = Object.entries(cryptoSettings).map(([key, value]) =>
-        fetch("/api/client-admin/settings", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ key, value })
-        })
+      const feeKeys = ["FEE_BTC", "FEE_ETH", "FEE_USDT_ERC20", "FEE_USDT_TRC20", "FEE_SOL", "FEE_TRX"];
+      await Promise.all(
+        feeKeys.map((key) =>
+          fetch("/api/client-admin/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key, value: "0" }),
+          })
+        )
       );
-      await Promise.all(updates);
-      setMsg({ type: "success", text: "Crypto configuration updated successfully!" });
+      setMsg({ type: "success", text: "Network fees cleared. Customers now pay the listed price." });
       fetchAll();
     } catch (e) {
-      setMsg({ type: "error", text: "Failed to update crypto configuration" });
+      setMsg({ type: "error", text: "Failed to clear network fees" });
     }
   };
 
@@ -1387,53 +1397,61 @@ export default function ClientAdminPanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h2 style={{ fontSize: "28px" }}>Payment Configuration</h2>
-                <button onClick={handleUpdateCrypto} className="btn btn-primary">Save Changes</button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px", alignItems: "start" }}>
-                
-                {/* Crypto Wallet Configuration */}
-                <div className="card" style={{ gridColumn: "span 2" }}>
-                  <h3 style={{ marginBottom: "16px", fontSize: "18px" }}>Crypto Wallet Addresses & Network Fees</h3>
-                  <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "24px" }}>
-                    Configure your receiving addresses and estimated network fees for each supported cryptocurrency. The fees will be added to the customer's total at checkout.
-                  </p>
-                  
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
-                    {[
-                      { label: "Bitcoin (BTC)", code: "BTC", addrKey: "WALLET_BTC", feeKey: "FEE_BTC" },
-                      { label: "Ethereum (ETH)", code: "ETH", addrKey: "WALLET_ETH", feeKey: "FEE_ETH" },
-                      { label: "USDT (ERC-20)", code: "USDT_ERC20", addrKey: "WALLET_USDT_ERC20", feeKey: "FEE_USDT_ERC20" },
-                      { label: "USDT (TRC-20)", code: "USDT_TRC20", addrKey: "WALLET_USDT_TRC20", feeKey: "FEE_USDT_TRC20" },
-                      { label: "Solana (SOL)", code: "SOL", addrKey: "WALLET_SOL", feeKey: "FEE_SOL" },
-                      { label: "Tron (TRX)", code: "TRX", addrKey: "WALLET_TRX", feeKey: "FEE_TRX" },
-                    ].map(crypto => (
-                      <div key={crypto.code} style={{ background: "var(--bg-secondary)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
-                        <h4 style={{ marginBottom: "12px", fontSize: "14px" }}>{crypto.label}</h4>
-                        <div className="form-group">
-                          <label className="form-label" style={{ fontSize: "11px" }}>Receiving Address</label>
-                          <input 
-                            className="form-input" 
-                            style={{ fontFamily: "monospace", fontSize: "12px" }}
-                            value={cryptoSettings[crypto.addrKey as keyof typeof cryptoSettings]} 
-                            onChange={e => setCryptoSettings({...cryptoSettings, [crypto.addrKey]: e.target.value})} 
-                            placeholder={`Enter ${crypto.code} address`} 
-                          />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                          <label className="form-label" style={{ fontSize: "11px" }}>Est. Network Fee (USD)</label>
-                          <input 
-                            className="form-input" 
-                            type="number" step="0.01"
-                            style={{ fontSize: "12px" }}
-                            value={cryptoSettings[crypto.feeKey as keyof typeof cryptoSettings]} 
-                            onChange={e => setCryptoSettings({...cryptoSettings, [crypto.feeKey]: e.target.value})} 
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
+              {/* Manual receiving addresses and hand-entered network fees were
+                  replaced by NOWPayments, which issues a fresh deposit address
+                  per invoice and prices the network fee itself. The stored
+                  values are surfaced below rather than silently kept, because
+                  a leftover fee still gets added at checkout. */}
+              <div className="card">
+                <h3 style={{ marginBottom: "12px", fontSize: "18px" }}>Crypto Payments</h3>
+                <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginBottom: "16px" }}>
+                  Payments are handled automatically by <strong>NOWPayments</strong>. It issues a fresh
+                  receiving address for every invoice and works out the network fee itself, so there are no
+                  addresses or fees to configure here any more.
+                </p>
+
+                {(() => {
+                  const legacyFees = [
+                    { label: "Bitcoin (BTC)", key: "FEE_BTC" },
+                    { label: "Ethereum (ETH)", key: "FEE_ETH" },
+                    { label: "USDT (ERC-20)", key: "FEE_USDT_ERC20" },
+                    { label: "USDT (TRC-20)", key: "FEE_USDT_TRC20" },
+                    { label: "Solana (SOL)", key: "FEE_SOL" },
+                    { label: "Tron (TRX)", key: "FEE_TRX" },
+                  ].filter(f => parseFloat(settings[f.key] || "0") > 0);
+
+                  if (legacyFees.length === 0) {
+                    return (
+                      <p style={{ fontSize: "13px", color: "var(--green)" }}>
+                        ✅ No extra network fees are being added to customer totals.
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div style={{ background: "var(--orange-bg)", border: "1px solid var(--orange)", borderRadius: "var(--radius-md)", padding: "16px" }}>
+                      <p style={{ fontSize: "14px", fontWeight: 600, color: "var(--orange)", marginBottom: "8px" }}>
+                        ⚠️ Old network fees are still being charged
+                      </p>
+                      <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "12px" }}>
+                        These amounts are still added on top of the price when a customer picks that specific
+                        coin at checkout. They are not added when the customer chooses “Any coin”.
+                      </p>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
+                        {legacyFees.map(f => (
+                          <span key={f.key} className="badge badge-orange" style={{ fontSize: "12px" }}>
+                            {f.label}: +${parseFloat(settings[f.key]).toFixed(2)}
+                          </span>
+                        ))}
+                      </div>
+                      <button onClick={handleClearNetworkFees} className="btn btn-secondary btn-sm">
+                        Clear all network fees
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Deposit Requests Review Table */}

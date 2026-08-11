@@ -343,3 +343,18 @@ a, button, [role="button"], input, select, textarea, label {
 .animate-fade-in {
   animation: fadeInScale 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* --- Elevated overlay panels (dropdowns, popovers) ------------------------
+   .card is translucent on purpose (76% white + blur), which reads well for
+   panels that sit *in* the page. A dropdown floats *over* live content, so
+   that same translucency lets the page text show straight through it and the
+   panel becomes unreadable - worst in the light theme, where page and panel
+   are both near-white. These get an opaque, slightly deeper surface instead. */
+:root { --panel-bg: #e7e9ed; --panel-border: rgba(0,0,0,.14); }
+:root[data-theme="night"] { --panel-bg: #17191f; --panel-border: rgba(255,255,255,.10); }
+
+.overlay-panel {
+  background: var(--panel-bg) !important;
+  border-color: var(--panel-border) !important;
+  backdrop-filter: none !important;
+}

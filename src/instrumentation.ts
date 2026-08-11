@@ -143,6 +143,25 @@ export async function register() {
         .catch(err => console.error("[Cron] Failed to expire payments:", err));
     }, 5 * 60 * 1000);
 
+    // Background Cron: delete delivery photos/videos from orders that finished
+    // over a week ago. Runs daily - this is disk housekeeping, and nothing
+    // breaks if a run is missed, so it deliberately does not run often.
+    const cleanupMediaInterval = setInterval(() => {
+      if (isShuttingDown) return;
+      const cronSecret = process.env.CRON_SECRET || "";
+      if (!cronSecret) return; // endpoint refuses unauthenticated calls by design
+      fetch(`${cronBaseUrl()}/api/cron/cleanup-media`, {
+        headers: { "Authorization": `Bearer ${cronSecret}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.filesDeleted > 0) {
+            console.log(`[Cron] Deleted ${data.filesDeleted} expired delivery file(s).`);
+          }
+        })
+        .catch(err => console.error("[Cron] Failed to clean up delivery media:", err));
+    }, 24 * 60 * 60 * 1000);
+
     if (!global.__telegram_bots_shutdown_registered) {
       global.__telegram_bots_shutdown_registered = true;
       const gracefulShutdown = async (signal: string) => {
@@ -151,6 +170,7 @@ export async function register() {
         console.log(`🛑 [Bots] ${signal} received. Stopping bots gracefully...`);
         clearInterval(cronInterval);
         clearInterval(expirePaymentsInterval);
+        clearInterval(cleanupMediaInterval);
         for (const bot of activeBots) {
           try {
             await bot.stop();
