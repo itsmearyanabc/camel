@@ -58,11 +58,33 @@ export function rateLimit(identifier: string, config: RateLimitConfig): {
   };
 }
 
-export function getRateLimitIdentifier(req: Request): string {
-  // Try to get IP from various headers
-  const forwarded = req.headers.get("x-forwarded-for");
+/**
+ * The caller's real IP address.
+ *
+ * `CF-Connecting-IP` is checked first and is the only header that holds the
+ * true client address once the site is behind Cloudflare: there,
+ * `X-Forwarded-For` is a chain that starts with Cloudflare's edge, so keying
+ * the limiter off it would put every visitor in the world into one bucket -
+ * five failed logins by anyone would lock out everybody.
+ *
+ * Note this trusts the header, which is only safe while the origin cannot be
+ * reached directly. Cloudflare's IP ranges must be the only source allowed to
+ * hit the VPS, otherwise an attacker can set CF-Connecting-IP themselves and
+ * rotate past the limiter.
+ */
+export function getClientIp(req: Request): string {
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
+
   const realIp = req.headers.get("x-real-ip");
-  const ip = forwarded?.split(",")[0] || realIp || "unknown";
-  
-  return ip;
+  if (realIp) return realIp.trim();
+
+  // Left-most entry is the originating client; the rest are proxy hops.
+  const forwarded = req.headers.get("x-forwarded-for");
+  const first = forwarded?.split(",")[0]?.trim();
+  return first || "unknown";
+}
+
+export function getRateLimitIdentifier(req: Request): string {
+  return getClientIp(req);
 }

@@ -24,7 +24,16 @@ export function proxy(request: NextRequest) {
 
   // 2. Rate Limiting ONLY for Auth routes to prevent brute force / DDoS
   if (pathname.startsWith('/api/auth/login') || pathname.startsWith('/api/auth/register')) {
-    const ip = request.headers.get('x-forwarded-for') || 'unknown';
+    // CF-Connecting-IP first: behind Cloudflare, X-Forwarded-For begins with
+    // Cloudflare's edge address, so every visitor would share a single bucket
+    // and one attacker could lock the whole site out of logging in. Taking the
+    // raw header (as this used to) also keyed on the entire proxy chain, which
+    // changes per hop and let the limit be sidestepped.
+    const ip =
+      request.headers.get('cf-connecting-ip') ||
+      request.headers.get('x-real-ip') ||
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      'unknown';
     
     // Clean up old entries randomly to prevent memory leaks (10% chance)
     if (Math.random() < 0.1) {

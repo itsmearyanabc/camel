@@ -29,11 +29,45 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [restockSubscribed, setRestockSubscribed] = useState(false);
   const [restockLoading, setRestockLoading] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [locations, setLocations] = useState<any[]>([]);
+  const [filterCityId, setFilterCityId] = useState("ALL");
+  const [filterAreaId, setFilterAreaId] = useState("ALL");
 
   const { addToCart, updateQuantity, cart } = useCart();
 
   const variants: any[] = product?.variants || [];
   const hasVariants = variants.length > 0;
+
+  /** Every sellable row of this product - its options, or the product itself. */
+  const sellables: any[] = hasVariants ? variants : product ? [product] : [];
+
+  /**
+   * Areas the customer's filter currently allows, or null for "no filter".
+   *
+   * Null and "an empty set" mean opposite things here, so they must stay
+   * distinct: null lets everything through, an empty set lets nothing.
+   */
+  const scopedAreaIds: Set<string> | null = (() => {
+    if (filterAreaId !== "ALL") return new Set([filterAreaId]);
+    if (filterCityId !== "ALL") {
+      const city = locations.find((c: any) => c.id === filterCityId);
+      return new Set<string>((city?.areas || []).map((a: any) => a.id));
+    }
+    return null;
+  })();
+
+  /** Units of a sellable row available inside the current filter. */
+  const stockInScope = (row: any): number => {
+    const details = row?.areaDetails || [];
+    if (!scopedAreaIds) {
+      // No filter: trust the row's own total, which also covers products that
+      // track stock as a plain count with no per-area rows behind it.
+      return row?.stockQuantity ?? 0;
+    }
+    return details
+      .filter((d: any) => scopedAreaIds.has(d.areaId))
+      .reduce((sum: number, d: any) => sum + (d.stockQuantity || 0), 0);
+  };
 
   /**
    * The row that is actually bought.
@@ -46,17 +80,44 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     ? variants.find((v) => v.id === selectedVariantId) || null
     : product;
 
-  const selectedStock = selected?.stockQuantity ?? 0;
+  const selectedStock = selected ? stockInScope(selected) : 0;
   const cartItem = cart.find((item) => item.productId === selected?.id);
+
+  // Cities/areas this product can actually be collected from. Listing every
+  // city in the system would offer filters that only ever return nothing.
+  const productAreaIds = new Set<string>(
+    sellables.flatMap((row: any) =>
+      (row?.areaDetails || []).filter((d: any) => d.stockQuantity > 0).map((d: any) => d.areaId)
+    )
+  );
+  const filterCities = locations
+    .map((city: any) => ({
+      ...city,
+      areas: (city.areas || []).filter((a: any) => productAreaIds.has(a.id)),
+    }))
+    .filter((city: any) => city.areas.length > 0);
+
+  // If the chosen option has nothing left in the filtered area, move to one
+  // that does - leaving a dead selection on screen just looks broken.
+  useEffect(() => {
+    if (!hasVariants || variants.length === 0) return;
+    const current = variants.find((v) => v.id === selectedVariantId);
+    if (current && stockInScope(current) > 0) return;
+    const replacement = variants.find((v) => stockInScope(v) > 0);
+    if (replacement) setSelectedVariantId(replacement.id);
+  }, [filterCityId, filterAreaId, product]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [meRes, prodRes, ordRes] = await Promise.all([
+        const [meRes, prodRes, ordRes, locRes] = await Promise.all([
           fetch("/api/auth/me"),
           fetch("/api/inventory/products"),
           fetch("/api/orders/list"),
+          // Needed to group this product's areas under their cities - the
+          // product payload carries areas but not which city each belongs to.
+          fetch("/api/locations"),
         ]);
         
         const meData = await meRes.json();
@@ -89,6 +150,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
             }
           }
         }
+        try {
+          const locData = await locRes.json();
+          if (locData?.cities) setLocations(locData.cities);
+        } catch {
+          // A missing location list only costs the filter, never the page.
+        }
+
         setProduct(foundProd);
 
         // Preselect the requested option, else the first one that can actually
@@ -276,8 +344,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                           // option, so the badges must follow the selection
                           // rather than the (empty) parent row.
                           const source = hasVariants ? selected : product;
-                          const areaDetails = source?.areaDetails || [];
-                          const totalStock = hasVariants ? selectedStock : product.stockQuantity;
+                          const areaDetails = (source?.areaDetails || []).filter(
+                            (d: any) => !scopedAreaIds || scopedAreaIds.has(d.areaId)
+                          );
+                          const totalStock = source ? stockInScope(source) : 0;
                           const hasAreaStock = areaDetails.some((d: any) => d.stockQuantity > 0);
                           if (hasAreaStock) {
                             return (
@@ -300,7 +370,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                           <span className="badge badge-purple">{product.productType}</span>
                         )}
                         {(() => {
-                          const areas = (hasVariants ? selected?.areas : product.areas) || [];
+                          const allAreas = (hasVariants ? selected?.areas : product.areas) || [];
+                          const areas = allAreas.filter(
+                            (a: any) => !scopedAreaIds || scopedAreaIds.has(a.id)
+                          );
                           if (areas.length === 0) return null;
                           return (
                             <div style={{ display: "flex", gap: "8px", alignItems: "center", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "16px" }}>
@@ -329,12 +402,52 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
                         {selectedStock > 0
-                          ? `${selectedStock} unit(s) available in stock`
+                          ? `${selectedStock} unit(s) available${scopedAreaIds ? " in the selected location" : " in stock"}`
                           : hasVariants && !selected
                             ? "Choose an option below"
-                            : "Currently out of stock"}
+                            : scopedAreaIds
+                              ? "Not available in the selected location"
+                              : "Currently out of stock"}
                       </p>
                     </div>
+
+                    {/* Where to collect. Prices and stock differ per area, so
+                        narrowing to a city/area first is how a customer finds
+                        what is actually available to them. */}
+                    {filterCities.length > 0 && (
+                      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                        <label style={{ flex: "1 1 180px", minWidth: 0 }}>
+                          <span className="form-label">City</span>
+                          <select
+                            className="form-input"
+                            value={filterCityId}
+                            onChange={(e) => { setFilterCityId(e.target.value); setFilterAreaId("ALL"); }}
+                            aria-label="Filter by city"
+                          >
+                            <option value="ALL">Any City</option>
+                            {filterCities.map((city: any) => (
+                              <option key={city.id} value={city.id}>{city.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label style={{ flex: "1 1 180px", minWidth: 0 }}>
+                          <span className="form-label">Area</span>
+                          <select
+                            className="form-input"
+                            value={filterAreaId}
+                            disabled={filterCityId === "ALL"}
+                            onChange={(e) => setFilterAreaId(e.target.value)}
+                            aria-label="Filter by area"
+                            style={{ opacity: filterCityId === "ALL" ? 0.6 : 1 }}
+                          >
+                            <option value="ALL">Any Area</option>
+                            {(filterCities.find((c: any) => c.id === filterCityId)?.areas || []).map((area: any) => (
+                              <option key={area.id} value={area.id}>{area.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    )}
 
                     {/* Quantity options. Each is its own product row with its own
                         price and stock, so picking one switches everything below. */}
@@ -346,7 +459,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
                           {variants.map((variant) => {
                             const isSelected = variant.id === selectedVariantId;
-                            const soldOut = variant.stockQuantity < 1;
+                            // Sold out *here* - an option with units in another
+                            // city is still unbuyable for this customer.
+                            const scopedStock = stockInScope(variant);
+                            const soldOut = scopedStock < 1;
                             return (
                               <button
                                 key={variant.id}
@@ -373,7 +489,11 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                   {formatPrice(variant.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                                 </span>
                                 <span style={{ fontSize: "11px", color: soldOut ? "var(--red)" : "var(--green)" }}>
-                                  {soldOut ? "Out of stock" : `${variant.stockQuantity} left`}
+                                  {soldOut
+                                    ? scopedAreaIds
+                                      ? "Not here"
+                                      : "Out of stock"
+                                    : `${scopedStock} left`}
                                 </span>
                               </button>
                             );
