@@ -93,7 +93,7 @@
     letter-spacing: 8px;
     color: var(--text-primary, #000000);
     text-transform: uppercase;
-    animation: scrollLeft 25s linear infinite;
+    animation: scrollLeft 30s linear infinite;
     background: transparent;
     padding: 15px 0;
     line-height: 1.2;
@@ -123,7 +123,7 @@
     .movingLine {
         font-size: 40px;
         letter-spacing: 4px;
-        animation-duration: 25s;
+        animation-duration: 30s;
         padding: 10px 0;
     }
     .parallaxImg {
