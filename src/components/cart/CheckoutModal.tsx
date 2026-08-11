@@ -32,15 +32,91 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
     }).catch(() => {});
   }, []);
 
+  // Live per-product stock, keyed productId -> areas that actually hold units.
+  //
+  // The cart's own `areas` list is a snapshot taken at add-to-cart time and
+  // saved in localStorage, so it goes stale as soon as stock moves - and an old
+  // cart kept offering delivery areas that had since emptied (or never had
+  // anything). Re-reading on open is the only version that stays true.
+  const [stockedAreasByProduct, setStockedAreasByProduct] = useState<Map<string, Set<string>>>(new Map());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/inventory/products");
+        const data = await res.json();
+        const map = new Map<string, Set<string>>();
+        const record = (row: any) => {
+          if (!row?.id) return;
+          map.set(
+            row.id,
+            new Set<string>(
+              (row.areaDetails || [])
+                .filter((d: any) => d.stockQuantity > 0)
+                .map((d: any) => d.areaId)
+            )
+          );
+        };
+        for (const category of data.categories || []) {
+          for (const product of category.products || []) {
+            record(product);
+            // Quantity options are sold in their own right and hold their own
+            // stock, so each needs its own entry.
+            for (const variant of product.variants || []) record(variant);
+          }
+        }
+        setStockedAreasByProduct(map);
+      } catch {
+        // Fall back to the cart snapshot below rather than blocking checkout.
+      }
+    })();
+  }, [isOpen]);
+
   const validAreaIds = useMemo(() => {
     if (cart.length === 0) return new Set<string>();
-    let intersection = new Set(cart[0].areas?.map((a: any) => a.id) || []);
-    for (let i = 1; i < cart.length; i++) {
-      const currentAreaIds = new Set(cart[i].areas?.map((a: any) => a.id) || []);
-      intersection = new Set([...intersection].filter(x => currentAreaIds.has(x)));
+
+    // Live data wins; the cart's snapshot is only used until it arrives, or if
+    // the product could not be found at all.
+    const perItem: Set<string>[] = cart.map((item) => {
+      const live = stockedAreasByProduct.get(item.productId);
+      if (live) return live;
+      return new Set<string>((item.areas || []).map((a: any) => String(a.id)));
+    });
+
+    // One order goes to one place, so only areas every line can be collected
+    // from are offered.
+    let intersection = new Set<string>(perItem[0]);
+    for (let i = 1; i < perItem.length; i++) {
+      const next = perItem[i];
+      intersection = new Set<string>([...intersection].filter((id) => next.has(id)));
     }
     return intersection;
-  }, [cart]);
+  }, [cart, stockedAreasByProduct]);
+
+  /**
+   * The single collection point, when there is only one.
+   *
+   * Picking a row on the product page already settles the location, so there is
+   * nothing left to ask: the area is applied automatically and just shown back
+   * for confirmation. The pickers below only appear when a genuine choice
+   * remains (products that track one global stock count rather than per-area).
+   */
+  const soleArea = useMemo(() => {
+    if (validAreaIds.size !== 1) return null;
+    const [onlyId] = Array.from(validAreaIds);
+    for (const city of locations) {
+      const area = (city.areas || []).find((a: any) => a.id === onlyId);
+      if (area) return { cityId: city.id, cityName: city.name, areaId: area.id, areaName: area.name };
+    }
+    return null;
+  }, [validAreaIds, locations]);
+
+  useEffect(() => {
+    if (!soleArea) return;
+    setSelectedCityId(soleArea.cityId);
+    setSelectedAreaId(soleArea.areaId);
+  }, [soleArea?.areaId]);
 
   const filteredLocations = useMemo(() => {
     if (validAreaIds.size === 0 && cart.length > 0) return [];
@@ -265,7 +341,13 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                   <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Delivery Area</h3>
                   {filteredLocations.length === 0 && cart.length > 0 ? (
                     <div className="alert alert-error" style={{ marginBottom: "12px", padding: "8px 12px", fontSize: "13px" }}>
-                      No common delivery area found for all items in your cart. Please remove some items.
+                      Your items are stocked in different places and cannot be collected in one trip. Please remove some items.
+                    </div>
+                  ) : soleArea ? (
+                    // Already decided on the product page - confirm, don't re-ask.
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "15px", fontWeight: "600" }}>
+                      <span aria-hidden>📍</span>
+                      <span>{soleArea.cityName} / {soleArea.areaName}</span>
                     </div>
                   ) : (
                     <div style={{ display: "flex", gap: "12px" }}>

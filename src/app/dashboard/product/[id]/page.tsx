@@ -504,33 +504,33 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                           Available options
                         </p>
                         <div className="table-scroll-wrap" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                          <table style={{ width: "100%" }}>
+                          <table style={{ width: "100%", minWidth: "520px" }}>
                             <thead>
                               <tr>
-                                <th>Location</th>
-                                {product.productType && <th>Type</th>}
+                                <th>Name</th>
+                                <th>Type</th>
                                 <th>Quantity</th>
-                                <th style={{ textAlign: "right" }}>Price</th>
+                                <th style={{ textAlign: "center" }}>Price</th>
                               </tr>
                             </thead>
                             <tbody>
                               {offers.map((offer) => {
                                 const isSelected = offer.key === `${selectedVariantId}:${selectedAreaId}`;
+                                const choose = () => {
+                                  setSelectedVariantId(offer.rowId);
+                                  setSelectedAreaId(offer.areaId);
+                                };
                                 return (
                                   <tr
                                     key={offer.key}
-                                    onClick={() => {
-                                      setSelectedVariantId(offer.rowId);
-                                      setSelectedAreaId(offer.areaId);
-                                    }}
+                                    onClick={choose}
                                     tabIndex={0}
                                     role="button"
                                     aria-pressed={isSelected}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" || e.key === " ") {
                                         e.preventDefault();
-                                        setSelectedVariantId(offer.rowId);
-                                        setSelectedAreaId(offer.areaId);
+                                        choose();
                                       }
                                     }}
                                     style={{
@@ -539,24 +539,33 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                       boxShadow: isSelected ? "inset 3px 0 0 var(--accent)" : "none",
                                     }}
                                   >
+                                    {/* Name over location, exactly as the row
+                                        reads on the reference layout. */}
                                     <td>
-                                      <span style={{ fontWeight: "600" }}>
-                                        📍 {offer.cityName ? `${offer.cityName} / ` : ""}{offer.areaName}
-                                      </span>
-                                      <span style={{ display: "block", fontSize: "11px", color: "var(--green)" }}>
-                                        {offer.stock} in stock
-                                      </span>
+                                      <div style={{ fontWeight: "600", marginBottom: "2px" }}>{product.name}</div>
+                                      <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                                        📍 {offer.cityName ? `${offer.cityName} / ` : ""}🏘 {offer.areaName}
+                                      </div>
                                     </td>
-                                    {product.productType && (
-                                      <td style={{ color: "var(--text-secondary)" }}>{product.productType}</td>
-                                    )}
-                                    <td style={{ fontWeight: "700" }}>{offer.variantLabel || "—"}</td>
-                                    <td style={{ textAlign: "right" }}>
+                                    <td style={{ color: "var(--text-secondary)" }}>
+                                      {product.productType || "—"}
+                                    </td>
+                                    <td style={{ fontWeight: "600" }}>{offer.variantLabel || "—"}</td>
+                                    <td style={{ textAlign: "center" }}>
                                       <span
                                         className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
-                                        style={{ pointerEvents: "none", minWidth: "76px", justifyContent: "center" }}
+                                        style={{
+                                          pointerEvents: "none",
+                                          minWidth: "84px",
+                                          justifyContent: "center",
+                                          borderRadius: "var(--radius-pill)",
+                                          fontWeight: "700",
+                                        }}
                                       >
                                         {formatPrice(offer.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                                      </span>
+                                      <span style={{ display: "block", fontSize: "11px", color: "var(--green)", marginTop: "4px" }}>
+                                        {offer.stock} in stock
                                       </span>
                                     </td>
                                   </tr>
