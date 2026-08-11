@@ -350,11 +350,12 @@ a, button, [role="button"], input, select, textarea, label {
    that same translucency lets the page text show straight through it and the
    panel becomes unreadable - worst in the light theme, where page and panel
    are both near-white. These get an opaque, slightly deeper surface instead. */
-:root { --panel-bg: #e7e9ed; --panel-border: rgba(0,0,0,.14); }
-:root[data-theme="night"] { --panel-bg: #17191f; --panel-border: rgba(255,255,255,.10); }
+:root { --panel-bg: #d8dde5; --panel-border: rgba(0,0,0,.20); }
+:root[data-theme="night"] { --panel-bg: #101216; --panel-border: rgba(255,255,255,.14); }
 
 .overlay-panel {
-  background: var(--panel-bg) !important;
-  border-color: var(--panel-border) !important;
+  background: var(--panel-bg, #d8dde5) !important;
+  border-color: var(--panel-border, rgba(0,0,0,.20)) !important;
+  opacity: 1 !important;
   backdrop-filter: none !important;
 }

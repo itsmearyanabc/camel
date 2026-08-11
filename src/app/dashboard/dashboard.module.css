@@ -13,8 +13,8 @@
 .menuWrap { position:relative; display:flex; align-items:center; }
 .menuButton { width:30px; display:grid; place-items:center; gap:4px; }
 .menuButton span { width:19px; height:2px; display:block; border-radius:4px; background:currentColor; }
-.menuPanel { position:absolute; top:calc(100% + 18px); right:-12px; width:min(290px,calc(100vw - 32px)); padding:12px; display:grid; gap:5px; border:1px solid var(--border); border-radius:22px; background:var(--panel-bg); box-shadow:0 12px 32px rgba(0,0,0,.28); backdrop-filter:none; opacity:0; pointer-events:none; transform:translateY(-8px) scale(.98); transform-origin:top right; transition:opacity .2s var(--ease), transform .2s var(--ease); }
-:global(:root[data-theme="night"]) .menuPanel { background:var(--panel-bg); border-color:var(--panel-border); }
+.menuPanel { position:absolute; top:calc(100% + 18px); right:-12px; width:min(290px,calc(100vw - 32px)); padding:12px; display:grid; gap:5px; border:1px solid var(--border); border-radius:22px; background:var(--panel-bg,#d8dde5); box-shadow:0 14px 38px rgba(0,0,0,.34); backdrop-filter:none; opacity:0; pointer-events:none; transform:translateY(-8px) scale(.98); transform-origin:top right; transition:opacity .2s var(--ease), transform .2s var(--ease); }
+:global(:root[data-theme="night"]) .menuPanel { background:var(--panel-bg,#101216); border-color:var(--panel-border,rgba(255,255,255,.14)); }
 .menuPanelOpen { opacity:1; pointer-events:auto; transform:translateY(0) scale(1); }
 .menuUser { display:flex; align-items:center; gap:10px; padding:8px 8px 12px; border-bottom:1px solid var(--border); margin-bottom:5px; }
 .menuUser div:last-child { display:grid; gap:1px; }
