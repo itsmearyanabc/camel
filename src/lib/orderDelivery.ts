@@ -1,5 +1,31 @@
 // Relative imports on purpose: consistent with the other shared lib modules.
 import { prisma } from "./db";
+import fs from "fs";
+import path from "path";
+
+/**
+ * One delivery media file (uploaded by staff, stored on this server's disk).
+ *
+ * Declared as a type alias rather than an interface on purpose: Prisma's
+ * `InputJsonValue` requires an implicit index signature, which interfaces do
+ * not get, so an interface here cannot be written to the Json column.
+ */
+export type DeliveryMediaItem = {
+  url: string;
+  type: "image" | "video";
+};
+
+/** Defensive parse of a JSON column that should hold DeliveryMediaItem[]. */
+export function parseDeliveryMedia(value: unknown): DeliveryMediaItem[] {
+  if (!Array.isArray(value)) return [];
+  const out: DeliveryMediaItem[] = [];
+  for (const entry of value) {
+    const url = typeof (entry as any)?.url === "string" ? (entry as any).url : "";
+    const type = (entry as any)?.type === "video" ? "video" : (entry as any)?.type === "image" ? "image" : null;
+    if (url.startsWith("/uploads/") && type) out.push({ url, type });
+  }
+  return out;
+}
 
 /** Escape characters that break Telegram MarkdownV2 parsing. */
 function escapeMarkdownV2(text: string): string {
@@ -17,6 +43,8 @@ function escapeMarkdownV2Url(url: string): string {
 export interface DeliveryDetails {
   locationLink: string | null;
   pickupVideoUrl: string | null;
+  /** Uploaded images/videos for this unit, sent as real files to Telegram. */
+  media: DeliveryMediaItem[];
   adminMessage: string;
 }
 
@@ -48,9 +76,101 @@ export async function resolveDeliveryDetails(item: {
 
   const locationLink = stockItem?.locationUrl || areaDetail?.locationUrl || null;
   const pickupVideoUrl = stockItem?.videoUrl || areaDetail?.videoUrl || null;
+
+  // Same precedence as the links: the unit's own uploads win, the area-level
+  // uploads are only a fallback for count-only stock with no per-unit rows.
+  const unitMedia = parseDeliveryMedia(stockItem?.mediaUrls);
+  const media = unitMedia.length > 0 ? unitMedia : parseDeliveryMedia(areaDetail?.mediaUrls);
+
   if (areaDetail?.message) adminMessage = areaDetail.message;
 
-  return { locationLink, pickupVideoUrl, adminMessage };
+  return { locationLink, pickupVideoUrl, media, adminMessage };
+}
+
+const UPLOAD_MIME: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+};
+
+/**
+ * Absolute on-disk path for an `/uploads/...` URL.
+ *
+ * Returns null for anything that resolves outside the uploads directory: these
+ * paths come from a JSON column, and a stored `../` would otherwise let the
+ * Telegram sender read arbitrary files off the server and post them into a
+ * customer's chat.
+ */
+function resolveUploadPath(url: string): string | null {
+  if (!url.startsWith("/uploads/")) return null;
+  const uploadsRoot = path.join(process.cwd(), "public", "uploads");
+  const resolved = path.resolve(uploadsRoot, url.slice("/uploads/".length));
+  if (resolved !== uploadsRoot && !resolved.startsWith(uploadsRoot + path.sep)) return null;
+  return resolved;
+}
+
+/**
+ * Push the uploaded pickup photos/videos into the customer's Telegram chat as
+ * real files (not links), one request per file.
+ *
+ * Failures here are logged but never fail the delivery: the same media is
+ * always stored on the order item and rendered on the website, so a file that
+ * Telegram rejects is still reachable by the customer. Treating it as fatal
+ * would make the retry sweep re-send the text message on every cron run.
+ */
+async function sendTelegramMediaFiles(
+  botToken: string,
+  chatId: string,
+  media: DeliveryMediaItem[]
+): Promise<{ sent: number; failed: number }> {
+  let sent = 0;
+  let failed = 0;
+
+  for (const entry of media) {
+    const filePath = resolveUploadPath(entry.url);
+    if (!filePath || !fs.existsSync(filePath)) {
+      console.error(`Telegram delivery media not found on disk: ${entry.url}`);
+      failed++;
+      continue;
+    }
+
+    const method = entry.type === "video" ? "sendVideo" : "sendPhoto";
+    const field = entry.type === "video" ? "video" : "photo";
+    const ext = path.extname(filePath).toLowerCase();
+
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      form.append(
+        field,
+        new Blob([new Uint8Array(buffer)], { type: UPLOAD_MIME[ext] || "application/octet-stream" }),
+        path.basename(filePath)
+      );
+
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/${method}`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (res.ok) {
+        sent++;
+      } else {
+        failed++;
+        console.error(`Telegram ${method} failed for ${entry.url}:`, res.status, await res.text());
+      }
+    } catch (err) {
+      failed++;
+      console.error(`Telegram ${method} error for ${entry.url}:`, err);
+    }
+  }
+
+  return { sent, failed };
 }
 
 /**
@@ -60,6 +180,10 @@ export async function resolveDeliveryDetails(item: {
  * the admin's message makes Telegram reject the whole message with a 400, and
  * the customer would simply never hear about their order. So a failed
  * formatted send is retried as plain text - an unstyled message beats none.
+ *
+ * Uploaded photos/videos are sent first so they arrive above the message that
+ * explains them, and the return value tracks only the text message - see
+ * sendTelegramMediaFiles for why media failures are not fatal.
  */
 async function sendTelegramDelivery(
   botToken: string,
@@ -67,7 +191,11 @@ async function sendTelegramDelivery(
   productName: string,
   details: DeliveryDetails
 ): Promise<boolean> {
-  const { locationLink, pickupVideoUrl, adminMessage } = details;
+  const { locationLink, pickupVideoUrl, adminMessage, media } = details;
+
+  if (media.length > 0) {
+    await sendTelegramMediaFiles(botToken, chatId, media);
+  }
 
   let formatted = `📦 *Automated Delivery for ${escapeMarkdownV2(productName)}*\n\n`;
   formatted += `📝 ${escapeMarkdownV2(adminMessage)}\n\n`;
@@ -153,12 +281,17 @@ export async function deliverReadyOrderItem(orderItemId: string): Promise<boolea
   // `automatedMessageSent` deliberately stays false here. It means "Telegram is
   // done", not "the item moved", and is only set once the message is actually
   // accepted - which is what lets a failed send be retried later.
+  // The media list is snapshotted onto the order item rather than looked up
+  // again later: the unit it came from can be edited or restocked once this
+  // sale is done, and the customer must keep seeing the exact files that were
+  // released to them. It is also what the Telegram retry sweep re-sends.
   const claimed = await prisma.orderItem.updateMany({
     where: { id: item.id, status: "COOLDOWN_ACTIVE" },
     data: {
       status: "ON_PICKUP",
       locationLink: details.locationLink,
       pickupVideoUrl: details.pickupVideoUrl,
+      deliveryMedia: details.media,
       adminMessage: details.adminMessage,
       adminMessageSentAt: new Date(),
       onPickupAt: new Date(),
@@ -276,6 +409,7 @@ export async function retryPendingTelegramDeliveries(
         {
           locationLink: item.locationLink,
           pickupVideoUrl: item.pickupVideoUrl,
+          media: parseDeliveryMedia(item.deliveryMedia),
           adminMessage: item.adminMessage || "Your product is ready for pickup!",
         }
       );

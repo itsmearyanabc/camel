@@ -17,12 +17,26 @@ import SkeletonLoader from "@/components/SkeletonLoader";
 import RestockNotifyButton from "@/components/RestockNotifyButton";
 import { useLanguage } from "@/components/LanguageContext";
 
+/** A quantity/weight option of a product ("2g" @ $70) — its own sellable row. */
+interface ProductVariant {
+  id: string;
+  variantLabel: string | null;
+  price: number;
+  originalPrice?: number | null;
+  stockQuantity: number;
+  cities?: { id: string; name: string }[];
+  areas?: { id: string; name: string }[];
+  areaDetails?: any[];
+}
+
 interface Product {
   id: string; name: string; description: string; price: number;
   originalPrice?: number | null;
   currency: string;
+  productType?: string | null;
   formula: string | null; casNumber: string | null; imageUrl: string | null;
   stockQuantity: number;
+  variants?: ProductVariant[];
   cities: { id: string; name: string }[];
 }
 interface Category { id: string; name: string; prefixCode: string; description: string | null; products: Product[]; }
@@ -41,6 +55,8 @@ interface OrderItem {
   cancellationReason: string | null;
   locationLink: string | null;
   pickupVideoUrl: string | null;
+  /** Pickup photos/videos released with this unit after its cooldown. */
+  deliveryMedia?: { url: string; type: "image" | "video" }[] | null;
 }
 
 interface Order {
@@ -717,9 +733,12 @@ export default function Dashboard() {
                       <div className="product-card-top">
                         <div className="product-card-info">
                           <h4 style={{ marginBottom: "2px" }}>{product.name}</h4>
-                          <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
-                            {product.formula && <span style={{ fontSize: "12px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
-                            {product.casNumber && <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>CAS: {product.casNumber}</span>}
+                          <div style={{ display: "flex", gap: "8px", marginBottom: "4px", flexWrap: "wrap", alignItems: "center" }}>
+                            {product.productType && (
+                              <span className="badge badge-purple" style={{ fontSize: "11px" }}>
+                                {product.productType}
+                              </span>
+                            )}
                           </div>
                           <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                             {(() => {
@@ -737,7 +756,11 @@ export default function Dashboard() {
                                   <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
                                     {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
                                   </span>
-                                  {product.stockQuantity <= 0 && (
+                                  {/* Restock alerts fire per sellable row. On a
+                                      product with quantity options the stock is
+                                      on the options, so the alert is offered on
+                                      the product page once one is chosen. */}
+                                  {product.stockQuantity <= 0 && (product.variants?.length ?? 0) === 0 && (
                                     <RestockNotifyButton productId={product.id} compact />
                                   )}
                                 </>
@@ -745,6 +768,10 @@ export default function Dashboard() {
                             })()}
                             {/* Per-area Notify Me bells for out-of-stock areas (per flavour/variant) */}
                             {(() => {
+                              // Same reason as above: a parent's areas are a
+                              // roll-up of its options, so it is not the row a
+                              // restock alert can be attached to.
+                              if ((product.variants?.length ?? 0) > 0) return null;
                               const areaDetails = (product as any).areaDetails || [];
                               const outOfStockAreas = areaDetails.filter((d: any) => d.stockQuantity <= 0);
                               if (outOfStockAreas.length === 0) return null;
@@ -785,8 +812,49 @@ export default function Dashboard() {
                           </div>
                         )}
                       </div>
+                      {/* Quantity options, when this product has them: each is a
+                          separately-priced, separately-stocked item, chosen on
+                          the product page. */}
+                      {(product.variants?.length ?? 0) > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", padding: "0 0 10px" }}>
+                          {product.variants!.map((variant) => (
+                            <span
+                              key={variant.id}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                fontSize: "12px",
+                                padding: "3px 10px",
+                                borderRadius: "999px",
+                                border: "1px solid var(--border)",
+                                background: "var(--surface-subtle)",
+                                opacity: variant.stockQuantity > 0 ? 1 : 0.45,
+                              }}
+                              title={variant.stockQuantity > 0 ? `${variant.stockQuantity} available` : "Out of stock"}
+                            >
+                              <strong>{variant.variantLabel}</strong>
+                              <span style={{ color: "var(--text-secondary)" }}>
+                                {formatPrice(variant.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="product-card-bottom">
                         <span className="product-card-price">
+                          {(product.variants?.length ?? 0) > 0 ? (
+                            <>
+                              <span style={{ fontSize: "13px", color: "var(--text-tertiary)", fontWeight: "400" }}>from </span>
+                              {formatPrice(
+                                Math.min(...product.variants!.map((v) => Number(v.price))),
+                                user?.wallet?.currency || "USD",
+                                user?.wallet?.exchangeRate || 1
+                              )}
+                            </>
+                          ) : (
+                            <>
                           {formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                           {product.originalPrice != null && Number(product.originalPrice) > Number(product.price) && (
                             <>
@@ -797,6 +865,8 @@ export default function Dashboard() {
                               <span style={{ background: "var(--red)", color: "#fff", fontSize: "10px", fontWeight: "700", padding: "1px 6px", borderRadius: "10px", marginLeft: "6px", verticalAlign: "middle" }}>
                                 -{Math.round(((Number(product.originalPrice) - Number(product.price)) / Number(product.originalPrice)) * 100)}%
                               </span>
+                            </>
+                          )}
                             </>
                           )}
                         </span>
@@ -1238,6 +1308,51 @@ export default function Dashboard() {
                                       </a>
                                     )}
                                   </div>
+
+                                  {/* Pickup photos/videos released with this unit. The
+                                      same files are pushed to Telegram; this is the
+                                      copy that is always available. */}
+                                  {Array.isArray(item.deliveryMedia) && item.deliveryMedia.length > 0 && (
+                                    <div
+                                      style={{
+                                        display: "grid",
+                                        gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                                        gap: "10px",
+                                        marginBottom: "12px",
+                                      }}
+                                    >
+                                      {(item.deliveryMedia as { url: string; type: string }[]).map((media, mediaIdx) => (
+                                        <div
+                                          key={`${media.url}-${mediaIdx}`}
+                                          style={{
+                                            borderRadius: "8px",
+                                            overflow: "hidden",
+                                            border: "1px solid var(--border)",
+                                            background: "var(--bg-secondary)",
+                                          }}
+                                        >
+                                          {media.type === "video" ? (
+                                            <video
+                                              src={media.url}
+                                              controls
+                                              playsInline
+                                              preload="metadata"
+                                              style={{ width: "100%", display: "block", maxHeight: "260px", background: "#000" }}
+                                            />
+                                          ) : (
+                                            <a href={media.url} target="_blank" rel="noreferrer">
+                                              <img
+                                                src={media.url}
+                                                alt="Pickup detail"
+                                                loading="lazy"
+                                                style={{ width: "100%", display: "block", maxHeight: "260px", objectFit: "cover" }}
+                                              />
+                                            </a>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                   {item.adminMessageFileUrl && (
                                     <div style={{ marginTop: "12px" }}>
                                       {item.adminMessageFileType?.startsWith("image/") ? (

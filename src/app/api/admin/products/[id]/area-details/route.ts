@@ -2,6 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+/** Most media files one unit can carry (e.g. a few photos + a video). */
+const MAX_MEDIA_PER_UNIT = 6;
+
+/**
+ * Keep only well-formed, locally-hosted media entries.
+ *
+ * Only /uploads/ paths are accepted: these URLs are later resolved to files on
+ * the VPS disk and pushed to Telegram, so an external URL here would at best
+ * fail to send and at worst turn the Telegram sender into a proxy for
+ * arbitrary hosts.
+ */
+function sanitizeMediaUrls(input: unknown): Array<{ url: string; type: "image" | "video" }> {
+  if (!Array.isArray(input)) return [];
+  const clean: Array<{ url: string; type: "image" | "video" }> = [];
+  for (const entry of input) {
+    const url = typeof entry?.url === "string" ? entry.url.trim() : "";
+    const type = entry?.type === "video" ? "video" : entry?.type === "image" ? "image" : null;
+    if (!type) continue;
+    if (!url.startsWith("/uploads/") || url.includes("..")) continue;
+    clean.push({ url, type });
+    if (clean.length >= MAX_MEDIA_PER_UNIT) break;
+  }
+  return clean;
+}
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
   if (!session || !["ADMIN", "SUPERADMIN", "STAFF"].includes(session.role)) {
@@ -22,9 +47,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     // per-unit rows match.
     // Upsert each area detail and sync its per-unit stock items.
     for (const detail of areaDetails) {
-      const stockItems: Array<{ id?: string; locationUrl?: string; videoUrl?: string }> = Array.isArray(detail.stockItems)
-        ? detail.stockItems
-        : [];
+      const stockItems: Array<{ id?: string; locationUrl?: string; videoUrl?: string; mediaUrls?: unknown }> =
+        Array.isArray(detail.stockItems) ? detail.stockItems : [];
+      const detailMedia = sanitizeMediaUrls(detail.mediaUrls);
 
       const saved = await prisma.productAreaDetail.upsert({
         where: {
@@ -36,6 +61,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         update: {
           locationUrl: detail.locationUrl || null,
           videoUrl: detail.videoUrl || null,
+          mediaUrls: detailMedia,
           message: detail.message || null,
           cooldownMinutes: parseInt(detail.cooldownMinutes) || 0,
         },
@@ -44,6 +70,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           areaId: detail.areaId,
           locationUrl: detail.locationUrl || null,
           videoUrl: detail.videoUrl || null,
+          mediaUrls: detailMedia,
           message: detail.message || null,
           cooldownMinutes: parseInt(detail.cooldownMinutes) || 0,
         }
@@ -89,6 +116,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               productAreaDetailId: saved.id,
               locationUrl: item.locationUrl || null,
               videoUrl: item.videoUrl || null,
+              mediaUrls: sanitizeMediaUrls(item.mediaUrls),
               status: "AVAILABLE",
             }))
           });

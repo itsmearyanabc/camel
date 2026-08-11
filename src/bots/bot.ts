@@ -417,10 +417,22 @@ export function createTelegramBot(token: string, botName: string) {
     const lang = user?.language || "EN";
     const currency = user?.wallet?.currency || "USD";
 
-    const products = await prisma.product.findMany();
+    const products = await prisma.product.findMany({ orderBy: { createdAt: "asc" } });
     const keyboard = new InlineKeyboard();
 
-    if (products.length === 0) {
+    // Quantity options (2g, 3g, ...) are product rows of their own, so they are
+    // ordered directly through the existing buy flow - they are just listed
+    // beneath their parent so the catalog reads as one entry per product.
+    const parents = products.filter((p) => !p.parentProductId);
+    const variantsByParent = new Map<string, typeof products>();
+    for (const p of products) {
+      if (!p.parentProductId) continue;
+      const list = variantsByParent.get(p.parentProductId) || [];
+      list.push(p);
+      variantsByParent.set(p.parentProductId, list);
+    }
+
+    if (parents.length === 0) {
       keyboard.text(t(lang, "common.backMain"), "main_menu");
       await ctx.editMessageText(t(lang, "shop.none"), { reply_markup: keyboard });
       await ctx.answerCallbackQuery();
@@ -429,29 +441,41 @@ export function createTelegramBot(token: string, botName: string) {
 
     let text = `${t(lang, "shop.catalog")}\n\n`;
 
-    for (const prod of products) {
-      const stockCount = prod.stockQuantity;
-      const state = getStockState(stockCount);
-      const price = await formatMoney(prod.price, currency);
+    for (const parent of parents) {
+      const variants = variantsByParent.get(parent.id) || [];
+      // A parent with options holds no stock itself; what is sellable is each
+      // option. Without options the product itself is the sellable row.
+      const sellables = variants.length > 0 ? variants : [parent];
 
-      text +=
-        `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
-        `  ${t(lang, "shop.price")}: ${price} | ${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n`;
-
-      // Show where it can actually be collected, the same way the website's
-      // product page lists its areas.
-      const areas = await getAvailableAreasForProduct(prod.id);
-      if (areas.length > 0) {
-        const list = areas
-          .map((a) => `${a.areaName} (${a.stockQuantity})`)
-          .join(", ");
-        text += `  📍 ${esc(list)}\n`;
-      }
+      text += `• *${esc(parent.name)}*`;
+      if (parent.productType) text += ` — _${esc(parent.productType)}_`;
       text += `\n`;
 
-      if (stockCount > 0 && areas.length > 0) {
-        keyboard.text(t(lang, "shop.orderBtn", { name: prod.name }).slice(0, 64), `buy_${prod.id}`).row();
+      for (const item of sellables) {
+        const state = getStockState(item.stockQuantity);
+        const price = await formatMoney(item.price, currency);
+        const prefix = item.variantLabel ? `  ▪️ *${esc(item.variantLabel)}* — ` : "  ";
+
+        text +=
+          `${prefix}${t(lang, "shop.price")}: ${price} | ` +
+          `${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n`;
+
+        // Show where it can actually be collected, the same way the website's
+        // product page lists its areas.
+        const areas = await getAvailableAreasForProduct(item.id);
+        if (areas.length > 0) {
+          const list = areas.map((a) => `${a.areaName} (${a.stockQuantity})`).join(", ");
+          text += `     📍 ${esc(list)}\n`;
+        }
+
+        if (item.stockQuantity > 0 && areas.length > 0) {
+          // item.name already reads "Parent (2g)" for options, so the button
+          // is unambiguous when several are listed together.
+          keyboard.text(t(lang, "shop.orderBtn", { name: item.name }).slice(0, 64), `buy_${item.id}`).row();
+        }
       }
+
+      text += `\n`;
     }
 
     keyboard.text(t(lang, "common.backMain"), "main_menu");

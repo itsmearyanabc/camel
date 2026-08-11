@@ -14,6 +14,9 @@ interface Product {
   imageUrl: string | null;
   stockQuantity: number;
   productType: string | null;
+  /** Set on variant rows ("2g", "3g") - points at the display parent. */
+  parentProductId: string | null;
+  variantLabel: string | null;
   categoryId: string | null;
   categoryName: string | null;
   cities: Array<{ id: string; name: string }>;
@@ -23,11 +26,18 @@ interface Product {
     stockQuantity: number;
     locationUrl?: string;
     videoUrl?: string;
+    mediaUrls?: DeliveryMedia[];
     message?: string;
     cooldownMinutes?: number;
     area?: { id: string; name: string };
   }>;
   createdAt: string;
+}
+
+/** An uploaded pickup photo/video, stored on this server and sent after cooldown. */
+interface DeliveryMedia {
+  url: string;
+  type: "image" | "video";
 }
 
 /**
@@ -42,6 +52,14 @@ interface StockItemDraft {
   id?: string;
   locationUrl: string;
   videoUrl: string;
+  mediaUrls: DeliveryMedia[];
+}
+
+/** A weight/quantity option ("2g" @ $70) while it is being edited. */
+interface VariantDraft {
+  id?: string;
+  label: string;
+  price: string;
 }
 
 interface Category {
@@ -93,6 +111,11 @@ export default function ProductManagement() {
     areaIds: [] as string[],
     areaDetails: [] as any[],
   });
+
+  // Weight/quantity variants for the product being edited
+  const [variants, setVariants] = useState<VariantDraft[]>([]);
+  const [addingNewType, setAddingNewType] = useState(false);
+  const [uploadingMediaFor, setUploadingMediaFor] = useState<string | null>(null);
 
   // Bulk operations
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
@@ -169,7 +192,30 @@ export default function ProductManagement() {
       areaIds: [],
       areaDetails: [],
     });
+    setVariants([]);
+    setAddingNewType(false);
   };
+
+  /**
+   * Product types offered in the dropdown.
+   *
+   * Built from the types already in use rather than a hardcoded list, so a new
+   * type typed into "Add new type" is available on every product from then on
+   * without a code change.
+   */
+  const productTypeOptions = Array.from(
+    new Set(
+      products
+        .map((p) => (p.productType || "").trim())
+        .filter((t) => t.length > 0)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  /** Variant rows belonging to a parent, in creation order. */
+  const variantsOf = (parentId: string) =>
+    products
+      .filter((p) => p.parentProductId === parentId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -193,7 +239,7 @@ export default function ProductManagement() {
       const data = await res.json();
 
       if (res.ok) {
-        // Save per-unit area details (location/video links) for the new product.
+        // Save per-unit area details (location/media) for the new product.
         const newProductId = data.product?.id;
         if (newProductId && fullAreaDetails.length > 0) {
           await fetch(`/api/admin/products/${newProductId}/area-details`, {
@@ -203,10 +249,16 @@ export default function ProductManagement() {
           });
         }
 
-        setMsg({ type: "success", text: "Product added successfully!" });
+        const variantError = newProductId ? await saveVariants(newProductId) : null;
+
         setShowAddModal(false);
         resetForm();
         fetchData();
+        setMsg(
+          variantError
+            ? { type: "error", text: `Product added, but quantity options failed: ${variantError}` }
+            : { type: "success", text: "Product added successfully!" }
+        );
       } else {
         setMsg({ type: "error", text: data.error || "Failed to add product" });
       }
@@ -252,12 +304,50 @@ export default function ProductManagement() {
         stockQuantity: 0,
         locationUrl: "",
         videoUrl: "",
+        mediaUrls: [],
         message: "",
         cooldownMinutes: DEFAULT_COOLDOWN_MINUTES,
         stockItems: [],
         ...(detail || {}),
       };
     });
+
+  /**
+   * Persist the weight/quantity options for a product.
+   *
+   * Runs after the product itself is saved so the children inherit the parent's
+   * freshly-saved name, image and type. Returns an error string on failure so
+   * the caller can surface it instead of reporting a clean save.
+   */
+  const saveVariants = async (productId: string): Promise<string | null> => {
+    const rows = variants
+      .map((v) => ({ id: v.id, label: v.label.trim(), price: v.price }))
+      .filter((v) => v.label.length > 0);
+
+    for (const row of rows) {
+      const price = parseFloat(row.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        return `Variant "${row.label}" needs a price greater than 0`;
+      }
+    }
+
+    try {
+      const res = await fetch(`/api/admin/products/${productId}/variants`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          variants: rows.map((r) => ({ id: r.id, label: r.label, price: parseFloat(r.price) })),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return data.error || "Failed to save quantity options";
+      }
+      return null;
+    } catch {
+      return "Failed to save quantity options";
+    }
+  };
 
   const buildAreaStocks = (fullAreaDetails: any[]) =>
     fullAreaDetails.map((d: any) => ({
@@ -311,11 +401,20 @@ export default function ProductManagement() {
           });
         }
 
-        setMsg({ type: "success", text: "Product updated successfully!" });
+        // Staff never send variants - pricing is admin-only, and the variants
+        // API rejects their session anyway.
+        const variantError =
+          isStaff || selectedProduct.parentProductId ? null : await saveVariants(selectedProduct.id);
+
         setShowEditModal(false);
         setSelectedProduct(null);
         resetForm();
         fetchData();
+        setMsg(
+          variantError
+            ? { type: "error", text: `Product saved, but quantity options failed: ${variantError}` }
+            : { type: "success", text: "Product updated successfully!" }
+        );
       } else {
         setMsg({ type: "error", text: data.error || "Failed to update product" });
       }
@@ -325,7 +424,11 @@ export default function ProductManagement() {
   };
 
   const handleDeleteProduct = async (productId: string) => {
-    if (!confirm("Are you sure you want to delete this product? This action cannot be undone.")) return;
+    const childCount = variantsOf(productId).length;
+    const warning = childCount > 0
+      ? `Delete this product and all ${childCount} of its quantity options? This cannot be undone.`
+      : "Are you sure you want to delete this product? This action cannot be undone.";
+    if (!confirm(warning)) return;
 
     try {
       const res = await fetch("/api/admin/products", {
@@ -444,7 +547,53 @@ export default function ProductManagement() {
       areaIds: product.areas.map((a) => a.id),
       areaDetails: product.areaDetails || [],
     });
+    setVariants(
+      variantsOf(product.id).map((v) => ({
+        id: v.id,
+        label: v.variantLabel || "",
+        price: Number(v.price).toString(),
+      }))
+    );
+    setAddingNewType(false);
     setShowEditModal(true);
+  };
+
+  const handleMediaUpload = async (
+    files: FileList | null,
+    slotKey: string,
+    onUploaded: (media: DeliveryMedia[]) => void
+  ) => {
+    if (!files || files.length === 0) return;
+
+    setUploadingMediaFor(slotKey);
+    const uploaded: DeliveryMedia[] = [];
+    const failures: string[] = [];
+
+    // Sequential on purpose: a 50MB video per request is already heavy, and
+    // firing several at once on a small VPS just makes them all time out.
+    for (const file of Array.from(files)) {
+      const body = new FormData();
+      body.append("file", file);
+      try {
+        const res = await fetch("/api/admin/upload-media", { method: "POST", body });
+        const data = await res.json();
+        if (res.ok && data.url) {
+          uploaded.push({ url: data.url, type: data.type });
+        } else {
+          failures.push(`${file.name}: ${data.error || "upload failed"}`);
+        }
+      } catch {
+        failures.push(`${file.name}: network error`);
+      }
+    }
+
+    setUploadingMediaFor(null);
+    if (uploaded.length > 0) onUploaded(uploaded);
+    if (failures.length > 0) {
+      setMsg({ type: "error", text: failures.join(" • ") });
+    } else if (uploaded.length > 0) {
+      setMsg({ type: "success", text: `${uploaded.length} file(s) uploaded. Save to apply.` });
+    }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -491,21 +640,42 @@ export default function ProductManagement() {
     }
   };
 
-  // Filter and sort products
-  const filteredProducts = products
+  /**
+   * Stock a customer can actually buy under this listing.
+   *
+   * Stock lives on the rows that are sold. For a product with quantity options
+   * that is the variants, and the parent's own counter stays 0 - so summing the
+   * children is the only number that means anything to the admin.
+   */
+  const sellableStock = (product: Product) => {
+    const children = variantsOf(product.id);
+    return children.length > 0
+      ? children.reduce((sum, c) => sum + c.stockQuantity, 0)
+      : product.stockQuantity;
+  };
+
+  // Variants are shown nested under their parent, never as separate top-level
+  // rows - the parent is the thing being managed.
+  const topLevelProducts = products.filter((p) => !p.parentProductId);
+
+  const filteredProducts = topLevelProducts
     .filter((p) => {
+      const term = searchTerm.toLowerCase();
       const matchesSearch =
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.casNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+        !term ||
+        p.name.toLowerCase().includes(term) ||
+        p.description?.toLowerCase().includes(term) ||
+        p.productType?.toLowerCase().includes(term) ||
+        variantsOf(p.id).some((v) => (v.variantLabel || "").toLowerCase().includes(term));
 
       const matchesCategory = filterCategory === "ALL" || p.categoryId === filterCategory;
 
+      const stock = sellableStock(p);
       const matchesStock =
         filterStock === "ALL" ||
-        (filterStock === "IN_STOCK" && p.stockQuantity > 0) ||
-        (filterStock === "OUT_OF_STOCK" && p.stockQuantity === 0) ||
-        (filterStock === "LOW_STOCK" && p.stockQuantity > 0 && p.stockQuantity <= 10);
+        (filterStock === "IN_STOCK" && stock > 0) ||
+        (filterStock === "OUT_OF_STOCK" && stock === 0) ||
+        (filterStock === "LOW_STOCK" && stock > 0 && stock <= 10);
 
       return matchesSearch && matchesCategory && matchesStock;
     })
@@ -518,9 +688,9 @@ export default function ProductManagement() {
         case "price-desc":
           return b.price - a.price;
         case "stock-asc":
-          return a.stockQuantity - b.stockQuantity;
+          return sellableStock(a) - sellableStock(b);
         case "stock-desc":
-          return b.stockQuantity - a.stockQuantity;
+          return sellableStock(b) - sellableStock(a);
         case "newest":
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         default:
@@ -529,10 +699,12 @@ export default function ProductManagement() {
     });
 
   const stats = {
-    total: products.length,
-    inStock: products.filter((p) => p.stockQuantity > 0).length,
-    outOfStock: products.filter((p) => p.stockQuantity === 0).length,
-    lowStock: products.filter((p) => p.stockQuantity > 0 && p.stockQuantity <= 10).length,
+    total: topLevelProducts.length,
+    inStock: topLevelProducts.filter((p) => sellableStock(p) > 0).length,
+    outOfStock: topLevelProducts.filter((p) => sellableStock(p) === 0).length,
+    lowStock: topLevelProducts.filter((p) => sellableStock(p) > 0 && sellableStock(p) <= 10).length,
+    // Every sellable row counts here, variants included - that is where the
+    // stock and the real price both live.
     totalValue: products.reduce((sum, p) => sum + p.price * p.stockQuantity, 0),
   };
 
@@ -699,123 +871,187 @@ export default function ProductManagement() {
                   </td>
                 </tr>
               ) : (
-                filteredProducts.map((product) => (
-                  <tr
-                    key={product.id}
-                    style={{
-                      borderBottom: "1px solid var(--border)",
-                      background: selectedProducts.has(product.id) ? "var(--bg-secondary)" : "transparent",
-                    }}
-                  >
-                    {!isStaff && (
-                      <td style={{ padding: "16px" }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedProducts.has(product.id)}
-                          onChange={() => toggleProductSelection(product.id)}
-                          style={{ cursor: "pointer" }}
-                        />
-                      </td>
-                    )}
-                    <td style={{ padding: "16px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        {product.imageUrl ? (
-                          <img
-                            src={product.imageUrl}
-                            alt={product.name}
-                            style={{ width: "48px", height: "48px", borderRadius: "8px", objectFit: "cover" }}
+                filteredProducts.flatMap((product) => {
+                  const children = variantsOf(product.id);
+                  const stock = sellableStock(product);
+                  const symbol =
+                    product.currency === "EUR" ? "€" : product.currency === "GBP" ? "£" : "$";
+
+                  const parentRow = (
+                    <tr
+                      key={product.id}
+                      style={{
+                        borderBottom: children.length > 0 ? "none" : "1px solid var(--border)",
+                        background: selectedProducts.has(product.id) ? "var(--bg-secondary)" : "transparent",
+                      }}
+                    >
+                      {!isStaff && (
+                        <td style={{ padding: "16px" }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedProducts.has(product.id)}
+                            onChange={() => toggleProductSelection(product.id)}
+                            style={{ cursor: "pointer" }}
                           />
-                        ) : (
-                          <div
-                            style={{
-                              width: "48px",
-                              height: "48px",
-                              borderRadius: "8px",
-                              background: "var(--bg-secondary)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontSize: "24px",
-                            }}
-                          >
-                            📦
-                          </div>
-                        )}
-                        <div>
-                          <div style={{ fontWeight: "600", marginBottom: "4px" }}>{product.name}</div>
-                          {product.productType && (
-                            <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>{product.productType}</div>
+                        </td>
+                      )}
+                      <td style={{ padding: "16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          {product.imageUrl ? (
+                            <img
+                              src={product.imageUrl}
+                              alt={product.name}
+                              style={{ width: "48px", height: "48px", borderRadius: "8px", objectFit: "cover" }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: "48px",
+                                height: "48px",
+                                borderRadius: "8px",
+                                background: "var(--bg-secondary)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: "24px",
+                              }}
+                            >
+                              📦
+                            </div>
                           )}
-                          {product.casNumber && (
-                            <div style={{ fontSize: "11px", color: "var(--text-tertiary)", fontFamily: "monospace" }}>
-                              CAS: {product.casNumber}
+                          <div>
+                            <div style={{ fontWeight: "600", marginBottom: "4px" }}>{product.name}</div>
+                            {product.productType && (
+                              <span className="badge badge-purple" style={{ fontSize: "11px" }}>
+                                {product.productType}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "16px" }}>
+                        {children.length > 0 ? (
+                          <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>
+                            {children.length} option{children.length === 1 ? "" : "s"}
+                          </span>
+                        ) : (
+                          <span style={{ fontWeight: "600", color: "var(--green)", fontSize: "16px" }}>
+                            {symbol}
+                            {Number(product.price).toFixed(2)}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "16px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                          <span
+                            className={`badge ${
+                              stock === 0 ? "badge-red" : stock <= 10 ? "badge-orange" : "badge-green"
+                            }`}
+                          >
+                            {stock === 0 ? "Out of Stock" : `${stock} units`}
+                          </span>
+                          {children.length === 0 && product.areaDetails && product.areaDetails.length > 0 && (
+                            <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                              {product.areaDetails.filter((d) => d.stockQuantity > 0).length} area(s) with stock
+                            </div>
+                          )}
+                          {children.length > 0 && (
+                            <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                              across {children.length} option{children.length === 1 ? "" : "s"}
                             </div>
                           )}
                         </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: "16px" }}>
-                      <span style={{ fontWeight: "600", color: "var(--green)", fontSize: "16px" }}>
-                        {product.currency === "EUR" ? "€" : product.currency === "GBP" ? "£" : "$"}
-                        {Number(product.price).toFixed(2)}
-                      </span>
-                    </td>
-                    <td style={{ padding: "16px" }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                      </td>
+                      <td style={{ padding: "16px" }}>
+                        <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                          {product.cities.length > 0 ? (
+                            <>
+                              <div>{product.cities.length} cities</div>
+                              <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
+                                {product.areas.length} areas
+                              </div>
+                            </>
+                          ) : (
+                            <span style={{ color: "var(--text-tertiary)" }}>No locations</span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ padding: "16px", textAlign: "right" }}>
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                          <button
+                            onClick={() => openEditModal(product)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            {isStaff ? "📦 Manage Stock" : "✏️ Edit"}
+                          </button>
+                          {!isStaff && (
+                            <button
+                              onClick={() => handleDeleteProduct(product.id)}
+                              className="btn btn-ghost btn-sm"
+                              style={{ color: "var(--red)" }}
+                            >
+                              🗑️ Delete
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+
+                  // Each quantity option carries its own stock and delivery
+                  // media, so it gets its own row to open the stock editor with.
+                  const variantRows = children.map((variant, idx) => (
+                    <tr
+                      key={variant.id}
+                      style={{
+                        borderBottom:
+                          idx === children.length - 1 ? "1px solid var(--border)" : "1px solid var(--border-subtle, rgba(128,128,128,0.15))",
+                        background: "var(--bg-secondary)",
+                      }}
+                    >
+                      {!isStaff && <td />}
+                      <td style={{ padding: "10px 16px 10px 76px" }}>
+                        <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                          ↳ <strong style={{ color: "var(--text-primary)" }}>{variant.variantLabel}</strong>
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
+                        <span style={{ fontWeight: "600", color: "var(--green)" }}>
+                          {symbol}
+                          {Number(variant.price).toFixed(2)}
+                        </span>
+                      </td>
+                      <td style={{ padding: "10px 16px" }}>
                         <span
                           className={`badge ${
-                            product.stockQuantity === 0
+                            variant.stockQuantity === 0
                               ? "badge-red"
-                              : product.stockQuantity <= 10
+                              : variant.stockQuantity <= 10
                               ? "badge-orange"
                               : "badge-green"
                           }`}
                         >
-                          {product.stockQuantity === 0 ? "Out of Stock" : `${product.stockQuantity} units`}
+                          {variant.stockQuantity === 0 ? "Out of Stock" : `${variant.stockQuantity} units`}
                         </span>
-                        {product.areaDetails && product.areaDetails.length > 0 && (
-                          <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                            {product.areaDetails.filter((d) => d.stockQuantity > 0).length} area(s) with stock
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: "16px" }}>
-                      <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-                        {product.cities.length > 0 ? (
-                          <>
-                            <div>{product.cities.length} cities</div>
-                            <div style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>
-                              {product.areas.length} areas
-                            </div>
-                          </>
-                        ) : (
-                          <span style={{ color: "var(--text-tertiary)" }}>No locations</span>
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: "16px", textAlign: "right" }}>
-                      <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                      </td>
+                      <td style={{ padding: "10px 16px", fontSize: "12px", color: "var(--text-tertiary)" }}>
+                        {variant.areas.length} area{variant.areas.length === 1 ? "" : "s"}
+                      </td>
+                      <td style={{ padding: "10px 16px", textAlign: "right" }}>
                         <button
-                          onClick={() => openEditModal(product)}
+                          onClick={() => openEditModal(variant)}
                           className="btn btn-ghost btn-sm"
                           style={{ color: "var(--accent)" }}
                         >
-                          {isStaff ? "📦 Manage Stock" : "✏️ Edit"}
+                          📦 Stock &amp; Delivery
                         </button>
-                        {!isStaff && (
-                          <button
-                            onClick={() => handleDeleteProduct(product.id)}
-                            className="btn btn-ghost btn-sm"
-                            style={{ color: "var(--red)" }}
-                          >
-                            🗑️ Delete
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  ));
+
+                  return [parentRow, ...variantRows];
+                })
               )}
             </tbody>
           </table>
@@ -908,18 +1144,64 @@ export default function ProductManagement() {
 
                 <div className="form-group">
                   <label className="form-label">Product Type</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Powder, Liquid, Capsule"
-                    value={formData.productType}
-                    onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
-                    {...adminOnlyField}
-                  />
+                  {addingNewType ? (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Stone, Burial, Cache, Liquid"
+                        value={formData.productType}
+                        onChange={(e) => setFormData({ ...formData, productType: e.target.value })}
+                        autoFocus
+                        {...adminOnlyField}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setAddingNewType(false)}
+                        style={{ whiteSpace: "nowrap" }}
+                      >
+                        ✓ Done
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      className="form-input"
+                      value={productTypeOptions.includes(formData.productType) ? formData.productType : formData.productType ? "__CURRENT__" : ""}
+                      onChange={(e) => {
+                        if (e.target.value === "__NEW__") {
+                          setFormData({ ...formData, productType: "" });
+                          setAddingNewType(true);
+                        } else if (e.target.value !== "__CURRENT__") {
+                          setFormData({ ...formData, productType: e.target.value });
+                        }
+                      }}
+                      {...adminOnlyField}
+                    >
+                      <option value="">— No type —</option>
+                      {/* A type saved before it existed elsewhere still needs to
+                          show as the current selection, or reopening the form
+                          would silently blank it. */}
+                      {formData.productType && !productTypeOptions.includes(formData.productType) && (
+                        <option value="__CURRENT__">{formData.productType}</option>
+                      )}
+                      {productTypeOptions.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                      {!isStaff && <option value="__NEW__">➕ Add new type…</option>}
+                    </select>
+                  )}
+                  <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                    Shown to customers on the shop and in the Telegram bot
+                  </small>
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Price (USD) *</label>
+                  <label className="form-label">
+                    {variants.length > 0 ? "Base Price (USD)" : "Price (USD) *"}
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -930,6 +1212,11 @@ export default function ProductManagement() {
                     required
                     {...adminOnlyField}
                   />
+                  {variants.length > 0 && (
+                    <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                      Not charged — each quantity option below has its own price
+                    </small>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -947,30 +1234,6 @@ export default function ProductManagement() {
                   <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
                     Set higher than the sale price to show a strikethrough discount on the storefront
                   </small>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Chemical Formula</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. NaCl, H2SO4"
-                    value={formData.formula}
-                    onChange={(e) => setFormData({ ...formData, formula: e.target.value })}
-                    {...adminOnlyField}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">CAS Number</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. 7647-14-5"
-                    value={formData.casNumber}
-                    onChange={(e) => setFormData({ ...formData, casNumber: e.target.value })}
-                    {...adminOnlyField}
-                  />
                 </div>
 
                 <div className="form-group" style={{ gridColumn: "1 / -1" }}>
@@ -1004,7 +1267,143 @@ export default function ProductManagement() {
                   </div>
                 </div>
 
+                {/* Quantity / weight options */}
+                {!isStaff && !selectedProduct?.parentProductId && (
+                  <div style={{ gridColumn: "1 / -1", marginTop: "16px" }}>
+                    <h3 style={{ fontSize: "16px", marginBottom: "4px", color: "var(--accent)" }}>
+                      Quantity Options
+                    </h3>
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", marginBottom: "16px" }}>
+                      Sell the same product in several sizes — e.g. <strong>2g → $70</strong>, <strong>3g → $100</strong>.
+                      Each option gets its own stock, areas and delivery media, managed from its own row in the
+                      product list after saving. Leave empty to sell this product as a single fixed-price item.
+                    </p>
+
+                    <div
+                      style={{
+                        border: "1px solid var(--border)",
+                        borderRadius: "8px",
+                        padding: "16px",
+                        background: "var(--bg-secondary)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                      }}
+                    >
+                      {variants.length === 0 ? (
+                        <p style={{ fontSize: "13px", color: "var(--text-tertiary)", margin: 0 }}>
+                          No quantity options — this product is sold at its single price above.
+                        </p>
+                      ) : (
+                        variants.map((variant, idx) => {
+                          const existing = variant.id
+                            ? products.find((p) => p.id === variant.id)
+                            : undefined;
+                          return (
+                            <div
+                              key={variant.id || `new-${idx}`}
+                              style={{ display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" }}
+                            >
+                              <div className="form-group" style={{ marginBottom: 0, flex: "1 1 140px" }}>
+                                <label className="form-label" style={{ fontSize: "11px" }}>
+                                  Quantity / Weight *
+                                </label>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  placeholder="e.g. 2g"
+                                  value={variant.label}
+                                  maxLength={40}
+                                  onChange={(e) => {
+                                    const next = [...variants];
+                                    next[idx] = { ...next[idx], label: e.target.value };
+                                    setVariants(next);
+                                  }}
+                                />
+                              </div>
+                              <div className="form-group" style={{ marginBottom: 0, flex: "1 1 140px" }}>
+                                <label className="form-label" style={{ fontSize: "11px" }}>
+                                  Price (USD) *
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0.01"
+                                  className="form-input"
+                                  placeholder="70.00"
+                                  value={variant.price}
+                                  onChange={(e) => {
+                                    const next = [...variants];
+                                    next[idx] = { ...next[idx], price: e.target.value };
+                                    setVariants(next);
+                                  }}
+                                />
+                              </div>
+                              <div style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px", paddingBottom: "2px" }}>
+                                {existing && (
+                                  <span
+                                    className={`badge ${existing.stockQuantity > 0 ? "badge-green" : "badge-red"}`}
+                                    style={{ fontSize: "11px" }}
+                                  >
+                                    {existing.stockQuantity} in stock
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ color: "var(--red)" }}
+                                  onClick={() => setVariants(variants.filter((_, i) => i !== idx))}
+                                  title={
+                                    existing
+                                      ? "Removes this option on save. Blocked if customers have ordered it."
+                                      : "Remove this option"
+                                  }
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ alignSelf: "flex-start" }}
+                        onClick={() => setVariants([...variants, { label: "", price: "" }])}
+                      >
+                        ➕ Add quantity option
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Stock */}
+                {variants.length > 0 && !selectedProduct?.parentProductId ? (
+                  <div style={{ gridColumn: "1 / -1", marginTop: "16px" }}>
+                    <h3 style={{ fontSize: "16px", marginBottom: "8px", color: "var(--accent)" }}>Inventory</h3>
+                    <div
+                      className="alert"
+                      style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", fontSize: "13px" }}
+                    >
+                      📦 Stock, delivery areas and pickup media are set per quantity option. Save this form, then
+                      use <strong>Stock &amp; Delivery</strong> on each option's row in the product list.
+                    </div>
+                    {/* A product that used to sell on its own keeps its old units
+                        after options are added, but nothing can buy them any more -
+                        say so plainly instead of letting the stock quietly vanish
+                        from the storefront. */}
+                    {(selectedProduct?.stockQuantity ?? 0) > 0 && (
+                      <div className="alert alert-error" style={{ fontSize: "13px" }}>
+                        ⚠️ This product still holds <strong>{selectedProduct?.stockQuantity} unit(s)</strong> of its own
+                        stock from before it had quantity options. Customers can no longer buy those — move the stock
+                        onto an option, or set this product's area stock to 0 to clear it.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
                 <div style={{ gridColumn: "1 / -1", marginTop: "16px" }}>
                   <h3 style={{ fontSize: "16px", marginBottom: "16px", color: "var(--accent)" }}>Inventory</h3>
                 </div>
@@ -1138,21 +1537,30 @@ export default function ProductManagement() {
                            : [];
                          // Seed from legacy single location/video if present and no items yet.
                          if (stockItems.length === 0 && (detail.locationUrl || detail.videoUrl)) {
-                           stockItems = [{ locationUrl: detail.locationUrl || "", videoUrl: detail.videoUrl || "" }];
+                           stockItems = [{
+                             locationUrl: detail.locationUrl || "",
+                             videoUrl: detail.videoUrl || "",
+                             mediaUrls: Array.isArray(detail.mediaUrls) ? detail.mediaUrls : [],
+                           }];
                          }
+                         // Rows loaded from the API may predate the media column.
+                         stockItems = stockItems.map((it) => ({
+                           ...it,
+                           mediaUrls: Array.isArray(it.mediaUrls) ? it.mediaUrls : [],
+                         }));
                          // Grow to match the quantity, but NEVER discard extras here.
                          // Truncating in state is what used to wipe the delivery links
                          // the moment someone backspaced the quantity field to empty.
                          // normalizeAreaDetails() trims to quantity at save time instead,
                          // so lowering and re-raising the number restores the links.
-                         while (stockItems.length < qty) stockItems.push({ locationUrl: "", videoUrl: "" });
+                         while (stockItems.length < qty) stockItems.push({ locationUrl: "", videoUrl: "", mediaUrls: [] });
                          const visibleItems = stockItems.slice(0, qty);
                          const preservedCount = Math.max(0, stockItems.length - qty);
 
                          const setQuantity = (next: number) => {
                            const safe = Math.max(0, next);
                            const grown = [...stockItems];
-                           while (grown.length < safe) grown.push({ locationUrl: "", videoUrl: "" });
+                           while (grown.length < safe) grown.push({ locationUrl: "", videoUrl: "", mediaUrls: [] });
                            const newDetails = [...formData.areaDetails];
                            const idx = newDetails.findIndex((d) => d.areaId === areaId);
                            const base = idx >= 0 ? newDetails[idx] : detail;
@@ -1178,9 +1586,7 @@ export default function ProductManagement() {
                            setFormData({ ...formData, areaDetails: newDetails });
                          };
 
-                         const updateStockItem = (itemIdx: number, field: "locationUrl" | "videoUrl", value: string) => {
-                           const newItems = [...stockItems];
-                           newItems[itemIdx] = { ...newItems[itemIdx], [field]: value };
+                         const writeStockItems = (newItems: Array<StockItemDraft>) => {
                            const newDetails = [...formData.areaDetails];
                            const idx = newDetails.findIndex((d) => d.areaId === areaId);
                            const base = idx >= 0 ? newDetails[idx] : detail;
@@ -1191,6 +1597,31 @@ export default function ProductManagement() {
                              newDetails.push(updated);
                            }
                            setFormData({ ...formData, areaDetails: newDetails });
+                         };
+
+                         const updateStockItem = (itemIdx: number, field: "locationUrl" | "videoUrl", value: string) => {
+                           const newItems = [...stockItems];
+                           newItems[itemIdx] = { ...newItems[itemIdx], [field]: value };
+                           writeStockItems(newItems);
+                         };
+
+                         const addStockItemMedia = (itemIdx: number, added: DeliveryMedia[]) => {
+                           const newItems = [...stockItems];
+                           const current = newItems[itemIdx]?.mediaUrls || [];
+                           // Six is what the API stores per unit; trimming here
+                           // keeps the form honest about what will be saved.
+                           newItems[itemIdx] = { ...newItems[itemIdx], mediaUrls: [...current, ...added].slice(0, 6) };
+                           writeStockItems(newItems);
+                         };
+
+                         const removeStockItemMedia = (itemIdx: number, mediaIdx: number) => {
+                           const newItems = [...stockItems];
+                           const current = newItems[itemIdx]?.mediaUrls || [];
+                           newItems[itemIdx] = {
+                             ...newItems[itemIdx],
+                             mediaUrls: current.filter((_, i) => i !== mediaIdx),
+                           };
+                           writeStockItems(newItems);
                          };
 
                         return (
@@ -1293,7 +1724,7 @@ export default function ProductManagement() {
                                         <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--accent)", marginBottom: "8px" }}>
                                           Unit #{itemIdx + 1}
                                         </div>
-                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                                           <div className="form-group" style={{ marginBottom: 0 }}>
                                             <label className="form-label" style={{ fontSize: "11px" }}>📍 Location URL</label>
                                             <input
@@ -1304,15 +1735,113 @@ export default function ProductManagement() {
                                               onChange={(e) => updateStockItem(itemIdx, "locationUrl", e.target.value)}
                                             />
                                           </div>
+
+                                          {/* Uploaded pickup media. Sent to the customer as real
+                                              files on Telegram and shown on their order page once
+                                              the cooldown finishes. */}
                                           <div className="form-group" style={{ marginBottom: 0 }}>
-                                            <label className="form-label" style={{ fontSize: "11px" }}>🎥 Video URL</label>
-                                            <input
-                                              type="url"
-                                              className="form-input"
-                                              placeholder="https://youtube.com/watch?v=..."
-                                              value={item.videoUrl || ""}
-                                              onChange={(e) => updateStockItem(itemIdx, "videoUrl", e.target.value)}
-                                            />
+                                            <label className="form-label" style={{ fontSize: "11px" }}>
+                                              🖼️ Pickup Photos &amp; Videos
+                                            </label>
+
+                                            {(item.mediaUrls || []).length > 0 && (
+                                              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "8px" }}>
+                                                {(item.mediaUrls || []).map((media, mediaIdx) => (
+                                                  <div
+                                                    key={`${media.url}-${mediaIdx}`}
+                                                    style={{
+                                                      position: "relative",
+                                                      width: "72px",
+                                                      height: "72px",
+                                                      borderRadius: "6px",
+                                                      overflow: "hidden",
+                                                      border: "1px solid var(--border)",
+                                                      background: "var(--bg-primary)",
+                                                    }}
+                                                  >
+                                                    {media.type === "video" ? (
+                                                      <video
+                                                        src={media.url}
+                                                        muted
+                                                        playsInline
+                                                        preload="metadata"
+                                                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                                      />
+                                                    ) : (
+                                                      <img
+                                                        src={media.url}
+                                                        alt=""
+                                                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                                      />
+                                                    )}
+                                                    {media.type === "video" && (
+                                                      <span
+                                                        style={{
+                                                          position: "absolute",
+                                                          bottom: "2px",
+                                                          left: "4px",
+                                                          fontSize: "12px",
+                                                          textShadow: "0 1px 3px rgba(0,0,0,0.8)",
+                                                        }}
+                                                      >
+                                                        🎥
+                                                      </span>
+                                                    )}
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => removeStockItemMedia(itemIdx, mediaIdx)}
+                                                      aria-label="Remove file"
+                                                      style={{
+                                                        position: "absolute",
+                                                        top: "2px",
+                                                        right: "2px",
+                                                        width: "20px",
+                                                        height: "20px",
+                                                        borderRadius: "50%",
+                                                        border: "none",
+                                                        background: "rgba(0,0,0,0.65)",
+                                                        color: "#fff",
+                                                        cursor: "pointer",
+                                                        fontSize: "12px",
+                                                        lineHeight: 1,
+                                                      }}
+                                                    >
+                                                      ×
+                                                    </button>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+
+                                            <label
+                                              className="btn btn-secondary btn-sm"
+                                              style={{
+                                                cursor: uploadingMediaFor ? "wait" : "pointer",
+                                                display: "inline-block",
+                                                opacity: uploadingMediaFor ? 0.6 : 1,
+                                              }}
+                                            >
+                                              {uploadingMediaFor === `${areaId}-${itemIdx}` ? "Uploading…" : "📤 Upload image / video"}
+                                              <input
+                                                type="file"
+                                                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/quicktime"
+                                                multiple
+                                                disabled={!!uploadingMediaFor}
+                                                style={{ display: "none" }}
+                                                onChange={(e) => {
+                                                  const input = e.target;
+                                                  handleMediaUpload(input.files, `${areaId}-${itemIdx}`, (uploaded) =>
+                                                    addStockItemMedia(itemIdx, uploaded)
+                                                  ).finally(() => {
+                                                    // Allow re-picking the same file after a removal.
+                                                    input.value = "";
+                                                  });
+                                                }}
+                                              />
+                                            </label>
+                                            <small style={{ fontSize: "11px", color: "var(--text-tertiary)", display: "block", marginTop: "6px" }}>
+                                              Images up to 8MB, videos up to 50MB. Delivered on the website and Telegram after the cooldown.
+                                            </small>
                                           </div>
                                         </div>
                                       </div>
@@ -1343,6 +1872,8 @@ export default function ProductManagement() {
                       })}
                     </div>
                   </div>
+                )}
+                  </>
                 )}
               </div>
 

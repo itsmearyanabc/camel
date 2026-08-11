@@ -85,7 +85,7 @@ model Product {
   id            String          @id @default(uuid())
   categoryId    String?
   category      Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  productType   String?         // Free-text product type (e.g. Powder, Liquid, Capsule)
+  productType   String?         // Product type shown to customers (e.g. Powder, Liquid, Stone)
   name          String          @unique
   description   String?
   price         Decimal         @db.Decimal(12, 2)
@@ -95,6 +95,17 @@ model Product {
   casNumber     String?         // CAS Registry Number for chemicals
   imageUrl      String?         // URL of the product picture
   stockQuantity Int             @default(0)
+
+  // Weight/quantity variants ("2g", "3g", ...) are child Product rows so the
+  // entire checkout / stock-reservation / delivery machinery works on them
+  // unchanged. A child carries its own price and per-area stock; the parent is
+  // the display shell (name, description, image, type) and is not directly
+  // sellable while it has variants.
+  parentProductId String?
+  parentProduct   Product?  @relation("ProductVariants", fields: [parentProductId], references: [id], onDelete: Cascade)
+  variants        Product[] @relation("ProductVariants")
+  variantLabel    String?   // e.g. "2g" — set only on child rows
+
   cities        City[]
   areas         Area[]
   areaDetails   ProductAreaDetail[]
@@ -105,6 +116,7 @@ model Product {
   restockSubscriptions RestockSubscription[]
 
   @@index([categoryId])
+  @@index([parentProductId])
 }
 
 model RestockSubscription {
@@ -132,6 +144,7 @@ model ProductAreaDetail {
   stockQuantity   Int      @default(0)
   locationUrl     String?
   videoUrl        String?
+  mediaUrls       Json?    // Area-level fallback delivery media: [{url, type: "image"|"video"}]
   message         String?
   cooldownMinutes Int      @default(0)
   createdAt       DateTime @default(now())
@@ -162,6 +175,7 @@ model StockItem {
   productAreaDetail   ProductAreaDetail @relation(fields: [productAreaDetailId], references: [id], onDelete: Cascade)
   locationUrl         String?
   videoUrl            String?
+  mediaUrls           Json?             // Per-unit delivery media uploaded by staff: [{url, type: "image"|"video"}]
   status              String            @default("AVAILABLE") // AVAILABLE, USED
   orderItemId         String?           // OrderItem that consumed this unit
   createdAt           DateTime          @default(now())
@@ -227,6 +241,7 @@ model OrderItem {
   
   locationLink    String?
   pickupVideoUrl  String?
+  deliveryMedia   Json?           // Snapshot of the unit's media at delivery time: [{url, type: "image"|"video"}]
   cancellationReason String?
   onPickupAt      DateTime?       // When item entered ON_PICKUP (for 2-day auto-complete)
 

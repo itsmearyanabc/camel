@@ -37,6 +37,8 @@ export async function GET() {
       imageUrl: p.imageUrl,
       stockQuantity: p.stockQuantity,
       productType: p.productType || null,
+      parentProductId: p.parentProductId || null,
+      variantLabel: p.variantLabel || null,
       categoryId: p.category?.id || null,
       categoryName: p.category?.name || null,
       cities: p.cities,
@@ -234,6 +236,36 @@ export async function PUT(req: NextRequest) {
     data: updateData,
   });
 
+  // Variant children display the parent's identity (name, description, image,
+  // type) with only their label and price differing. When the parent's shared
+  // fields change, push them down so the storefront and bot never show a
+  // renamed parent alongside children still carrying the old name.
+  if (!isStaff) {
+    const children = await prisma.product.findMany({
+      where: { parentProductId: productId },
+      select: { id: true, variantLabel: true },
+    });
+    if (children.length > 0) {
+      for (const child of children) {
+        await prisma.product.update({
+          where: { id: child.id },
+          data: {
+            name: `${updatedProduct.name} (${child.variantLabel || ""})`.trim(),
+            description: updatedProduct.description,
+            imageUrl: updatedProduct.imageUrl,
+            productType: updatedProduct.productType,
+            currency: updatedProduct.currency,
+            categoryId: updatedProduct.categoryId,
+          },
+        }).catch((e) => {
+          // A name collision here shouldn't fail the parent save that already
+          // happened - log it so the admin can rename manually.
+          console.error(`Failed to sync variant ${child.id} with parent:`, e?.code || e);
+        });
+      }
+    }
+  }
+
   // Fire-and-forget once the write has landed: customers waiting on this
   // product in this area hear about it as soon as stock is added, exactly as
   // they used to when restocking went through the old stock-entry screen.
@@ -253,6 +285,33 @@ export async function DELETE(req: NextRequest) {
   const { productId } = await req.json();
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
+  }
+
+  // Deleting a product cascades to its OrderItems - and, now that quantity
+  // options are child products, a parent delete cascades through every option
+  // as well. That would erase real customers' order history (and the wallet
+  // ledger's counterpart rows) in one click, so refuse when any of the rows
+  // about to disappear has been ordered.
+  const variantIds = (
+    await prisma.product.findMany({
+      where: { parentProductId: productId },
+      select: { id: true },
+    })
+  ).map((v) => v.id);
+
+  const orderedCount = await prisma.orderItem.count({
+    where: { productId: { in: [productId, ...variantIds] } },
+  });
+
+  if (orderedCount > 0) {
+    return NextResponse.json(
+      {
+        error:
+          `This product has ${orderedCount} order(s) against it and cannot be deleted without ` +
+          `destroying that order history. Set its stock to 0 instead to stop selling it.`,
+      },
+      { status: 400 }
+    );
   }
 
   await prisma.product.delete({ where: { id: productId } });

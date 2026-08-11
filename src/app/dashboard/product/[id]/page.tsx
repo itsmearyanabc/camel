@@ -28,9 +28,26 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [isImageZoomed, setIsImageZoomed] = useState(false);
   const [restockSubscribed, setRestockSubscribed] = useState(false);
   const [restockLoading, setRestockLoading] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   const { addToCart, updateQuantity, cart } = useCart();
-  const cartItem = cart.find(item => item.productId === product?.id);
+
+  const variants: any[] = product?.variants || [];
+  const hasVariants = variants.length > 0;
+
+  /**
+   * The row that is actually bought.
+   *
+   * Quantity options are separate products with their own price, stock, areas
+   * and delivery media, so everything below - price, stock gate, cart line -
+   * has to read from the selected option, not from the parent shell.
+   */
+  const selected = hasVariants
+    ? variants.find((v) => v.id === selectedVariantId) || null
+    : product;
+
+  const selectedStock = selected?.stockQuantity ?? 0;
+  const cartItem = cart.find((item) => item.productId === selected?.id);
 
   useEffect(() => {
     (async () => {
@@ -51,16 +68,37 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
 
         const prodData = await prodRes.json();
         let foundProd = null;
+        // A quantity option is its own product row, so its id can legitimately
+        // arrive here - restock alerts link straight to the option the customer
+        // subscribed to. Options are listed under their parent, so resolve to
+        // the parent page and open it on that option.
+        let preselectVariantId: string | null = null;
         if (prodData.categories) {
-          for (const cat of prodData.categories) {
-            const p = cat.products.find((p: any) => p.id === id);
-            if (p) {
-              foundProd = p;
-              break;
+          outer: for (const cat of prodData.categories) {
+            for (const p of cat.products) {
+              if (p.id === id) {
+                foundProd = p;
+                break outer;
+              }
+              const match = (p.variants || []).find((v: any) => v.id === id);
+              if (match) {
+                foundProd = p;
+                preselectVariantId = match.id;
+                break outer;
+              }
             }
           }
         }
         setProduct(foundProd);
+
+        // Preselect the requested option, else the first one that can actually
+        // be bought, so the page opens usable instead of on a disabled button.
+        const opts: any[] = foundProd?.variants || [];
+        if (opts.length > 0) {
+          setSelectedVariantId(
+            preselectVariantId || (opts.find((v) => v.stockQuantity > 0) || opts[0]).id
+          );
+        }
 
         const ordData = await ordRes.json();
         if (ordRes.ok) setOrders(ordData.orders || []);
@@ -69,15 +107,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
         if (foundProd) {
           const favs = JSON.parse(localStorage.getItem("favorites") || "[]");
           setIsFavorite(favs.includes(foundProd.id));
-
-          // Load restock subscription status
-          try {
-            const subRes = await fetch(`/api/products/restock?productId=${foundProd.id}`);
-            if (subRes.ok) {
-              const subData = await subRes.json();
-              setRestockSubscribed(!!subData.subscribed);
-            }
-          } catch {}
         }
       } catch (err) {
         console.error(err);
@@ -85,6 +114,26 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
       setLoading(false);
     })();
   }, [id, router]);
+
+  // Restock alerts are per sellable row: subscribing on a parent that holds no
+  // stock would never fire, so the subscription follows the chosen option.
+  const notifyProductId: string | null = selected?.id ?? null;
+
+  useEffect(() => {
+    if (!notifyProductId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/products/restock?productId=${notifyProductId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setRestockSubscribed(!!data.subscribed);
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [notifyProductId]);
 
   const toggleFavorite = () => {
     if (!product) return;
@@ -100,14 +149,14 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   };
 
   const toggleRestockNotify = async () => {
-    if (!product || restockLoading) return;
+    if (!notifyProductId || restockLoading) return;
     setRestockLoading(true);
     try {
       if (restockSubscribed) {
         const res = await fetch("/api/products/restock", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: product.id }),
+          body: JSON.stringify({ productId: notifyProductId }),
         });
         if (res.ok) {
           setRestockSubscribed(false);
@@ -119,7 +168,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
         const res = await fetch("/api/products/restock", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: product.id }),
+          body: JSON.stringify({ productId: notifyProductId }),
         });
         if (res.ok) {
           setRestockSubscribed(true);
@@ -223,7 +272,12 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                       <h1 style={{ fontSize: "28px", marginBottom: "8px" }}>{product.name}</h1>
                       <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
                         {(() => {
-                          const areaDetails = product.areaDetails || [];
+                          // With quantity options the stock lives on the chosen
+                          // option, so the badges must follow the selection
+                          // rather than the (empty) parent row.
+                          const source = hasVariants ? selected : product;
+                          const areaDetails = source?.areaDetails || [];
+                          const totalStock = hasVariants ? selectedStock : product.stockQuantity;
                           const hasAreaStock = areaDetails.some((d: any) => d.stockQuantity > 0);
                           if (hasAreaStock) {
                             return (
@@ -237,22 +291,28 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                             );
                           }
                           return (
-                            <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                              {product.stockQuantity > 0 ? "IN STOCK" : "OUT OF STOCK"} ({product.stockQuantity})
+                            <span className={`badge badge-${totalStock > 0 ? "in_stock" : "out_of_stock"}`}>
+                              {totalStock > 0 ? "IN STOCK" : "OUT OF STOCK"} ({totalStock})
                             </span>
                           );
                         })()}
-                        {product.formula && <span style={{ fontSize: "14px", color: "var(--accent)", fontWeight: "500" }}>{product.formula}</span>}
-                        {product.areas && product.areas.length > 0 && (
-                          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "16px" }}>
-                            <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>📍 Available in:</span>
-                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                              {product.areas.map((a: any) => (
-                                <span key={a.id} style={{ fontSize: "12px", background: "var(--surface-subtle)", padding: "2px 8px", borderRadius: "12px", color: "var(--text-primary)", border: "1px solid var(--border)" }}>{a.name}</span>
-                              ))}
-                            </div>
-                          </div>
+                        {product.productType && (
+                          <span className="badge badge-purple">{product.productType}</span>
                         )}
+                        {(() => {
+                          const areas = (hasVariants ? selected?.areas : product.areas) || [];
+                          if (areas.length === 0) return null;
+                          return (
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginLeft: "8px", borderLeft: "1px solid var(--border)", paddingLeft: "16px" }}>
+                              <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>📍 Available in:</span>
+                              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                                {areas.map((a: any) => (
+                                  <span key={a.id} style={{ fontSize: "12px", background: "var(--surface-subtle)", padding: "2px 8px", borderRadius: "12px", color: "var(--text-primary)", border: "1px solid var(--border)" }}>{a.name}</span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     <button onClick={toggleFavorite} className="btn btn-secondary btn-sm">
@@ -268,44 +328,106 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     <div>
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-                        {product.stockQuantity > 0 ? `${product.stockQuantity} unit(s) available in stock` : "Currently out of stock"}
+                        {selectedStock > 0
+                          ? `${selectedStock} unit(s) available in stock`
+                          : hasVariants && !selected
+                            ? "Choose an option below"
+                            : "Currently out of stock"}
                       </p>
                     </div>
+
+                    {/* Quantity options. Each is its own product row with its own
+                        price and stock, so picking one switches everything below. */}
+                    {hasVariants && (
+                      <div>
+                        <p style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "var(--text-secondary)" }}>
+                          Select quantity
+                        </p>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                          {variants.map((variant) => {
+                            const isSelected = variant.id === selectedVariantId;
+                            const soldOut = variant.stockQuantity < 1;
+                            return (
+                              <button
+                                key={variant.id}
+                                type="button"
+                                onClick={() => setSelectedVariantId(variant.id)}
+                                aria-pressed={isSelected}
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "flex-start",
+                                  gap: "2px",
+                                  padding: "10px 16px",
+                                  borderRadius: "var(--radius-md)",
+                                  cursor: "pointer",
+                                  minWidth: "104px",
+                                  border: isSelected ? "2px solid var(--accent)" : "1px solid var(--border)",
+                                  background: isSelected ? "var(--accent-light, var(--surface-subtle))" : "var(--surface-subtle)",
+                                  color: "var(--text-primary)",
+                                  opacity: soldOut ? 0.5 : 1,
+                                }}
+                              >
+                                <span style={{ fontWeight: "700", fontSize: "15px" }}>{variant.variantLabel}</span>
+                                <span style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                                  {formatPrice(variant.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                                </span>
+                                <span style={{ fontSize: "11px", color: soldOut ? "var(--red)" : "var(--green)" }}>
+                                  {soldOut ? "Out of stock" : `${variant.stockQuantity} left`}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                      <div style={{ display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                            <span style={{ fontSize: "24px", fontWeight: "800", color: "var(--text-primary)" }}>
-                             {formatPrice(product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                             {formatPrice(selected?.price ?? product.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                            </span>
-                           {product.originalPrice != null && Number(product.originalPrice) > Number(product.price) && (
+                           {selected?.originalPrice != null && Number(selected.originalPrice) > Number(selected.price) && (
                              <>
                                <span style={{ fontSize: "18px", color: "var(--text-tertiary)", textDecoration: "line-through" }}>
-                                 {formatPrice(Number(product.originalPrice), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                                 {formatPrice(Number(selected.originalPrice), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                                </span>
                                <span style={{ background: "var(--red)", color: "#fff", fontSize: "12px", fontWeight: "700", padding: "2px 8px", borderRadius: "12px" }}>
-                                 -{Math.round(((Number(product.originalPrice) - Number(product.price)) / Number(product.originalPrice)) * 100)}%
+                                 -{Math.round(((Number(selected.originalPrice) - Number(selected.price)) / Number(selected.originalPrice)) * 100)}%
                                </span>
                              </>
                            )}
                          </div>
                        </div>
-                      {cartItem ? (
+                      {cartItem && selected ? (
                         <div style={{ display: "flex", alignItems: "center", background: "var(--background)", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
-                          <button onClick={() => updateQuantity(product.id, -1)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
+                          <button onClick={() => updateQuantity(selected.id, -1)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
                           <span style={{ padding: "8px 16px", fontWeight: "600", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>{cartItem.quantity}</span>
-                          <button onClick={() => updateQuantity(product.id, 1)} disabled={cartItem.quantity >= product.stockQuantity} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= product.stockQuantity ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= product.stockQuantity ? 0.5 : 1 }}>+</button>
+                          <button onClick={() => updateQuantity(selected.id, 1)} disabled={cartItem.quantity >= selectedStock} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= selectedStock ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= selectedStock ? 0.5 : 1 }}>+</button>
                         </div>
                       ) : (
-                        <button 
-                          onClick={() => addToCart({ id: product.id, name: product.name, price: product.price, stockCount: product.stockQuantity, areas: product.areas || [] })}
-                          className="btn btn-primary" 
-                          disabled={product.stockQuantity < 1}
+                        <button
+                          onClick={() => {
+                            if (!selected) return;
+                            addToCart({
+                              id: selected.id,
+                              // Variants are stored as "Parent (2g)" - keep the
+                              // cart line reading the same as the order will.
+                              name: hasVariants ? `${product.name} (${selected.variantLabel})` : product.name,
+                              price: Number(selected.price),
+                              stockCount: selectedStock,
+                              areas: selected.areas || [],
+                            });
+                          }}
+                          className="btn btn-primary"
+                          disabled={!selected || selectedStock < 1}
                           style={{ padding: "12px 24px", fontSize: "16px" }}
                         >
-                          {product.stockQuantity > 0 ? "Add to Cart" : "Out of Stock"}
+                          {selectedStock > 0 ? "Add to Cart" : "Out of Stock"}
                         </button>
                       )}
-                      {product.stockQuantity < 1 && (
+                      {selectedStock < 1 && (
                         <button
                           onClick={toggleRestockNotify}
                           disabled={restockLoading}
