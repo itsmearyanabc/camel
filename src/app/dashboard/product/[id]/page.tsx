@@ -29,6 +29,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [restockSubscribed, setRestockSubscribed] = useState(false);
   const [restockLoading, setRestockLoading] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const [locations, setLocations] = useState<any[]>([]);
   const [filterCityId, setFilterCityId] = useState("ALL");
   const [filterAreaId, setFilterAreaId] = useState("ALL");
@@ -80,7 +81,46 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     ? variants.find((v) => v.id === selectedVariantId) || null
     : product;
 
-  const selectedStock = selected ? stockInScope(selected) : 0;
+  /** areaId -> city name, so an offer row can read "Istanbul / Beşiktaş". */
+  const cityByAreaId = new Map<string, string>();
+  for (const city of locations) {
+    for (const area of city.areas || []) cityByAreaId.set(area.id, city.name);
+  }
+
+  /**
+   * Every concrete thing a customer can buy: one row per option per area that
+   * actually holds stock, narrowed by the filter above.
+   *
+   * Picking a row settles the weight AND the collection point in one action,
+   * which is what stops checkout from ever offering an area with no units in
+   * it - the mismatch becomes impossible rather than merely filtered out.
+   */
+  const offers = sellables.flatMap((row: any) =>
+    (row?.areaDetails || [])
+      .filter((d: any) => d.stockQuantity > 0)
+      .filter((d: any) => !scopedAreaIds || scopedAreaIds.has(d.areaId))
+      .map((d: any) => ({
+        key: `${row.id}:${d.areaId}`,
+        rowId: row.id,
+        variantLabel: row.variantLabel as string | null,
+        price: Number(row.price),
+        areaId: d.areaId as string,
+        areaName: d.area?.name || "",
+        cityName: cityByAreaId.get(d.areaId) || "",
+        stock: d.stockQuantity as number,
+      }))
+  );
+
+  const selectedOffer =
+    offers.find((o) => o.rowId === selectedVariantId && o.areaId === selectedAreaId) || null;
+
+  // With a chosen row the buyable amount is that area's stock, not the option's
+  // grand total across every city.
+  const selectedStock = selectedOffer
+    ? selectedOffer.stock
+    : selected
+      ? stockInScope(selected)
+      : 0;
   const cartItem = cart.find((item) => item.productId === selected?.id);
 
   // Cities/areas this product can actually be collected from. Listing every
@@ -97,14 +137,17 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     }))
     .filter((city: any) => city.areas.length > 0);
 
-  // If the chosen option has nothing left in the filtered area, move to one
-  // that does - leaving a dead selection on screen just looks broken.
+  // Keep the selection pointing at something that is actually on offer. When
+  // the filter changes, a previously chosen row can disappear entirely, and
+  // leaving a dead selection on screen just looks broken.
   useEffect(() => {
-    if (!hasVariants || variants.length === 0) return;
-    const current = variants.find((v) => v.id === selectedVariantId);
-    if (current && stockInScope(current) > 0) return;
-    const replacement = variants.find((v) => stockInScope(v) > 0);
-    if (replacement) setSelectedVariantId(replacement.id);
+    if (offers.length === 0) return;
+    const stillValid = offers.some(
+      (o) => o.rowId === selectedVariantId && o.areaId === selectedAreaId
+    );
+    if (stillValid) return;
+    setSelectedVariantId(offers[0].rowId);
+    setSelectedAreaId(offers[0].areaId);
   }, [filterCityId, filterAreaId, product]);
 
   useEffect(() => {
@@ -401,13 +444,15 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                     <div>
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
-                        {selectedStock > 0
-                          ? `${selectedStock} unit(s) available${scopedAreaIds ? " in the selected location" : " in stock"}`
-                          : hasVariants && !selected
-                            ? "Choose an option below"
-                            : scopedAreaIds
-                              ? "Not available in the selected location"
-                              : "Currently out of stock"}
+                        {selectedOffer
+                          ? `${selectedOffer.variantLabel ? selectedOffer.variantLabel + " · " : ""}${selectedOffer.cityName ? selectedOffer.cityName + " / " : ""}${selectedOffer.areaName} — ${selectedOffer.stock} unit(s) available`
+                          : selectedStock > 0
+                            ? `${selectedStock} unit(s) available${scopedAreaIds ? " in the selected location" : " in stock"}`
+                            : hasVariants && !selected
+                              ? "Choose an option below"
+                              : scopedAreaIds
+                                ? "Not available in the selected location"
+                                : "Currently out of stock"}
                       </p>
                     </div>
 
@@ -449,9 +494,84 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                       </div>
                     )}
 
-                    {/* Quantity options. Each is its own product row with its own
-                        price and stock, so picking one switches everything below. */}
-                    {hasVariants && (
+                    {/* Everything on offer, one row per weight per collection
+                        point. Choosing a row settles the quantity and the
+                        location together, so the price shown is the price
+                        charged and checkout has nothing left to get wrong. */}
+                    {offers.length > 0 && (
+                      <div>
+                        <p style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "var(--text-secondary)" }}>
+                          Available options
+                        </p>
+                        <div className="table-scroll-wrap" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                          <table style={{ width: "100%" }}>
+                            <thead>
+                              <tr>
+                                <th>Location</th>
+                                {product.productType && <th>Type</th>}
+                                <th>Quantity</th>
+                                <th style={{ textAlign: "right" }}>Price</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {offers.map((offer) => {
+                                const isSelected = offer.key === `${selectedVariantId}:${selectedAreaId}`;
+                                return (
+                                  <tr
+                                    key={offer.key}
+                                    onClick={() => {
+                                      setSelectedVariantId(offer.rowId);
+                                      setSelectedAreaId(offer.areaId);
+                                    }}
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-pressed={isSelected}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setSelectedVariantId(offer.rowId);
+                                        setSelectedAreaId(offer.areaId);
+                                      }
+                                    }}
+                                    style={{
+                                      cursor: "pointer",
+                                      background: isSelected ? "var(--accent-light, var(--surface-subtle))" : "transparent",
+                                      boxShadow: isSelected ? "inset 3px 0 0 var(--accent)" : "none",
+                                    }}
+                                  >
+                                    <td>
+                                      <span style={{ fontWeight: "600" }}>
+                                        📍 {offer.cityName ? `${offer.cityName} / ` : ""}{offer.areaName}
+                                      </span>
+                                      <span style={{ display: "block", fontSize: "11px", color: "var(--green)" }}>
+                                        {offer.stock} in stock
+                                      </span>
+                                    </td>
+                                    {product.productType && (
+                                      <td style={{ color: "var(--text-secondary)" }}>{product.productType}</td>
+                                    )}
+                                    <td style={{ fontWeight: "700" }}>{offer.variantLabel || "—"}</td>
+                                    <td style={{ textAlign: "right" }}>
+                                      <span
+                                        className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+                                        style={{ pointerEvents: "none", minWidth: "76px", justifyContent: "center" }}
+                                      >
+                                        {formatPrice(offer.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* No per-area rows at all (stock tracked as a plain count):
+                        fall back to the simple option picker so these products
+                        stay buyable. */}
+                    {offers.length === 0 && hasVariants && (
                       <div>
                         <p style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "var(--text-secondary)" }}>
                           Select quantity
@@ -459,15 +579,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
                           {variants.map((variant) => {
                             const isSelected = variant.id === selectedVariantId;
-                            // Sold out *here* - an option with units in another
-                            // city is still unbuyable for this customer.
                             const scopedStock = stockInScope(variant);
                             const soldOut = scopedStock < 1;
                             return (
                               <button
                                 key={variant.id}
                                 type="button"
-                                onClick={() => setSelectedVariantId(variant.id)}
+                                onClick={() => { setSelectedVariantId(variant.id); setSelectedAreaId(null); }}
                                 aria-pressed={isSelected}
                                 style={{
                                   display: "flex",
@@ -489,11 +607,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                   {formatPrice(variant.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                                 </span>
                                 <span style={{ fontSize: "11px", color: soldOut ? "var(--red)" : "var(--green)" }}>
-                                  {soldOut
-                                    ? scopedAreaIds
-                                      ? "Not here"
-                                      : "Out of stock"
-                                    : `${scopedStock} left`}
+                                  {soldOut ? (scopedAreaIds ? "Not here" : "Out of stock") : `${scopedStock} left`}
                                 </span>
                               </button>
                             );
@@ -530,6 +644,24 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <button
                           onClick={() => {
                             if (!selected) return;
+
+                            // Areas the cart is allowed to deliver to.
+                            //
+                            // When a row was picked it carries its own area, so
+                            // hand over exactly that one - checkout then has a
+                            // single choice and cannot land on an empty area.
+                            //
+                            // Otherwise fall back to every area holding units.
+                            // `selected.areas` is the "offered in" relation and
+                            // says nothing about inventory, so passing it let
+                            // checkout present a delivery area with zero stock
+                            // and the order was refused at the very last step.
+                            const stockedAreas = selectedOffer
+                              ? [{ id: selectedOffer.areaId, name: selectedOffer.areaName }]
+                              : (selected.areaDetails || [])
+                                  .filter((d: any) => d.stockQuantity > 0)
+                                  .map((d: any) => ({ id: d.areaId, name: d.area?.name || "" }));
+
                             addToCart({
                               id: selected.id,
                               // Variants are stored as "Parent (2g)" - keep the
@@ -537,7 +669,11 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                               name: hasVariants ? `${product.name} (${selected.variantLabel})` : product.name,
                               price: Number(selected.price),
                               stockCount: selectedStock,
-                              areas: selected.areas || [],
+                              // Fall back to the relation only for products that
+                              // track a plain global count with no per-area rows,
+                              // which would otherwise reach checkout with no
+                              // selectable area at all.
+                              areas: stockedAreas.length > 0 ? stockedAreas : selected.areas || [],
                             });
                           }}
                           className="btn btn-primary"
