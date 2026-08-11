@@ -144,9 +144,9 @@ export async function register() {
     }, 5 * 60 * 1000);
 
     // Background Cron: delete delivery photos/videos from orders that finished
-    // over a week ago. Runs daily - this is disk housekeeping, and nothing
-    // breaks if a run is missed, so it deliberately does not run often.
-    const cleanupMediaInterval = setInterval(() => {
+    // over a week ago. This is disk housekeeping and nothing breaks if a run is
+    // missed, so it runs daily rather than often.
+    const runMediaCleanup = () => {
       if (isShuttingDown) return;
       const cronSecret = process.env.CRON_SECRET || "";
       if (!cronSecret) return; // endpoint refuses unauthenticated calls by design
@@ -160,7 +160,16 @@ export async function register() {
           }
         })
         .catch(err => console.error("[Cron] Failed to clean up delivery media:", err));
-    }, 24 * 60 * 60 * 1000);
+    };
+
+    // A plain 24h interval only fires 24h after boot, so on a server that is
+    // redeployed even once a day the timer resets and the cleanup effectively
+    // never runs - media would accumulate forever, which is the exact thing it
+    // exists to prevent. Running once shortly after startup makes it immune to
+    // restart frequency; the job only ever deletes past-retention files, so
+    // running it more often than needed is harmless.
+    const cleanupMediaKickoff = setTimeout(runMediaCleanup, 5 * 60 * 1000);
+    const cleanupMediaInterval = setInterval(runMediaCleanup, 24 * 60 * 60 * 1000);
 
     if (!global.__telegram_bots_shutdown_registered) {
       global.__telegram_bots_shutdown_registered = true;
@@ -170,6 +179,8 @@ export async function register() {
         console.log(`🛑 [Bots] ${signal} received. Stopping bots gracefully...`);
         clearInterval(cronInterval);
         clearInterval(expirePaymentsInterval);
+        clearTimeout(cleanupMediaKickoff);
+        clearInterval(cleanupMediaInterval);
         clearInterval(cleanupMediaInterval);
         for (const bot of activeBots) {
           try {
