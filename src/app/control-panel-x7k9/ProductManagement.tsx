@@ -117,6 +117,18 @@ export default function ProductManagement() {
   const [addingNewType, setAddingNewType] = useState(false);
   const [uploadingMediaFor, setUploadingMediaFor] = useState<string | null>(null);
 
+  // Live save feedback, pinned bottom-right so it is visible no matter how far
+  // down the modal the admin has scrolled.
+  const [saveState, setSaveState] = useState<
+    { status: "saving" | "success" | "error"; text: string } | null
+  >(null);
+
+  useEffect(() => {
+    if (!saveState || saveState.status === "saving") return;
+    const timer = setTimeout(() => setSaveState(null), saveState.status === "error" ? 6000 : 2500);
+    return () => clearTimeout(timer);
+  }, [saveState]);
+
   // Bulk operations
   const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<string>("");
@@ -144,6 +156,23 @@ export default function ProductManagement() {
   const adminOnlyField = {
     disabled: isStaff,
     style: { opacity: isStaff ? 0.6 : 1, cursor: isStaff ? "not-allowed" : "text" } as React.CSSProperties,
+  };
+
+  /**
+   * Re-read just the product list.
+   *
+   * Saving a product cannot change the categories, the city/area list or who
+   * is logged in, so pulling all four endpoints afterwards (as fetchData does)
+   * spent three extra round trips re-fetching data that could not have moved.
+   */
+  const refreshProducts = async () => {
+    try {
+      const res = await fetch("/api/admin/products");
+      const data = await res.json();
+      if (data.products) setProducts(data.products);
+    } catch (e) {
+      console.error("Failed to refresh products:", e);
+    }
   };
 
   const fetchData = async () => {
@@ -220,6 +249,7 @@ export default function ProductManagement() {
   const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
+    setSaveState({ status: "saving", text: "Adding product…" });
 
     try {
       const fullAreaDetails = buildFullAreaDetails(formData.areaIds, formData.areaDetails);
@@ -253,17 +283,19 @@ export default function ProductManagement() {
 
         setShowAddModal(false);
         resetForm();
-        fetchData();
-        setMsg(
+        // Close first, refresh after: the modal is already gone, so the list
+        // catching up a moment later never blocks the admin.
+        refreshProducts();
+        setSaveState(
           variantError
-            ? { type: "error", text: `Product added, but quantity options failed: ${variantError}` }
-            : { type: "success", text: "Product added successfully!" }
+            ? { status: "error", text: `Product added, but quantity options failed: ${variantError}` }
+            : { status: "success", text: "Product added" }
         );
       } else {
-        setMsg({ type: "error", text: data.error || "Failed to add product" });
+        setSaveState({ status: "error", text: data.error || "Failed to add product" });
       }
     } catch (e) {
-      setMsg({ type: "error", text: "Error adding product" });
+      setSaveState({ status: "error", text: "Error adding product" });
     }
   };
 
@@ -359,6 +391,7 @@ export default function ProductManagement() {
     e.preventDefault();
     if (!selectedProduct) return;
     setMsg(null);
+    setSaveState({ status: "saving", text: "Saving changes…" });
 
     try {
       const fullAreaDetails = buildFullAreaDetails(formData.areaIds, formData.areaDetails);
@@ -409,17 +442,19 @@ export default function ProductManagement() {
         setShowEditModal(false);
         setSelectedProduct(null);
         resetForm();
-        fetchData();
-        setMsg(
+        // Close first, refresh after: the modal is already gone, so the list
+        // catching up a moment later never blocks the admin.
+        refreshProducts();
+        setSaveState(
           variantError
-            ? { type: "error", text: `Product saved, but quantity options failed: ${variantError}` }
-            : { type: "success", text: "Product updated successfully!" }
+            ? { status: "error", text: `Product saved, but quantity options failed: ${variantError}` }
+            : { status: "success", text: "Changes saved" }
         );
       } else {
-        setMsg({ type: "error", text: data.error || "Failed to update product" });
+        setSaveState({ status: "error", text: data.error || "Failed to update product" });
       }
     } catch (e) {
-      setMsg({ type: "error", text: "Error updating product" });
+      setSaveState({ status: "error", text: "Error updating product" });
     }
   };
 
@@ -719,8 +754,66 @@ export default function ProductManagement() {
     );
   }
 
+  const isSaving = saveState?.status === "saving";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+      {/* Save status, pinned bottom-right. The old flow only reported a save via
+          the alert at the very top of the page, which is off-screen once the
+          admin has scrolled down the edit modal - so a save looked like it did
+          nothing until a message appeared somewhere they were not looking. */}
+      <style>{`@keyframes pm-spin { to { transform: rotate(360deg); } }
+        @keyframes pm-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }`}</style>
+      {saveState && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            right: "24px",
+            bottom: "24px",
+            zIndex: 2000,
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "12px 18px",
+            borderRadius: "10px",
+            maxWidth: "min(420px, calc(100vw - 48px))",
+            background: "var(--bg-primary)",
+            border: `1px solid ${
+              saveState.status === "error"
+                ? "var(--red)"
+                : saveState.status === "success"
+                ? "var(--green)"
+                : "var(--border)"
+            }`,
+            boxShadow: "0 8px 28px rgba(0,0,0,0.35)",
+            animation: "pm-rise 160ms ease-out",
+            fontSize: "14px",
+          }}
+        >
+          {saveState.status === "saving" ? (
+            <span
+              aria-hidden
+              style={{
+                width: "16px",
+                height: "16px",
+                borderRadius: "50%",
+                border: "2px solid var(--border)",
+                borderTopColor: "var(--accent)",
+                animation: "pm-spin 700ms linear infinite",
+                flexShrink: 0,
+              }}
+            />
+          ) : (
+            <span aria-hidden style={{ flexShrink: 0 }}>
+              {saveState.status === "success" ? "✅" : "⚠️"}
+            </span>
+          )}
+          <span>{saveState.text}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
         <div>
@@ -1076,6 +1169,9 @@ export default function ProductManagement() {
             padding: "20px",
           }}
           onClick={() => {
+            // Never tear the form down mid-save - the request is already in
+            // flight and the admin would be left unsure what actually landed.
+            if (isSaving) return;
             setShowAddModal(false);
             setShowEditModal(false);
             setSelectedProduct(null);
@@ -1105,6 +1201,7 @@ export default function ProductManagement() {
                 cursor: "pointer",
               }}
               onClick={() => {
+                if (isSaving) return;
                 setShowAddModal(false);
                 setShowEditModal(false);
                 setSelectedProduct(null);
@@ -1880,6 +1977,7 @@ export default function ProductManagement() {
               <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "32px" }}>
                 <button
                   type="button"
+                  disabled={isSaving}
                   onClick={() => {
                     setShowAddModal(false);
                     setShowEditModal(false);
@@ -1887,11 +1985,44 @@ export default function ProductManagement() {
                     resetForm();
                   }}
                   className="btn btn-secondary"
+                  style={{ opacity: isSaving ? 0.6 : 1 }}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  {showAddModal ? "Add Product" : isStaff ? "Save Stock Changes" : "Save Changes"}
+                {/* Disabled while in flight: a second submit would re-run the
+                    whole save and rebuild the per-unit rows a second time. */}
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={isSaving || !!uploadingMediaFor}
+                  style={{
+                    opacity: isSaving || uploadingMediaFor ? 0.6 : 1,
+                    cursor: isSaving || uploadingMediaFor ? "wait" : "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  {isSaving && (
+                    <span
+                      aria-hidden
+                      style={{
+                        width: "14px",
+                        height: "14px",
+                        borderRadius: "50%",
+                        border: "2px solid rgba(255,255,255,0.35)",
+                        borderTopColor: "#fff",
+                        animation: "pm-spin 700ms linear infinite",
+                      }}
+                    />
+                  )}
+                  {isSaving
+                    ? "Saving…"
+                    : showAddModal
+                    ? "Add Product"
+                    : isStaff
+                    ? "Save Stock Changes"
+                    : "Save Changes"}
                 </button>
               </div>
             </form>

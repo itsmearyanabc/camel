@@ -173,13 +173,15 @@ export async function PUT(req: NextRequest) {
     });
     if (orphaned.length > 0) {
       const orphanedIds = orphaned.map((d) => d.id);
-      await prisma.stockItem.deleteMany({
-        where: { productAreaDetailId: { in: orphanedIds }, status: "AVAILABLE" },
-      });
-      await prisma.productAreaDetail.updateMany({
-        where: { id: { in: orphanedIds } },
-        data: { stockQuantity: 0 },
-      });
+      await prisma.$transaction([
+        prisma.stockItem.deleteMany({
+          where: { productAreaDetailId: { in: orphanedIds }, status: "AVAILABLE" },
+        }),
+        prisma.productAreaDetail.updateMany({
+          where: { id: { in: orphanedIds } },
+          data: { stockQuantity: 0 },
+        }),
+      ]);
     }
   }
 
@@ -187,43 +189,64 @@ export async function PUT(req: NextRequest) {
   const restockedAreaIds: string[] = [];
 
   if (areaStocks && Array.isArray(areaStocks)) {
-    // Upsert stock for each area
-    for (const { areaId, quantity } of areaStocks) {
+    // Read every "before" quantity in a single query. One round trip per area
+    // is what made saving feel slow: this database is pooled and in another
+    // region, so each of those cost ~150ms of pure latency and a product with
+    // a handful of areas spent seconds doing nothing but waiting.
+    //
+    // The previous values still have to be read before anything is written -
+    // this is the only step that sees them, and both the stock ledger and the
+    // out-of-stock -> in-stock detection depend on them.
+    const stockAreaIds = areaStocks.map((a: any) => a.areaId);
+    const existingDetails = await prisma.productAreaDetail.findMany({
+      where: { productId, areaId: { in: stockAreaIds } },
+      select: { areaId: true, stockQuantity: true },
+    });
+    const prevByArea = new Map(existingDetails.map((d) => [d.areaId, d.stockQuantity]));
+
+    // One batched round trip for all the upserts; results come back in order.
+    const savedDetails = await prisma.$transaction(
+      areaStocks.map(({ areaId, quantity }: any) =>
+        prisma.productAreaDetail.upsert({
+          where: { productId_areaId: { productId, areaId } },
+          update: { stockQuantity: parseInt(quantity, 10) || 0 },
+          create: { productId, areaId, stockQuantity: parseInt(quantity, 10) || 0 },
+        })
+      )
+    );
+
+    // Ledger rows for whatever actually moved, batched the same way.
+    const ledgerWrites = [];
+    for (let i = 0; i < areaStocks.length; i++) {
+      const { areaId, quantity } = areaStocks[i];
       const newQty = parseInt(quantity, 10) || 0;
-
-      // Read the previous quantity first: this is the only place in the save
-      // that still sees the "before" value, so both the stock ledger and the
-      // out-of-stock -> in-stock detection have to happen here.
-      const before = await prisma.productAreaDetail.findUnique({
-        where: { productId_areaId: { productId, areaId } },
-        select: { id: true, stockQuantity: true },
-      });
-      const prevQty = before?.stockQuantity ?? 0;
-
-      const saved = await prisma.productAreaDetail.upsert({
-        where: { productId_areaId: { productId, areaId } },
-        update: { stockQuantity: newQty },
-        create: { productId, areaId, stockQuantity: newQty },
-      });
+      const prevQty = prevByArea.get(areaId) ?? 0;
 
       if (newQty !== prevQty) {
-        await prisma.stockEntry.create({
-          data: {
-            productAreaDetailId: saved.id,
-            quantity: newQty - prevQty,
-            type: newQty > prevQty ? "RESTOCK" : "ADJUSTMENT",
-            notes: `Inventory edit - stock set to ${newQty} unit(s)`,
-            createdBy: session.userId,
-          },
-        });
+        ledgerWrites.push(
+          prisma.stockEntry.create({
+            data: {
+              productAreaDetailId: savedDetails[i].id,
+              quantity: newQty - prevQty,
+              type: newQty > prevQty ? "RESTOCK" : "ADJUSTMENT",
+              notes: `Inventory edit - stock set to ${newQty} unit(s)`,
+              createdBy: session.userId,
+            },
+          })
+        );
       }
 
       if (prevQty <= 0 && newQty > 0) {
         restockedAreaIds.push(areaId);
       }
     }
+    if (ledgerWrites.length > 0) await prisma.$transaction(ledgerWrites);
+
     // Auto-compute total stock as sum of all area stocks
-    const allAreaDetails = await prisma.productAreaDetail.findMany({ where: { productId } });
+    const allAreaDetails = await prisma.productAreaDetail.findMany({
+      where: { productId },
+      select: { stockQuantity: true },
+    });
     const totalStock = allAreaDetails.reduce((sum: number, d: any) => sum + (d.stockQuantity || 0), 0);
     updateData.stockQuantity = totalStock;
   } else if (stockQuantity !== undefined) {
@@ -246,23 +269,29 @@ export async function PUT(req: NextRequest) {
       select: { id: true, variantLabel: true },
     });
     if (children.length > 0) {
-      for (const child of children) {
-        await prisma.product.update({
-          where: { id: child.id },
-          data: {
-            name: `${updatedProduct.name} (${child.variantLabel || ""})`.trim(),
-            description: updatedProduct.description,
-            imageUrl: updatedProduct.imageUrl,
-            productType: updatedProduct.productType,
-            currency: updatedProduct.currency,
-            categoryId: updatedProduct.categoryId,
-          },
-        }).catch((e) => {
-          // A name collision here shouldn't fail the parent save that already
-          // happened - log it so the admin can rename manually.
-          console.error(`Failed to sync variant ${child.id} with parent:`, e?.code || e);
-        });
-      }
+      // Concurrent rather than batched: each child is independently allowed to
+      // fail (a name collision must not undo the parent save that already
+      // landed), so their latencies overlap instead of stacking up.
+      const results = await Promise.allSettled(
+        children.map((child) =>
+          prisma.product.update({
+            where: { id: child.id },
+            data: {
+              name: `${updatedProduct.name} (${child.variantLabel || ""})`.trim(),
+              description: updatedProduct.description,
+              imageUrl: updatedProduct.imageUrl,
+              productType: updatedProduct.productType,
+              currency: updatedProduct.currency,
+              categoryId: updatedProduct.categoryId,
+            },
+          })
+        )
+      );
+      results.forEach((result, i) => {
+        if (result.status === "rejected") {
+          console.error(`Failed to sync variant ${children[i].id} with parent:`, result.reason?.code || result.reason);
+        }
+      });
     }
   }
 

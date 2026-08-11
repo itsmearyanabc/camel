@@ -3,6 +3,7 @@ import { prisma } from "../lib/db";
 import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
 import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
 import { reserveProductStock, getAvailableAreasForProduct, CHECKOUT_TX_OPTIONS } from "../lib/stockReservation";
+import { deliverReadyOrderItem } from "../lib/orderDelivery";
 import { isNOWPaymentsConfigured } from "../lib/nowpayments";
 import { t, BOT_LANGUAGES, isBotLanguage, languageLabel } from "../lib/botI18n";
 import {
@@ -410,6 +411,23 @@ export function createTelegramBot(token: string, botName: string) {
     await ctx.answerCallbackQuery();
   });
 
+  /** Telegram rejects any message body longer than this. */
+  const TELEGRAM_MAX_TEXT = 4096;
+  /** Products listed in one catalog message, to bound the inline keyboard too. */
+  const CATALOG_LIMIT = 40;
+
+  /**
+   * Trim to Telegram's body limit on a paragraph boundary.
+   *
+   * Slicing mid-Markdown leaves a dangling `*` or `_` and Telegram rejects the
+   * whole send with a 400, so the customer would see nothing at all.
+   */
+  function clampText(text: string): string {
+    if (text.length <= TELEGRAM_MAX_TEXT) return text;
+    const cut = text.lastIndexOf("\n\n", TELEGRAM_MAX_TEXT - 8);
+    return (cut > 0 ? text.slice(0, cut) : text.slice(0, TELEGRAM_MAX_TEXT - 8)) + "\n\n…";
+  }
+
   // 2. Browse Shop (All Products)
   bot.callbackQuery("shop_categories", async (ctx) => {
     const telegramId = ctx.from?.id;
@@ -420,9 +438,11 @@ export function createTelegramBot(token: string, botName: string) {
     const products = await prisma.product.findMany({ orderBy: { createdAt: "asc" } });
     const keyboard = new InlineKeyboard();
 
-    // Quantity options (2g, 3g, ...) are product rows of their own, so they are
-    // ordered directly through the existing buy flow - they are just listed
-    // beneath their parent so the catalog reads as one entry per product.
+    // Quantity options (2g, 3g, ...) are product rows of their own, but the
+    // catalog stays one entry per product: listing every option here would
+    // multiply this message by the option count and run past Telegram's
+    // 4096-character limit, which fails the send outright. Options are picked
+    // on the product screen instead.
     const parents = products.filter((p) => !p.parentProductId);
     const variantsByParent = new Map<string, typeof products>();
     for (const p of products) {
@@ -440,47 +460,112 @@ export function createTelegramBot(token: string, botName: string) {
     }
 
     let text = `${t(lang, "shop.catalog")}\n\n`;
+    let listed = 0;
 
     for (const parent of parents) {
+      if (listed >= CATALOG_LIMIT) break;
+
       const variants = variantsByParent.get(parent.id) || [];
       // A parent with options holds no stock itself; what is sellable is each
       // option. Without options the product itself is the sellable row.
       const sellables = variants.length > 0 ? variants : [parent];
+      const totalStock = sellables.reduce((sum, s) => sum + s.stockQuantity, 0);
+
+      const prices = sellables.map((s) => Number(s.price));
+      const low = await formatMoney(Math.min(...prices), currency);
+      const high = await formatMoney(Math.max(...prices), currency);
 
       text += `• *${esc(parent.name)}*`;
       if (parent.productType) text += ` — _${esc(parent.productType)}_`;
-      text += `\n`;
+      text +=
+        `\n  ${t(lang, "shop.price")}: ${low === high ? low : `${low} – ${high}`}` +
+        ` | ${t(lang, "shop.stock")}: ${getStockState(totalStock).replace(/_/g, " ")}\n\n`;
 
-      for (const item of sellables) {
-        const state = getStockState(item.stockQuantity);
-        const price = await formatMoney(item.price, currency);
-        const prefix = item.variantLabel ? `  ▪️ *${esc(item.variantLabel)}* — ` : "  ";
-
-        text +=
-          `${prefix}${t(lang, "shop.price")}: ${price} | ` +
-          `${t(lang, "shop.stock")}: ${state.replace(/_/g, " ")}\n`;
-
-        // Show where it can actually be collected, the same way the website's
-        // product page lists its areas.
-        const areas = await getAvailableAreasForProduct(item.id);
-        if (areas.length > 0) {
-          const list = areas.map((a) => `${a.areaName} (${a.stockQuantity})`).join(", ");
-          text += `     📍 ${esc(list)}\n`;
-        }
-
-        if (item.stockQuantity > 0 && areas.length > 0) {
-          // item.name already reads "Parent (2g)" for options, so the button
-          // is unambiguous when several are listed together.
-          keyboard.text(t(lang, "shop.orderBtn", { name: item.name }).slice(0, 64), `buy_${item.id}`).row();
-        }
+      if (totalStock > 0) {
+        // With options the customer picks one first; a single-price product
+        // goes straight to the area picker exactly as it always did.
+        keyboard
+          .text(
+            t(lang, "shop.orderBtn", { name: parent.name }).slice(0, 60),
+            variants.length > 0 ? `prod_${parent.id}` : `buy_${parent.id}`
+          )
+          .row();
       }
-
-      text += `\n`;
+      listed++;
     }
+
+    if (parents.length > listed) text += `_… +${parents.length - listed}_\n`;
 
     keyboard.text(t(lang, "common.backMain"), "main_menu");
 
-    await ctx.editMessageText(text, { parse_mode: "Markdown", reply_markup: keyboard });
+    await ctx.editMessageText(clampText(text), { parse_mode: "Markdown", reply_markup: keyboard });
+    await ctx.answerCallbackQuery();
+  });
+
+  // Product screen: choose which quantity option to buy. Each option is its own
+  // product row, so the button hands straight to the existing buy flow.
+  bot.callbackQuery(/^prod_(.+)$/, async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+    const user = await getUserByTelegram(telegramId);
+    if (!user) {
+      await ctx.answerCallbackQuery({ text: t("EN", "common.linkFirst"), show_alert: true });
+      return;
+    }
+    const lang = user.language || "EN";
+    const currency = user.wallet?.currency || "USD";
+
+    const parent = await prisma.product.findUnique({
+      where: { id: ctx.match[1] },
+      include: { variants: { orderBy: { createdAt: "asc" } } },
+    });
+
+    if (!parent) {
+      await ctx.answerCallbackQuery({ text: t(lang, "common.productNotFound"), show_alert: true });
+      return;
+    }
+
+    // If every option was removed since the catalog was rendered, the product
+    // itself is the sellable row again - never show an empty picker.
+    const sellables = parent.variants.length > 0 ? parent.variants : [parent];
+
+    let text = `${t(lang, "buy.compound")}: *${esc(parent.name)}*\n`;
+    if (parent.productType) text += `_${esc(parent.productType)}_\n`;
+    if (parent.description) text += `\n${esc(parent.description.slice(0, 300))}\n`;
+    text += `\n`;
+
+    const keyboard = new InlineKeyboard();
+    let anyBuyable = false;
+
+    for (const item of sellables) {
+      const price = await formatMoney(item.price, currency);
+      const areas = await getAvailableAreasForProduct(item.id);
+
+      text += item.variantLabel
+        ? `▪️ *${esc(item.variantLabel)}* — ${price}\n`
+        : `${t(lang, "shop.price")}: *${price}*\n`;
+      text += `   ${t(lang, "shop.stock")}: ${getStockState(item.stockQuantity).replace(/_/g, " ")}\n`;
+      if (areas.length > 0) {
+        text += `   📍 ${esc(areas.map((a) => `${a.areaName} (${a.stockQuantity})`).join(", "))}\n`;
+      }
+      text += `\n`;
+
+      // An option with stock but no area cannot be delivered, so it must not
+      // offer a button that dead-ends on the area picker.
+      if (item.stockQuantity > 0 && areas.length > 0) {
+        anyBuyable = true;
+        const label = item.variantLabel
+          ? `${t(lang, "shop.orderBtn", { name: item.variantLabel })} — ${price}`
+          : t(lang, "shop.orderBtn", { name: item.name });
+        keyboard.text(label.slice(0, 60), `buy_${item.id}`).row();
+      }
+    }
+
+    if (!anyBuyable) text += `${t(lang, "shop.outOfStock")}\n`;
+
+    keyboard.text(t(lang, "common.backShop"), "shop_categories");
+
+    await ctx.editMessageText(clampText(text), { parse_mode: "Markdown", reply_markup: keyboard });
     await ctx.answerCallbackQuery();
   });
 
@@ -603,6 +688,10 @@ export function createTelegramBot(token: string, botName: string) {
 
     const lang = user.language || "EN";
 
+    // Going "back" from a quantity option belongs on its product screen, not
+    // all the way out to the catalog.
+    const backTarget = product.parentProductId ? `prod_${product.parentProductId}` : "shop_categories";
+
     // Preserve any coupon already typed for this product if the customer comes
     // back to change area; drop it if they switched product.
     const existing = pendingPurchases.get(telegramId);
@@ -623,7 +712,7 @@ export function createTelegramBot(token: string, botName: string) {
           t(lang, "area.none"),
         {
           parse_mode: "Markdown",
-          reply_markup: new InlineKeyboard().text(t(lang, "common.backShop"), "shop_categories"),
+          reply_markup: new InlineKeyboard().text(t(lang, "common.backShop"), backTarget),
         }
       );
       await ctx.answerCallbackQuery();
@@ -638,7 +727,7 @@ export function createTelegramBot(token: string, botName: string) {
       // the product is already held in pendingPurchases.
       keyboard.text(label.slice(0, 64), `pickarea_${a.areaId}`).row();
     }
-    keyboard.text(t(lang, "common.backShop"), "shop_categories");
+    keyboard.text(t(lang, "common.backShop"), backTarget);
 
     const price = await formatMoney(product.price, user.wallet?.currency);
     await ctx.editMessageText(
@@ -1080,31 +1169,28 @@ export function createTelegramBot(token: string, botName: string) {
       return;
     }
 
+    // Handing the pickup details over is deliverReadyOrderItem's job, and only
+    // ever its job. Flipping the status here instead - as this used to - moved
+    // the item out of COOLDOWN_ACTIVE without writing the location, video or
+    // media and without messaging anyone, and the cron's query could then never
+    // find it again: whoever happened to open their order at the moment their
+    // cooldown expired lost their pickup details permanently. The website's
+    // status poll shares the same helper for exactly this reason.
     let itemsUpdated = false;
     for (const item of order.items) {
-      if (item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt) {
-        if (new Date() >= item.cooldownEndAt) {
-          await prisma.orderItem.update({
-            where: { id: item.id },
-            data: { status: "READY" },
-          });
-          itemsUpdated = true;
-        }
+      if (item.status === "COOLDOWN_ACTIVE" && item.cooldownEndAt && new Date() >= item.cooldownEndAt) {
+        const delivered = await deliverReadyOrderItem(item.id);
+        if (delivered) itemsUpdated = true;
       }
     }
 
     if (itemsUpdated) {
+      // deliverReadyOrderItem moves the order to ON_PICKUP itself, so this only
+      // needs to re-read what it wrote.
       order = await prisma.order.findUnique({
         where: { id: orderId },
         include: { items: { include: { product: true } } },
       });
-      if (order && order.items.every(i => i.status === "READY" || i.status === "COMPLETED")) {
-        order = await prisma.order.update({
-          where: { id: orderId },
-          data: { status: "READY" },
-          include: { items: { include: { product: true } } },
-        });
-      }
     }
 
     const lang = user.language || "EN";
@@ -1134,9 +1220,11 @@ export function createTelegramBot(token: string, botName: string) {
         hasCooldown = true;
         const secLeft = Math.max(0, Math.ceil((new Date(item.cooldownEndAt!).getTime() - Date.now()) / 1000));
         text += `${t(lang, "orderDetail.cooldownActive")}\n${t(lang, "orderDetail.eta", { seconds: secLeft })}\n`;
-      } else if (item.status === "READY" || item.status === "COMPLETED") {
+      } else if (item.status === "READY" || item.status === "ON_PICKUP" || item.status === "COMPLETED") {
+        // ON_PICKUP is what the shared delivery helper writes; READY only still
+        // appears on orders released by the bot's own older code path.
         text += `${t(lang, "orderDetail.ready")}\n`;
-        if (item.status === "READY") canComplete = true;
+        if (item.status === "READY" || item.status === "ON_PICKUP") canComplete = true;
       } else if (item.status === "REFUNDED") {
         text += `${t(lang, "orderDetail.refunded")}\n`;
       }
@@ -1154,7 +1242,7 @@ export function createTelegramBot(token: string, botName: string) {
     if (hasCooldown) {
       keyboard.text(t(lang, "orderDetail.refresh"), `order_${order!.id}`).row();
     }
-    if (canComplete && order!.status === "READY") {
+    if (canComplete && ["READY", "ON_PICKUP"].includes(order!.status)) {
       keyboard.text(t(lang, "orderDetail.confirm"), `complete_${order!.id}`).row();
     }
 
@@ -1184,20 +1272,28 @@ export function createTelegramBot(token: string, botName: string) {
       await ctx.answerCallbackQuery({ text: "Order not found", show_alert: true });
       return;
     }
-    if (existing.status !== "READY") {
+    // Same states the website's /api/orders/complete accepts, so an order can
+    // be confirmed from whichever surface the customer happens to be on.
+    if (!["READY", "ON_PICKUP", "PROCESSING"].includes(existing.status)) {
       await ctx.answerCallbackQuery({ text: "Order is not ready to complete", show_alert: true });
       return;
     }
 
     await prisma.$transaction(async (tx) => {
       await tx.orderItem.updateMany({
-        where: { orderId: orderId, status: "READY" },
+        where: { orderId: orderId, status: { in: ["READY", "ON_PICKUP"] } },
         data: { status: "COMPLETED" },
       });
-      await tx.order.update({
-        where: { id: orderId },
-        data: { status: "COMPLETED" },
-      });
+
+      // Only close the order once nothing is left open on it - a cancelled or
+      // refunded line must not be swept up as "completed".
+      const allItems = await tx.orderItem.findMany({ where: { orderId } });
+      if (allItems.every((i) => i.status === "COMPLETED")) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: { status: "COMPLETED" },
+        });
+      }
     });
 
     await ctx.answerCallbackQuery({ text: "🎉 Order marked as Completed!" });
