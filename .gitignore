@@ -49,3 +49,10 @@ next-env.d.ts
 /prisma/*.db-journal
 /prisma/*.db-shm
 /prisma/*.db-wal
+
+# uploaded media — product images, avatars, and customer pickup photos/videos.
+# These live on the server's disk and must never enter git history: pickup
+# media IS the product, and a stray `git add -A` would publish it to GitHub
+# where history keeps it effectively forever.
+/public/uploads/*
+!/public/uploads/.gitkeep
