@@ -2,11 +2,19 @@
 // and this is reachable from the bot runner as well as the web server.
 import { prisma } from "./db";
 import { Prisma } from "@prisma/client";
+import { ORDER_HISTORY_RETENTION_DAYS } from "./orderHistory";
 import fs from "fs";
 import path from "path";
 
-/** How long a completed order keeps its delivery photos/videos. */
-export const MEDIA_RETENTION_DAYS = 7;
+/**
+ * How long a completed order keeps its delivery photos/videos.
+ *
+ * Tied to the order-history window on purpose: a customer can open any order
+ * inside that window and must find its pictures and videos still there. When
+ * this was shorter than the history window, orders stayed listed but rendered
+ * broken images.
+ */
+export const MEDIA_RETENTION_DAYS = ORDER_HISTORY_RETENTION_DAYS;
 
 /** Orders cleaned per run, so one sweep can never stall the server. */
 const BATCH_LIMIT = 200;

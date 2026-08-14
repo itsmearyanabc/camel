@@ -9,6 +9,16 @@ function escapeTelegramMarkdown(text: string) {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
 }
 
+/**
+ * How long a confirmed order stays collectable before it is marked COMPLETED.
+ *
+ * The customer has the pickup details from the moment the item goes ON_PICKUP;
+ * this window is only about when the order stops counting as outstanding.
+ * Nothing is taken away at the end of it - a completed order keeps its
+ * location, video and media, and stays in the customer's history.
+ */
+const PICKUP_WINDOW_HOURS = 24;
+
 // Production: Require CRON_SECRET for authentication
 const CRON_SECRET = process.env.CRON_SECRET || "";
 if (!CRON_SECRET && process.env.NODE_ENV === "production") {
@@ -60,14 +70,14 @@ export async function GET(req: Request) {
     const telegramResent = await retryPendingTelegramDeliveries();
 
     // ============================================================
-    // PASS 2: Auto-complete ON_PICKUP items older than 2 days
+    // PASS 2: Auto-complete ON_PICKUP items older than the pickup window
     // ============================================================
-    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-    
+    const pickupWindowElapsed = new Date(now.getTime() - PICKUP_WINDOW_HOURS * 60 * 60 * 1000);
+
     const stalePickupItems = await prisma.orderItem.findMany({
       where: {
         status: "ON_PICKUP",
-        onPickupAt: { lte: twoDaysAgo },
+        onPickupAt: { lte: pickupWindowElapsed },
       },
       include: {
         order: { include: { user: true } },
@@ -95,7 +105,7 @@ export async function GET(req: Request) {
       // Send Telegram auto-complete notification
       const user = item.order.user;
       if (user.telegramId && botToken) {
-        const telegramMessage = `✅ *Order Auto\\-Completed*\n\nYour order for *${escapeTelegramMarkdown(item.product.name)}* has been automatically marked as completed after 2 days\\.\n\nIf you have any issues, please file a dispute from your dashboard\\.`;
+        const telegramMessage = `✅ *Order Auto\\-Completed*\n\nYour order for *${escapeTelegramMarkdown(item.product.name)}* has been automatically marked as completed after ${PICKUP_WINDOW_HOURS} hours\\.\n\nIf you have any issues, please file a dispute from your dashboard\\.`;
 
         try {
           const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {

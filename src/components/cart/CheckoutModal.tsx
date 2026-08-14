@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import { useCart } from "./CartContext";
 import { formatPrice, CRYPTO_CURRENCIES } from "@/lib/currencies";
 
@@ -12,120 +12,28 @@ interface CheckoutModalProps {
 }
 
 export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess }: CheckoutModalProps) {
-  const { cart, cartTotal, removeFromCart, updateQuantity, clearCart } = useCart();
+  const { cart, cartTotal, removeFromCart, updateQuantity, clearCart, pickupArea } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "CRYPTO">("WALLET");
   const [cryptoCurrency, setCryptoCurrency] = useState("ANY");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cryptoPending, setCryptoPending] = useState<any>(null);
-  const [locations, setLocations] = useState<any[]>([]);
-  const [selectedCityId, setSelectedCityId] = useState<string>("");
-  const [selectedAreaId, setSelectedAreaId] = useState<string>("");
   const [couponInput, setCouponInput] = useState("");
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number; finalAmount: number } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [isValidatingCoupon, setIsValidatingCoupon] = useState(false);
+  const [ongoing, setOngoing] = useState<{ enabled: boolean; percent: number }>({ enabled: false, percent: 0 });
 
-  useEffect(() => {
-    fetch("/api/locations").then(r => r.json()).then(d => {
-      if (d.cities) setLocations(d.cities);
-    }).catch(() => {});
-  }, []);
-
-  // Live per-product stock, keyed productId -> areas that actually hold units.
-  //
-  // The cart's own `areas` list is a snapshot taken at add-to-cart time and
-  // saved in localStorage, so it goes stale as soon as stock moves - and an old
-  // cart kept offering delivery areas that had since emptied (or never had
-  // anything). Re-reading on open is the only version that stays true.
-  const [stockedAreasByProduct, setStockedAreasByProduct] = useState<Map<string, Set<string>>>(new Map());
-
+  // Re-read on every open: an admin can switch the store-wide discount on or
+  // off at any moment, and a stale percentage here would quote a total the
+  // server then refuses to charge.
   useEffect(() => {
     if (!isOpen) return;
-    (async () => {
-      try {
-        const res = await fetch("/api/inventory/products");
-        const data = await res.json();
-        const map = new Map<string, Set<string>>();
-        const record = (row: any) => {
-          if (!row?.id) return;
-          map.set(
-            row.id,
-            new Set<string>(
-              (row.areaDetails || [])
-                .filter((d: any) => d.stockQuantity > 0)
-                .map((d: any) => d.areaId)
-            )
-          );
-        };
-        for (const category of data.categories || []) {
-          for (const product of category.products || []) {
-            record(product);
-            // Quantity options are sold in their own right and hold their own
-            // stock, so each needs its own entry.
-            for (const variant of product.variants || []) record(variant);
-          }
-        }
-        setStockedAreasByProduct(map);
-      } catch {
-        // Fall back to the cart snapshot below rather than blocking checkout.
-      }
-    })();
+    fetch("/api/discount/ongoing")
+      .then((r) => r.json())
+      .then((d) => setOngoing({ enabled: !!d.enabled, percent: Number(d.percent) || 0 }))
+      .catch(() => setOngoing({ enabled: false, percent: 0 }));
   }, [isOpen]);
-
-  const validAreaIds = useMemo(() => {
-    if (cart.length === 0) return new Set<string>();
-
-    // Live data wins; the cart's snapshot is only used until it arrives, or if
-    // the product could not be found at all.
-    const perItem: Set<string>[] = cart.map((item) => {
-      const live = stockedAreasByProduct.get(item.productId);
-      if (live) return live;
-      return new Set<string>((item.areas || []).map((a: any) => String(a.id)));
-    });
-
-    // One order goes to one place, so only areas every line can be collected
-    // from are offered.
-    let intersection = new Set<string>(perItem[0]);
-    for (let i = 1; i < perItem.length; i++) {
-      const next = perItem[i];
-      intersection = new Set<string>([...intersection].filter((id) => next.has(id)));
-    }
-    return intersection;
-  }, [cart, stockedAreasByProduct]);
-
-  /**
-   * The single collection point, when there is only one.
-   *
-   * Picking a row on the product page already settles the location, so there is
-   * nothing left to ask: the area is applied automatically and just shown back
-   * for confirmation. The pickers below only appear when a genuine choice
-   * remains (products that track one global stock count rather than per-area).
-   */
-  const soleArea = useMemo(() => {
-    if (validAreaIds.size !== 1) return null;
-    const [onlyId] = Array.from(validAreaIds);
-    for (const city of locations) {
-      const area = (city.areas || []).find((a: any) => a.id === onlyId);
-      if (area) return { cityId: city.id, cityName: city.name, areaId: area.id, areaName: area.name };
-    }
-    return null;
-  }, [validAreaIds, locations]);
-
-  useEffect(() => {
-    if (!soleArea) return;
-    setSelectedCityId(soleArea.cityId);
-    setSelectedAreaId(soleArea.areaId);
-  }, [soleArea?.areaId]);
-
-  const filteredLocations = useMemo(() => {
-    if (validAreaIds.size === 0 && cart.length > 0) return [];
-    
-    return locations.map(city => ({
-      ...city,
-      areas: city.areas?.filter((a: any) => validAreaIds.has(a.id))
-    })).filter(city => city.areas && city.areas.length > 0);
-  }, [locations, validAreaIds, cart.length]);
 
   // Codes must match CRYPTO_CURRENCIES in src/lib/currencies.ts - the API
   // rejects anything else. "ANY" lets the customer choose from every coin
@@ -137,7 +45,16 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
   if (!isOpen) return null;
 
-  const finalTotal = appliedCoupon ? appliedCoupon.finalAmount : cartTotal;
+  // Mirrors the server's order: the store-wide discount comes off the subtotal
+  // first, then any coupon applies to what is left. The API recomputes all of
+  // this from its own settings, so these figures are a preview, never the
+  // charge.
+  const ongoingDiscount = ongoing.enabled
+    ? Math.min(parseFloat(((cartTotal * ongoing.percent) / 100).toFixed(2)), cartTotal)
+    : 0;
+  const afterOngoing = parseFloat((cartTotal - ongoingDiscount).toFixed(2));
+  const couponDiscount = appliedCoupon ? Math.min(appliedCoupon.discount, afterOngoing) : 0;
+  const finalTotal = Math.max(0, parseFloat((afterOngoing - couponDiscount).toFixed(2)));
 
   const handleApplyCoupon = async () => {
     setCouponError(null);
@@ -145,10 +62,13 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
     if (!code) return;
     setIsValidatingCoupon(true);
     try {
+      // Validate against what the coupon actually applies to. The store-wide
+      // discount comes off first server-side, so quoting the coupon against the
+      // full subtotal would show a bigger saving than the order receives.
       const res = await fetch("/api/coupons/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, orderAmount: cartTotal }),
+        body: JSON.stringify({ code, orderAmount: afterOngoing }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Invalid coupon");
@@ -170,8 +90,11 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
   const handleCheckout = async () => {
     setError(null);
-    if (!selectedAreaId) {
-      setError("Please select a delivery area.");
+    // The collection point is settled on the product page and travels on every
+    // cart line, so there is nothing to choose here - only something to fail on
+    // if a line somehow arrived without one.
+    if (!pickupArea?.areaId) {
+      setError("Your cart has no collection point. Please re-add the items from the product page.");
       return;
     }
     setIsProcessing(true);
@@ -179,8 +102,8 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
     try {
       const endpoint = paymentMethod === "WALLET" ? "/api/orders/checkout" : "/api/orders/crypto-checkout";
        const payload = paymentMethod === "WALLET"
-        ? { cart, paymentMethod: "WALLET", areaId: selectedAreaId, couponCode: appliedCoupon?.code }
-        : { cart, cryptoCurrency, areaId: selectedAreaId, couponCode: appliedCoupon?.code };
+        ? { cart, paymentMethod: "WALLET", areaId: pickupArea.areaId, couponCode: appliedCoupon?.code }
+        : { cart, cryptoCurrency, areaId: pickupArea.areaId, couponCode: appliedCoupon?.code };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -291,7 +214,7 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                   <label className="form-label" style={{ marginBottom: "8px", display: "block" }}>Have a coupon code?</label>
                   {appliedCoupon ? (
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "rgba(52,199,89,0.1)", border: "1px solid var(--green)", borderRadius: "var(--radius-sm)" }}>
-                      <span style={{ fontWeight: "600", color: "var(--green)" }}>✓ {appliedCoupon.code} applied (−{formatPrice(appliedCoupon.discount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)})</span>
+                      <span style={{ fontWeight: "600", color: "var(--green)" }}>✓ {appliedCoupon.code} applied (−{formatPrice(couponDiscount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)})</span>
                       <button onClick={handleRemoveCoupon} style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", fontSize: "13px" }}>Remove</button>
                     </div>
                   ) : (
@@ -313,21 +236,31 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", paddingTop: "4px", marginBottom: "24px" }}>
+                  {(appliedCoupon || ongoingDiscount > 0) && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Subtotal:</span>
+                      <span style={{ fontSize: "16px", color: "var(--text-secondary)" }}>
+                        {formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                      </span>
+                    </div>
+                  )}
+                  {ongoingDiscount > 0 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "14px", color: "var(--green)" }}>
+                        Store discount ({ongoing.percent}% off):
+                      </span>
+                      <span style={{ fontSize: "16px", color: "var(--green)" }}>
+                        −{formatPrice(ongoingDiscount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                      </span>
+                    </div>
+                  )}
                   {appliedCoupon && (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>Subtotal:</span>
-                        <span style={{ fontSize: "16px", color: "var(--text-secondary)" }}>
-                          {formatPrice(cartTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "14px", color: "var(--green)" }}>Discount ({appliedCoupon.code}):</span>
-                        <span style={{ fontSize: "16px", color: "var(--green)" }}>
-                          −{formatPrice(appliedCoupon.discount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
-                        </span>
-                      </div>
-                    </>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "14px", color: "var(--green)" }}>Coupon ({appliedCoupon.code}):</span>
+                      <span style={{ fontSize: "16px", color: "var(--green)" }}>
+                        −{formatPrice(couponDiscount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                      </span>
+                    </div>
                   )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontSize: "18px", color: "var(--text-secondary)" }}>Total:</span>
@@ -337,30 +270,21 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                   </div>
                 </div>
 
+                {/* The collection point is chosen on the product page - every
+                    row there is one weight in one place - so the cart only ever
+                    confirms it. Asking again here used to let a customer pick an
+                    area their items were not actually stocked in, and the order
+                    was then refused at the very last step. */}
                 <div style={{ marginBottom: "24px", background: "var(--surface-subtle)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
-                  <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Delivery Area</h3>
-                  {filteredLocations.length === 0 && cart.length > 0 ? (
-                    <div className="alert alert-error" style={{ marginBottom: "12px", padding: "8px 12px", fontSize: "13px" }}>
-                      Your items are stocked in different places and cannot be collected in one trip. Please remove some items.
-                    </div>
-                  ) : soleArea ? (
-                    // Already decided on the product page - confirm, don't re-ask.
+                  <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Collection Point</h3>
+                  {pickupArea ? (
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "15px", fontWeight: "600" }}>
                       <span aria-hidden>📍</span>
-                      <span>{soleArea.cityName} / {soleArea.areaName}</span>
+                      <span>{pickupArea.cityName ? `${pickupArea.cityName} / ` : ""}{pickupArea.areaName}</span>
                     </div>
                   ) : (
-                    <div style={{ display: "flex", gap: "12px" }}>
-                      <select className="form-input" value={selectedCityId} onChange={(e) => { setSelectedCityId(e.target.value); setSelectedAreaId(""); }} style={{ flex: 1 }}>
-                        <option value="">Select City...</option>
-                        {filteredLocations.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                      <select className="form-input" value={selectedAreaId} onChange={(e) => setSelectedAreaId(e.target.value)} disabled={!selectedCityId} style={{ flex: 1 }}>
-                        <option value="">Select Area...</option>
-                        {filteredLocations.find((c: any) => c.id === selectedCityId)?.areas?.map((a: any) => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
-                        ))}
-                      </select>
+                    <div className="alert alert-error" style={{ margin: 0, padding: "8px 12px", fontSize: "13px" }}>
+                      These items have no collection point. Please remove them and add them again from the product page.
                     </div>
                   )}
                 </div>
@@ -410,9 +334,9 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
                 <button
                   className="btn btn-primary"
-                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal) ? 0.5 : 1 }}
+                  style={{ width: "100%", padding: "14px", fontSize: "16px", opacity: isProcessing || !pickupArea || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal) ? 0.5 : 1 }}
                   onClick={handleCheckout}
-                  disabled={isProcessing || !selectedAreaId || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal)}
+                  disabled={isProcessing || !pickupArea || (paymentMethod === "WALLET" && (user?.wallet?.balance || 0) < finalTotal)}
                 >
                   {isProcessing ? "Processing..." : `Pay ${formatPrice(finalTotal, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}`}
                 </button>

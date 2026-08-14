@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { visibleOrdersWhere } from "@/lib/orderHistory";
 
 /** Merge id-keyed rows (cities/areas), keeping the first of each id. */
 function unionById<T extends { id: string }>(...lists: T[][]): T[] {
@@ -95,8 +96,11 @@ export async function GET() {
         where: { walletId: walletInfo.id },
         orderBy: { createdAt: "desc" }
       }) : Promise.resolve([]),
+      // Everything still in flight, plus finished orders inside the history
+      // retention window - the same rule /api/orders/list applies, so the two
+      // never disagree about what the customer can see.
       prisma.order.findMany({
-        where: { userId: user.id },
+        where: visibleOrdersWhere(user.id),
         include: { items: { include: { product: true } } },
         orderBy: { createdAt: "desc" }
       }),

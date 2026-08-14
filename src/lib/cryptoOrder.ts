@@ -9,6 +9,7 @@ import {
 } from "./nowpayments";
 import { releaseOrderReservation } from "./orderReservation";
 import { reserveProductStock, CHECKOUT_TX_OPTIONS } from "./stockReservation";
+import { getOngoingDiscount, ongoingDiscountAmount } from "./ongoingDiscount";
 
 /** Minutes a customer has to pay before the reclaim cron restores the stock. */
 export const PAYMENT_WINDOW_MINUTES = 60;
@@ -62,6 +63,11 @@ export async function createCryptoOrderForProduct(params: {
 
   const wantsAnyCoin = !params.cryptoCurrency || params.cryptoCurrency === "ANY";
 
+  // Store-wide discount, read once before the transaction. The website reads
+  // the same setting, so a Telegram order and a website order for the same
+  // product are charged the same amount.
+  const ongoing = await getOngoingDiscount();
+
   let created: { orderId: string; amountDue: number; discount: number };
 
   try {
@@ -74,6 +80,12 @@ export async function createCryptoOrderForProduct(params: {
       }
 
       const basePrice = Number(dbProduct.price);
+
+      // Store-wide discount first, coupon on what is left - same order as the
+      // website, so the two never quote different totals.
+      const storeDiscount = ongoingDiscountAmount(basePrice, ongoing);
+      const afterStoreDiscount = parseFloat((basePrice - storeDiscount).toFixed(2));
+
       let discount = 0;
       let coupon: { id: string; code: string } | null = null;
 
@@ -94,26 +106,26 @@ export async function createCryptoOrderForProduct(params: {
         if (found.userLimit && found.couponUsages.length >= found.userLimit) {
           throw new Error("You have already used this coupon the maximum number of times.");
         }
-        if (found.minOrderAmount && basePrice < Number(found.minOrderAmount)) {
+        if (found.minOrderAmount && afterStoreDiscount < Number(found.minOrderAmount)) {
           throw new Error(
             `Minimum order amount of $${Number(found.minOrderAmount).toFixed(2)} required for this coupon.`
           );
         }
 
         if (found.discountType === "PERCENTAGE") {
-          discount = (basePrice * Number(found.discountValue)) / 100;
+          discount = (afterStoreDiscount * Number(found.discountValue)) / 100;
           if (found.maxDiscount && discount > Number(found.maxDiscount)) {
             discount = Number(found.maxDiscount);
           }
         } else if (found.discountType === "FIXED_AMOUNT") {
           discount = Number(found.discountValue);
-          if (discount > basePrice) discount = basePrice;
+          if (discount > afterStoreDiscount) discount = afterStoreDiscount;
         }
         discount = parseFloat(discount.toFixed(2));
         coupon = { id: found.id, code: found.code };
       }
 
-      const finalAmount = parseFloat((basePrice - discount).toFixed(2));
+      const finalAmount = parseFloat((afterStoreDiscount - discount).toFixed(2));
       if (finalAmount <= 0) {
         throw new Error("This order has no payable amount.");
       }
@@ -166,7 +178,13 @@ export async function createCryptoOrderForProduct(params: {
         });
       }
 
-      return { orderId: order.id, amountDue: finalAmount, discount };
+      // Report the total saving. The customer does not care which half came
+      // from the store-wide discount and which from their code.
+      return {
+        orderId: order.id,
+        amountDue: finalAmount,
+        discount: parseFloat((storeDiscount + discount).toFixed(2)),
+      };
     }, CHECKOUT_TX_OPTIONS);
   } catch (e) {
     return {

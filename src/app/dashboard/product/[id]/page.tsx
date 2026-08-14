@@ -33,8 +33,10 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [locations, setLocations] = useState<any[]>([]);
   const [filterCityId, setFilterCityId] = useState("ALL");
   const [filterAreaId, setFilterAreaId] = useState("ALL");
+  /** Per-offer quantity typed into a row before it is added to the cart. */
+  const [rowQty, setRowQty] = useState<Record<string, number>>({});
 
-  const { addToCart, updateQuantity, cart } = useCart();
+  const { addToCart, updateQuantity, removeFromCart, cart, pickupArea } = useCart();
 
   const variants: any[] = product?.variants || [];
   const hasVariants = variants.length > 0;
@@ -301,6 +303,46 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     }
   };
 
+  /**
+   * Put one offer row straight into the cart.
+   *
+   * The row already settles the weight AND the collection point, so the cart
+   * line is complete the moment it is added and checkout has nothing left to
+   * ask the customer for.
+   */
+  const addOfferToCart = (offer: (typeof offers)[number], quantity: number) => {
+    const result = addToCart(
+      {
+        id: offer.rowId,
+        // Variants are stored as "Parent (2g)" - keep the cart line reading the
+        // same as the order will.
+        name: offer.variantLabel ? `${product.name} (${offer.variantLabel})` : product.name,
+        price: offer.price,
+        stockCount: offer.stock,
+        areaId: offer.areaId,
+        areaName: offer.areaName,
+        cityName: offer.cityName,
+      },
+      quantity
+    );
+
+    if (result.ok) {
+      setRowQty((prev) => ({ ...prev, [offer.key]: 1 }));
+      setMsg({
+        type: "success",
+        text: `Added ${quantity} × ${offer.variantLabel ? `${product.name} (${offer.variantLabel})` : product.name} for pickup in ${offer.areaName}.`,
+      });
+    } else {
+      setMsg({ type: "error", text: result.error || "Could not add this to your cart." });
+    }
+  };
+
+  /** Cart line for an offer, but only while the cart is on that same area. */
+  const cartLineFor = (offer: { rowId: string; areaId: string }) =>
+    pickupArea?.areaId === offer.areaId
+      ? cart.find((item) => item.productId === offer.rowId) || null
+      : null;
+
   const handleCheckoutSuccess = async () => {
     setIsCheckoutOpen(false);
     setMsg({ type: "success", text: "Order placed successfully! Cooldown active." });
@@ -504,13 +546,15 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                           Available options
                         </p>
                         <div className="table-scroll-wrap" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                          <table style={{ width: "100%", minWidth: "520px" }}>
+                          <table style={{ width: "100%", minWidth: "760px" }}>
                             <thead>
                               <tr>
                                 <th>Name</th>
                                 <th>Type</th>
                                 <th>Quantity</th>
+                                <th style={{ textAlign: "center" }}>Units</th>
                                 <th style={{ textAlign: "center" }}>Price</th>
+                                <th style={{ textAlign: "right" }}>Cart</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -520,6 +564,20 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                   setSelectedVariantId(offer.rowId);
                                   setSelectedAreaId(offer.areaId);
                                 };
+                                // Once a row is in the cart the stepper drives the
+                                // cart line directly, so the count on screen is
+                                // always the count that will be ordered.
+                                const line = cartLineFor(offer);
+                                const draft = Math.min(rowQty[offer.key] ?? 1, offer.stock);
+                                const setDraft = (next: number) =>
+                                  setRowQty((prev) => ({
+                                    ...prev,
+                                    [offer.key]: Math.max(1, Math.min(next, offer.stock)),
+                                  }));
+                                const count = line ? line.quantity : draft;
+                                const atMax = count >= offer.stock;
+                                const stop = (e: React.MouseEvent) => e.stopPropagation();
+
                                 return (
                                   <tr
                                     key={offer.key}
@@ -541,17 +599,65 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                   >
                                     {/* Name over location, exactly as the row
                                         reads on the reference layout. */}
-                                    <td>
-                                      <div style={{ fontWeight: "600", marginBottom: "2px" }}>{product.name}</div>
+                                    <td style={{ padding: "18px 16px" }}>
+                                      <div style={{ fontWeight: "600", fontSize: "15px", marginBottom: "4px" }}>{product.name}</div>
                                       <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
                                         📍 {offer.cityName ? `${offer.cityName} / ` : ""}🏘 {offer.areaName}
                                       </div>
                                     </td>
-                                    <td style={{ color: "var(--text-secondary)" }}>
+                                    <td style={{ padding: "18px 16px", color: "var(--text-secondary)" }}>
                                       {product.productType || "—"}
                                     </td>
-                                    <td style={{ fontWeight: "600" }}>{offer.variantLabel || "—"}</td>
-                                    <td style={{ textAlign: "center" }}>
+                                    <td style={{ padding: "18px 16px", fontWeight: "600" }}>{offer.variantLabel || "—"}</td>
+
+                                    {/* Quantity picker, in the row. Before this
+                                        the only way to buy was a single button
+                                        far below the table, so choosing a row
+                                        meant scrolling past every other one. */}
+                                    <td style={{ padding: "18px 16px", textAlign: "center" }} onClick={stop}>
+                                      <div
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          background: "var(--background)",
+                                          border: "1px solid var(--border)",
+                                          borderRadius: "var(--radius-pill)",
+                                          overflow: "hidden",
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          aria-label="Decrease quantity"
+                                          onClick={() => (line ? updateQuantity(offer.rowId, -1) : setDraft(draft - 1))}
+                                          disabled={!line && draft <= 1}
+                                          style={{
+                                            padding: "6px 14px", background: "none", border: "none", fontSize: "18px",
+                                            lineHeight: 1, color: "var(--text-primary)",
+                                            cursor: !line && draft <= 1 ? "not-allowed" : "pointer",
+                                            opacity: !line && draft <= 1 ? 0.4 : 1,
+                                          }}
+                                        >
+                                          −
+                                        </button>
+                                        <span style={{ padding: "6px 12px", fontWeight: "700", minWidth: "34px" }}>{count}</span>
+                                        <button
+                                          type="button"
+                                          aria-label="Increase quantity"
+                                          onClick={() => (line ? updateQuantity(offer.rowId, 1) : setDraft(draft + 1))}
+                                          disabled={atMax}
+                                          style={{
+                                            padding: "6px 14px", background: "none", border: "none", fontSize: "18px",
+                                            lineHeight: 1, color: "var(--text-primary)",
+                                            cursor: atMax ? "not-allowed" : "pointer",
+                                            opacity: atMax ? 0.4 : 1,
+                                          }}
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+                                    </td>
+
+                                    <td style={{ padding: "18px 16px", textAlign: "center" }}>
                                       <span
                                         className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
                                         style={{
@@ -567,6 +673,34 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                       <span style={{ display: "block", fontSize: "11px", color: "var(--green)", marginTop: "4px" }}>
                                         {offer.stock} in stock
                                       </span>
+                                    </td>
+
+                                    <td style={{ padding: "18px 16px", textAlign: "right" }} onClick={stop}>
+                                      {line ? (
+                                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                                          <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--green)" }}>✓ In cart</span>
+                                          <button
+                                            type="button"
+                                            className="btn btn-ghost btn-sm"
+                                            onClick={() => removeFromCart(offer.rowId)}
+                                            style={{ color: "var(--error)" }}
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          className="btn btn-primary btn-sm"
+                                          onClick={() => {
+                                            choose();
+                                            addOfferToCart(offer, draft);
+                                          }}
+                                          style={{ whiteSpace: "nowrap", borderRadius: "var(--radius-pill)", fontWeight: "700" }}
+                                        >
+                                          Add to Cart
+                                        </button>
+                                      )}
                                     </td>
                                   </tr>
                                 );
@@ -643,53 +777,29 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                            )}
                          </div>
                        </div>
-                      {cartItem && selected ? (
+                      {cartItem && selected && pickupArea?.areaId === selectedOffer?.areaId ? (
                         <div style={{ display: "flex", alignItems: "center", background: "var(--background)", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
                           <button onClick={() => updateQuantity(selected.id, -1)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
                           <span style={{ padding: "8px 16px", fontWeight: "600", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>{cartItem.quantity}</span>
                           <button onClick={() => updateQuantity(selected.id, 1)} disabled={cartItem.quantity >= selectedStock} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= selectedStock ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= selectedStock ? 0.5 : 1 }}>+</button>
                         </div>
                       ) : (
+                        // Mirror of the per-row button above, kept for the
+                        // customer who scrolled past the table. It buys the row
+                        // that is currently highlighted, so it needs a chosen
+                        // offer - that is what carries the collection point the
+                        // cart line (and therefore the order) is built from.
                         <button
-                          onClick={() => {
-                            if (!selected) return;
-
-                            // Areas the cart is allowed to deliver to.
-                            //
-                            // When a row was picked it carries its own area, so
-                            // hand over exactly that one - checkout then has a
-                            // single choice and cannot land on an empty area.
-                            //
-                            // Otherwise fall back to every area holding units.
-                            // `selected.areas` is the "offered in" relation and
-                            // says nothing about inventory, so passing it let
-                            // checkout present a delivery area with zero stock
-                            // and the order was refused at the very last step.
-                            const stockedAreas = selectedOffer
-                              ? [{ id: selectedOffer.areaId, name: selectedOffer.areaName }]
-                              : (selected.areaDetails || [])
-                                  .filter((d: any) => d.stockQuantity > 0)
-                                  .map((d: any) => ({ id: d.areaId, name: d.area?.name || "" }));
-
-                            addToCart({
-                              id: selected.id,
-                              // Variants are stored as "Parent (2g)" - keep the
-                              // cart line reading the same as the order will.
-                              name: hasVariants ? `${product.name} (${selected.variantLabel})` : product.name,
-                              price: Number(selected.price),
-                              stockCount: selectedStock,
-                              // Fall back to the relation only for products that
-                              // track a plain global count with no per-area rows,
-                              // which would otherwise reach checkout with no
-                              // selectable area at all.
-                              areas: stockedAreas.length > 0 ? stockedAreas : selected.areas || [],
-                            });
-                          }}
+                          onClick={() => selectedOffer && addOfferToCart(selectedOffer, 1)}
                           className="btn btn-primary"
-                          disabled={!selected || selectedStock < 1}
+                          disabled={!selectedOffer || selectedStock < 1}
                           style={{ padding: "12px 24px", fontSize: "16px" }}
                         >
-                          {selectedStock > 0 ? "Add to Cart" : "Out of Stock"}
+                          {selectedStock < 1
+                            ? "Out of Stock"
+                            : selectedOffer
+                              ? "Add to Cart"
+                              : "Select a collection point"}
                         </button>
                       )}
                       {selectedStock < 1 && (

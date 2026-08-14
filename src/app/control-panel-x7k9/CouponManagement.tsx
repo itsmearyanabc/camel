@@ -48,9 +48,78 @@ export default function CouponManagement() {
     isActive: true,
   });
 
+  // Store-wide discount. Not a coupon: it needs no code, has no usage limits
+  // and no per-user history, so it lives in Settings and is read straight by
+  // the checkout endpoints. It is surfaced here because this is where an admin
+  // looks when they want to discount something.
+  const [ongoingEnabled, setOngoingEnabled] = useState(false);
+  const [ongoingPercent, setOngoingPercent] = useState("10");
+  const [ongoingSaving, setOngoingSaving] = useState(false);
+  const [ongoingMsg, setOngoingMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   useEffect(() => {
     fetchCoupons();
   }, [filterActive, searchTerm]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/client-admin/settings");
+        const data = await res.json();
+        if (!res.ok) return;
+        setOngoingEnabled(data.settings?.ONGOING_DISCOUNT_ENABLED === "true");
+        const stored = data.settings?.ONGOING_DISCOUNT_PERCENT;
+        if (stored) setOngoingPercent(String(stored));
+      } catch {
+        // Leaving the panel on its defaults is fine - nothing is saved until
+        // the admin presses the button.
+      }
+    })();
+  }, []);
+
+  const saveSetting = async (key: string, value: string) => {
+    const res = await fetch("/api/client-admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to save setting");
+    }
+  };
+
+  /**
+   * Persist the store-wide discount.
+   *
+   * The percentage is written before the switch so turning it on can never
+   * briefly apply a stale percentage to live orders.
+   */
+  const saveOngoingDiscount = async (enabled: boolean) => {
+    setOngoingMsg(null);
+    const percent = Number(ongoingPercent);
+    if (enabled && (!Number.isFinite(percent) || percent <= 0 || percent > 100)) {
+      setOngoingMsg({ type: "error", text: "Enter a percentage between 0 and 100." });
+      return;
+    }
+
+    setOngoingSaving(true);
+    try {
+      if (enabled) await saveSetting("ONGOING_DISCOUNT_PERCENT", String(percent));
+      await saveSetting("ONGOING_DISCOUNT_ENABLED", enabled ? "true" : "false");
+      setOngoingEnabled(enabled);
+      setOngoingMsg({
+        type: "success",
+        text: enabled
+          ? `${percent}% is now taken off every order, automatically.`
+          : "Store-wide discount switched off.",
+      });
+    } catch (err: any) {
+      setOngoingMsg({ type: "error", text: err.message || "Failed to save" });
+    } finally {
+      setOngoingSaving(false);
+    }
+  };
 
   const fetchCoupons = async () => {
     try {
@@ -223,6 +292,74 @@ export default function CouponManagement() {
         >
           + Create Coupon
         </button>
+      </div>
+
+      {/* Store-wide ongoing discount */}
+      <div
+        className="card"
+        style={{
+          marginBottom: "20px",
+          padding: "20px",
+          borderLeft: `4px solid ${ongoingEnabled ? "var(--green)" : "var(--border)"}`,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+          <div style={{ flex: "1 1 320px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+              <h3 style={{ fontSize: "17px" }}>Ongoing Store Discount</h3>
+              <span className={`badge ${ongoingEnabled ? "badge-green" : "badge-red"}`}>
+                {ongoingEnabled ? `ON — ${ongoingPercent}% off` : "OFF"}
+              </span>
+            </div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
+              Applies automatically to every order total, for every customer, on the website and in the
+              Telegram bot. No coupon needed and nothing for the customer to type. If a customer also
+              applies a coupon code, that coupon is calculated on the already-discounted amount.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-end", gap: "10px", flexWrap: "wrap" }}>
+            <label style={{ display: "block" }}>
+              <span className="form-label">Discount %</span>
+              <input
+                type="number"
+                className="form-input"
+                min="0"
+                max="100"
+                step="0.5"
+                value={ongoingPercent}
+                onChange={(e) => setOngoingPercent(e.target.value)}
+                style={{ width: "120px" }}
+              />
+            </label>
+            {ongoingEnabled && (
+              <button
+                className="btn btn-secondary"
+                disabled={ongoingSaving}
+                onClick={() => saveOngoingDiscount(true)}
+              >
+                {ongoingSaving ? "Saving…" : "Update %"}
+              </button>
+            )}
+            <button
+              className={`btn ${ongoingEnabled ? "btn-ghost" : "btn-primary"}`}
+              disabled={ongoingSaving}
+              style={ongoingEnabled ? { color: "var(--red)" } : undefined}
+              onClick={() => saveOngoingDiscount(!ongoingEnabled)}
+            >
+              {ongoingSaving ? "Saving…" : ongoingEnabled ? "Turn Off" : "Turn On"}
+            </button>
+          </div>
+        </div>
+
+        {ongoingMsg && (
+          <div
+            className={`alert ${ongoingMsg.type === "error" ? "alert-error" : "alert-success"}`}
+            style={{ marginTop: "14px", marginBottom: 0 }}
+          >
+            {ongoingMsg.text}
+          </div>
+        )}
       </div>
 
       {/* Summary */}

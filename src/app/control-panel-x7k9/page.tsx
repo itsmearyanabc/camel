@@ -6,6 +6,7 @@ import DashboardAnalytics from "./DashboardAnalytics";
 import CouponManagement from "./CouponManagement";
 import StaffManagement from "./StaffManagement";
 import ProductManagement from "./ProductManagement";
+import OrderLookup from "./OrderLookup";
 
 // Stock is managed entirely from the Inventory tab (per-area quantities and
 // per-unit delivery links), so there is no separate stock tab.
@@ -1148,6 +1149,11 @@ export default function ClientAdminPanel() {
           {activeTab === "all-orders" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
               <h2 className="cp-heading" style={{ fontSize: "28px" }}>Order History</h2>
+
+              {/* Support lookup. A customer raising a complaint quotes their
+                  Order ID, so this is the fastest path from that id to the
+                  whole picture - status, what was delivered, and any dispute. */}
+              <OrderLookup />
               <div className="card cp-table-wrap" style={{ padding: "0", overflow: "hidden" }}>
                 <table>
                   <thead>

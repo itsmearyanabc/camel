@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { visibleOrdersWhere } from "@/lib/orderHistory";
 
 export async function GET() {
   try {
@@ -23,9 +24,10 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
       });
     } else {
-      // Customers see only their own orders
+      // Customers see their own orders: everything still in flight, plus
+      // finished orders inside the history retention window.
       orders = await prisma.order.findMany({
-        where: { userId: session.userId },
+        where: visibleOrdersWhere(session.userId),
         include: {
           items: {
             include: { product: true }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CHECKOUT_TX_OPTIONS } from "@/lib/stockReservation";
+import { getOngoingDiscount, ongoingDiscountAmount } from "@/lib/ongoingDiscount";
 
 export async function POST(req: Request) {
   try {
@@ -82,6 +83,12 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "You have already used this coupon the maximum number of times" }, { status: 400 });
       }
     }
+
+    // The store-wide discount an admin has switched on. Read before the
+    // transaction opens: it is a settings lookup, not part of the money maths
+    // that has to be atomic, and a toggle flipped mid-checkout is not worth an
+    // extra round trip inside the transaction.
+    const ongoing = await getOngoingDiscount();
 
     // Process checkout using database transactions to avoid race conditions
     const order = await prisma.$transaction(async (tx) => {
@@ -226,17 +233,24 @@ export async function POST(req: Request) {
         }
       }
 
-      // 3. Apply coupon discount if provided
-      let finalAmount = totalAmountDue;
+      // 3. Apply discounts.
+      //
+      // The store-wide discount comes off first and a coupon then applies to
+      // what is left, so the two stack without either one ever being computed
+      // against money the customer is no longer being charged.
+      const storeDiscount = ongoingDiscountAmount(totalAmountDue, ongoing);
+      const afterStoreDiscount = parseFloat((totalAmountDue - storeDiscount).toFixed(2));
+
+      let finalAmount = afterStoreDiscount;
       if (coupon) {
         // Check minimum order amount
-        if (coupon.minOrderAmount && totalAmountDue < Number(coupon.minOrderAmount)) {
+        if (coupon.minOrderAmount && afterStoreDiscount < Number(coupon.minOrderAmount)) {
           throw new Error(`Minimum order amount of $${coupon.minOrderAmount} required for this coupon`);
         }
 
         // Calculate discount
         if (coupon.discountType === "PERCENTAGE") {
-          discount = (totalAmountDue * Number(coupon.discountValue)) / 100;
+          discount = (afterStoreDiscount * Number(coupon.discountValue)) / 100;
           // Apply max discount limit if set
           if (coupon.maxDiscount && discount > Number(coupon.maxDiscount)) {
             discount = Number(coupon.maxDiscount);
@@ -244,13 +258,15 @@ export async function POST(req: Request) {
         } else if (coupon.discountType === "FIXED_AMOUNT") {
           discount = Number(coupon.discountValue);
           // Don't allow discount to exceed order amount
-          if (discount > totalAmountDue) {
-            discount = totalAmountDue;
+          if (discount > afterStoreDiscount) {
+            discount = afterStoreDiscount;
           }
         }
 
-        finalAmount = totalAmountDue - discount;
+        finalAmount = afterStoreDiscount - discount;
       }
+
+      finalAmount = Math.max(0, parseFloat(finalAmount.toFixed(2)));
 
       // 4. Handle Wallet Payment
       if (paymentMethod === "WALLET") {
@@ -272,9 +288,10 @@ export async function POST(req: Request) {
             walletId: wallet.id,
             type: "PURCHASE",
             amount: -finalAmount,
-            description: coupon 
-              ? `Checkout of ${cart.length} item(s) with coupon ${coupon.code} (discount: $${discount.toFixed(2)})`
-              : `Checkout of ${cart.length} item(s)`,
+            description:
+              `Checkout of ${cart.length} item(s)` +
+              (storeDiscount > 0 ? ` · ${ongoing.percent}% store discount (−$${storeDiscount.toFixed(2)})` : "") +
+              (coupon ? ` · coupon ${coupon.code} (−$${discount.toFixed(2)})` : ""),
           },
         });
       }

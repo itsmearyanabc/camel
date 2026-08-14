@@ -13,6 +13,7 @@ import {
   currencyLabel,
 } from "../lib/botCurrency";
 import { encryptPassword, isEncryptionConfigured } from "../lib/encryption";
+import { getOngoingDiscount, ongoingDiscountAmount } from "../lib/ongoingDiscount";
 import bcrypt from "bcryptjs";
 
 // Session state storage for bot login/registration
@@ -621,8 +622,13 @@ export function createTelegramBot(token: string, botName: string) {
     const cryptoEnabled = isNOWPaymentsConfigured();
 
     const basePrice = Number(product.price);
-    const discount = pending.discount || 0;
-    const finalAmount = parseFloat((basePrice - discount).toFixed(2));
+    // Show the total saving the order will actually receive: the store-wide
+    // discount plus any coupon. Quoting only the coupon here would have the
+    // confirm screen disagree with the amount charged a moment later.
+    const ongoing = await getOngoingDiscount();
+    const storeDiscount = ongoingDiscountAmount(basePrice, ongoing);
+    const discount = parseFloat((storeDiscount + (pending.discount || 0)).toFixed(2));
+    const finalAmount = Math.max(0, parseFloat((basePrice - discount).toFixed(2)));
 
     const keyboard = new InlineKeyboard()
       .text(t(lang, "buy.payWallet"), `confirm_${product.id}`)
@@ -936,6 +942,9 @@ export function createTelegramBot(token: string, botName: string) {
       return;
     }
 
+    // Store-wide discount, read once before the transaction opens.
+    const ongoing = await getOngoingDiscount();
+
     try {
       const { order, finalAmount, discount } = await prisma.$transaction(async (tx) => {
         const dbProduct = await tx.product.findUnique({ where: { id: productId } });
@@ -944,38 +953,55 @@ export function createTelegramBot(token: string, botName: string) {
         }
 
         const basePrice = Number(product.price);
+
+        // Store-wide discount first, coupon on what is left - the same order
+        // the website applies them in, so both surfaces charge the same.
+        const storeDiscount = ongoingDiscountAmount(basePrice, ongoing);
+        const afterStoreDiscount = parseFloat((basePrice - storeDiscount).toFixed(2));
+
         let discount = 0;
         let coupon: any = null;
         if (couponCode) {
-          const res = await validateCouponForUser(couponCode, user.id, basePrice);
+          const res = await validateCouponForUser(couponCode, user.id, afterStoreDiscount);
           coupon = res.coupon;
           discount = res.discount;
         }
-        const finalAmount = parseFloat((basePrice - discount).toFixed(2));
+        const finalAmount = Math.max(0, parseFloat((afterStoreDiscount - discount).toFixed(2)));
 
         const wallet = await tx.wallet.findUnique({ where: { userId: user.id } });
-        if (!wallet || Number(wallet.balance) < finalAmount) {
+        if (!wallet) {
+          throw new Error(`Insufficient wallet balance.\n\nPlease log in to our website to deposit funds.`);
+        }
+        if (wallet.currency !== product.currency) {
+          throw new Error(`This item is priced in ${product.currency}, but your wallet uses ${wallet.currency}. Currency conversion is not available.`);
+        }
+
+        // Debit only if the balance still covers it. Reading the balance and
+        // then decrementing lets two orders placed at the same moment both pass
+        // the check and spend the same money twice; the predicate makes the
+        // debit atomic, and 0 rows updated means the funds are no longer there.
+        // This is the same guard the website checkout uses.
+        const debited = await tx.wallet.updateMany({
+          where: { id: wallet.id, balance: { gte: finalAmount } },
+          data: { balance: { decrement: finalAmount } },
+        });
+        if (debited.count === 0) {
           throw new Error(
             isNOWPaymentsConfigured()
               ? `Insufficient wallet balance.\n\nGo back and choose "Pay with Crypto" to pay for this order directly.`
               : `Insufficient wallet balance.\n\nPlease log in to our website to deposit funds.`
           );
         }
-        if (wallet.currency !== product.currency) {
-          throw new Error(`This item is priced in ${product.currency}, but your wallet uses ${wallet.currency}. Currency conversion is not available.`);
-        }
-
-        await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balance: { decrement: finalAmount } },
-        });
 
         await tx.walletLedger.create({
           data: {
             walletId: wallet.id,
             type: "PURCHASE",
             amount: -finalAmount,
-            description: `Telegram Bot Order: ${product.name}` + (coupon ? ` (Coupon ${coupon.code})` : ""),
+            description:
+              `Telegram Bot Order: ${product.name}` +
+              (storeDiscount > 0 ? ` (${ongoing.percent}% store discount)` : "") +
+              (coupon ? ` (Coupon ${coupon.code})` : ""),
           },
         });
 
@@ -1022,7 +1048,13 @@ export function createTelegramBot(token: string, botName: string) {
           await tx.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
         }
 
-        return { order, finalAmount, discount };
+        // Report the total saving - the customer does not care which half came
+        // from the store-wide discount and which from their code.
+        return {
+          order,
+          finalAmount,
+          discount: parseFloat((storeDiscount + discount).toFixed(2)),
+        };
       }, CHECKOUT_TX_OPTIONS);
 
       pendingPurchases.delete(telegramId);
@@ -1395,7 +1427,14 @@ export function createTelegramBot(token: string, botName: string) {
         return;
       }
       try {
-        const { discount } = await validateCouponForUser(text, user.id, Number(product.price));
+        // Validate against what the coupon actually applies to: the store-wide
+        // discount comes off first, so quoting the coupon against the full
+        // price would promise a bigger saving than the order receives.
+        const ongoing = await getOngoingDiscount();
+        const afterStoreDiscount = parseFloat(
+          (Number(product.price) - ongoingDiscountAmount(Number(product.price), ongoing)).toFixed(2)
+        );
+        const { discount } = await validateCouponForUser(text, user.id, afterStoreDiscount);
 
         // Carry the chosen delivery area through — the discount and the area
         // both have to survive to the payment step.

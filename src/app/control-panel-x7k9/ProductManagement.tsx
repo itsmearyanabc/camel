@@ -114,6 +114,17 @@ export default function ProductManagement() {
 
   // Weight/quantity variants for the product being edited
   const [variants, setVariants] = useState<VariantDraft[]>([]);
+
+  // Single-option editor, opened from an option's own row in the list.
+  const [variantEditor, setVariantEditor] = useState<{
+    parentId: string;
+    variantId: string;
+    parentName: string;
+    label: string;
+    price: string;
+    error: string | null;
+    saving: boolean;
+  } | null>(null);
   const [addingNewType, setAddingNewType] = useState(false);
   const [uploadingMediaFor, setUploadingMediaFor] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
@@ -563,6 +574,103 @@ export default function ProductManagement() {
     setBulkValue("");
     setShowBulkModal(false);
     fetchData();
+  };
+
+  /**
+   * Rename / reprice one quantity option straight from its row.
+   *
+   * Goes through the parent's variants endpoint rather than PUT
+   * /api/admin/products, because that is the only place that derives the
+   * child's display name from the label and rejects a label that collides with
+   * a sibling. Editing the child directly would leave a "Foo (2g)" row labelled
+   * 5g.
+   */
+  const saveVariantEdit = async () => {
+    if (!variantEditor) return;
+
+    const label = variantEditor.label.trim();
+    const price = parseFloat(variantEditor.price);
+    if (!label) {
+      setVariantEditor({ ...variantEditor, error: "Give the option a label, e.g. \"2g\"." });
+      return;
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      setVariantEditor({ ...variantEditor, error: "Price must be greater than 0." });
+      return;
+    }
+
+    setVariantEditor({ ...variantEditor, error: null, saving: true });
+
+    // Send the parent's whole option list with this one changed - the endpoint
+    // treats a missing child as a deletion, so a partial list would wipe the
+    // siblings.
+    const rows = variantsOf(variantEditor.parentId).map((v) =>
+      v.id === variantEditor.variantId
+        ? { id: v.id, label, price }
+        : { id: v.id, label: v.variantLabel || "", price: Number(v.price) }
+    );
+
+    try {
+      const res = await fetch(`/api/admin/products/${variantEditor.parentId}/variants`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ variants: rows }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setVariantEditor({ ...variantEditor, saving: false, error: data.error || "Failed to save option" });
+        return;
+      }
+
+      setVariantEditor(null);
+      setMsg({ type: "success", text: `Option "${label}" updated.` });
+      refreshProducts();
+    } catch {
+      setVariantEditor({ ...variantEditor, saving: false, error: "Error saving option" });
+    }
+  };
+
+  const openVariantEditor = (parent: Product, variant: Product) => {
+    setVariantEditor({
+      parentId: parent.id,
+      variantId: variant.id,
+      parentName: parent.name,
+      label: variant.variantLabel || "",
+      price: Number(variant.price).toString(),
+      error: null,
+      saving: false,
+    });
+  };
+
+  /**
+   * Delete one quantity option.
+   *
+   * The API refuses when the option has been ordered - deleting it would
+   * cascade through the OrderItem rows and erase real order history - so the
+   * refusal is surfaced verbatim rather than reported as a generic failure.
+   */
+  const handleDeleteVariant = async (parent: Product, variant: Product) => {
+    const label = variant.variantLabel || "this option";
+    if (!confirm(`Delete the "${label}" option of ${parent.name}? This cannot be undone.`)) return;
+
+    try {
+      const res = await fetch("/api/admin/products", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: variant.id }),
+      });
+
+      if (res.ok) {
+        setMsg({ type: "success", text: `Option "${label}" deleted.` });
+        refreshProducts();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setMsg({ type: "error", text: data.error || "Failed to delete option" });
+      }
+    } catch {
+      setMsg({ type: "error", text: "Error deleting option" });
+    }
   };
 
   const openEditModal = (product: Product) => {
@@ -1212,13 +1320,38 @@ export default function ProductManagement() {
                         {variant.areas.length} area{variant.areas.length === 1 ? "" : "s"}
                       </td>
                       <td style={{ padding: "10px 16px", textAlign: "right" }}>
-                        <button
-                          onClick={() => openEditModal(variant)}
-                          className="btn btn-ghost btn-sm"
-                          style={{ color: "var(--accent)" }}
-                        >
-                          📦 Stock &amp; Delivery
-                        </button>
+                        {/* An option is a product in its own right - its own
+                            price, stock and delivery media - so it gets the
+                            same actions as one. Previously the only way to
+                            rename, reprice or remove an option was to open the
+                            parent and edit its option list. */}
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => openEditModal(variant)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: "var(--accent)" }}
+                          >
+                            📦 Stock &amp; Delivery
+                          </button>
+                          {!isStaff && (
+                            <>
+                              <button
+                                onClick={() => openVariantEditor(product, variant)}
+                                className="btn btn-ghost btn-sm"
+                                style={{ color: "var(--accent)" }}
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteVariant(product, variant)}
+                                className="btn btn-ghost btn-sm"
+                                style={{ color: "var(--red)" }}
+                              >
+                                🗑️ Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ));
@@ -1230,6 +1363,84 @@ export default function ProductManagement() {
           </table>
         </div>
       </div>
+
+      {/* Single-option editor (label + price), opened from an option's row */}
+      {variantEditor && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 250,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
+          }}
+        >
+          <div
+            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={() => !variantEditor.saving && setVariantEditor(null)}
+          />
+          <div className="card" style={{ position: "relative", zIndex: 251, width: "100%", maxWidth: "440px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+              <h3 style={{ fontSize: "18px" }}>Edit Option</h3>
+              <button
+                type="button"
+                onClick={() => setVariantEditor(null)}
+                disabled={variantEditor.saving}
+                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: "24px" }}
+              >
+                &times;
+              </button>
+            </div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "18px" }}>
+              {variantEditor.parentName} — the option name shown to customers becomes
+              “{variantEditor.parentName} ({variantEditor.label.trim() || "…"})”.
+            </p>
+
+            {variantEditor.error && (
+              <div className="alert alert-error" style={{ marginBottom: "14px" }}>{variantEditor.error}</div>
+            )}
+
+            <label style={{ display: "block", marginBottom: "14px" }}>
+              <span className="form-label">Label</span>
+              <input
+                className="form-input"
+                value={variantEditor.label}
+                placeholder="e.g. 2g"
+                maxLength={40}
+                onChange={(e) => setVariantEditor({ ...variantEditor, label: e.target.value })}
+              />
+            </label>
+
+            <label style={{ display: "block", marginBottom: "20px" }}>
+              <span className="form-label">Price</span>
+              <input
+                className="form-input"
+                type="number"
+                min="0"
+                step="0.01"
+                value={variantEditor.price}
+                onChange={(e) => setVariantEditor({ ...variantEditor, price: e.target.value })}
+              />
+            </label>
+
+            <p style={{ color: "var(--text-tertiary)", fontSize: "12px", marginBottom: "16px" }}>
+              Stock, pickup locations and delivery media for this option are edited from
+              <strong> Stock &amp; Delivery</strong> on the same row.
+            </p>
+
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setVariantEditor(null)}
+                disabled={variantEditor.saving}
+              >
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={saveVariantEdit} disabled={variantEditor.saving}>
+                {variantEditor.saving ? "Saving…" : "Save Option"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Product Modal */}
       {(showAddModal || showEditModal) && (

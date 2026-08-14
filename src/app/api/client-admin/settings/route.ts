@@ -21,6 +21,10 @@ const VALID_SETTING_KEYS = [
   "SITE_DESCRIPTION",
   "MAINTENANCE_MODE",
   "COOLDOWN_SECONDS",
+  // Always-on store-wide discount: no code to type, no per-user limits.
+  // See src/lib/ongoingDiscount.ts for how these are read at checkout.
+  "ONGOING_DISCOUNT_ENABLED",
+  "ONGOING_DISCOUNT_PERCENT",
 ] as const;
 
 type ValidSettingKey = typeof VALID_SETTING_KEYS[number];
@@ -66,6 +70,23 @@ export async function POST(req: Request) {
 
     if (typeof value !== "string" || value.length > 500) {
       return NextResponse.json({ error: "Value must be a string of 500 characters or less" }, { status: 400 });
+    }
+
+    // The discount percentage is applied to every order in the shop, so a typo
+    // here is not a recoverable mistake. Reject anything out of range at the
+    // door rather than letting the checkout code decide what to do with it.
+    if (key === "ONGOING_DISCOUNT_PERCENT") {
+      const percent = Number(value);
+      if (!Number.isFinite(percent) || percent <= 0 || percent > 100) {
+        return NextResponse.json(
+          { error: "Discount percentage must be a number between 0 and 100." },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (key === "ONGOING_DISCOUNT_ENABLED" && value !== "true" && value !== "false") {
+      return NextResponse.json({ error: "Value must be \"true\" or \"false\"." }, { status: 400 });
     }
 
     const setting = await prisma.setting.upsert({

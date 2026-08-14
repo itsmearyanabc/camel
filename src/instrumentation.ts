@@ -144,8 +144,9 @@ export async function register() {
     }, 5 * 60 * 1000);
 
     // Background Cron: delete delivery photos/videos from orders that finished
-    // over a week ago. This is disk housekeeping and nothing breaks if a run is
-    // missed, so it runs daily rather than often.
+    // outside the order-history retention window (see src/lib/orderHistory.ts).
+    // This is disk housekeeping and nothing breaks if a run is missed, so it
+    // runs daily rather than often.
     const runMediaCleanup = () => {
       if (isShuttingDown) return;
       const cronSecret = process.env.CRON_SECRET || "";

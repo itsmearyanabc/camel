@@ -10,6 +10,7 @@ import {
 } from "@/lib/nowpayments";
 import { releaseOrderReservation } from "@/lib/orderReservation";
 import { CHECKOUT_TX_OPTIONS } from "@/lib/stockReservation";
+import { getOngoingDiscount, ongoingDiscountAmount } from "@/lib/ongoingDiscount";
 
 // How long a customer has to complete payment before the reclaim cron restores
 // the stock they were holding.
@@ -206,19 +207,27 @@ export async function POST(req: Request) {
       networkFee = Number.isFinite(parsedFee) ? parsedFee : 0;
     }
 
-    // Apply coupon discount if provided
-    let finalAmount = totalAmountDue;
+    // Apply discounts.
+    //
+    // The store-wide discount comes off first and a coupon then applies to what
+    // is left, exactly as the wallet checkout does - the two surfaces must
+    // charge the same customer the same amount for the same cart.
+    const ongoing = await getOngoingDiscount();
+    const storeDiscount = ongoingDiscountAmount(totalAmountDue, ongoing);
+    const afterStoreDiscount = parseFloat((totalAmountDue - storeDiscount).toFixed(2));
+
+    let finalAmount = afterStoreDiscount;
     if (coupon) {
       // Check minimum order amount
-      if (coupon.minOrderAmount && totalAmountDue < Number(coupon.minOrderAmount)) {
-        return NextResponse.json({ 
-          error: `Minimum order amount of $${coupon.minOrderAmount} required for this coupon` 
+      if (coupon.minOrderAmount && afterStoreDiscount < Number(coupon.minOrderAmount)) {
+        return NextResponse.json({
+          error: `Minimum order amount of $${coupon.minOrderAmount} required for this coupon`
         }, { status: 400 });
       }
 
       // Calculate discount
       if (coupon.discountType === "PERCENTAGE") {
-        discount = (totalAmountDue * Number(coupon.discountValue)) / 100;
+        discount = (afterStoreDiscount * Number(coupon.discountValue)) / 100;
         // Apply max discount limit if set
         if (coupon.maxDiscount && discount > Number(coupon.maxDiscount)) {
           discount = Number(coupon.maxDiscount);
@@ -226,12 +235,23 @@ export async function POST(req: Request) {
       } else if (coupon.discountType === "FIXED_AMOUNT") {
         discount = Number(coupon.discountValue);
         // Don't allow discount to exceed order amount
-        if (discount > totalAmountDue) {
-          discount = totalAmountDue;
+        if (discount > afterStoreDiscount) {
+          discount = afterStoreDiscount;
         }
       }
 
-      finalAmount = totalAmountDue - discount;
+      finalAmount = afterStoreDiscount - discount;
+    }
+
+    finalAmount = parseFloat(finalAmount.toFixed(2));
+
+    // A crypto invoice for nothing cannot be paid, so an order the discounts
+    // have zeroed out has to be refused rather than sent to the gateway.
+    if (finalAmount <= 0) {
+      return NextResponse.json(
+        { error: "This order has no payable amount. Please contact support." },
+        { status: 400 }
+      );
     }
 
     // Create master order with PENDING_PAYMENT status and deduct stock in transaction

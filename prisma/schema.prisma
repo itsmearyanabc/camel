@@ -243,7 +243,7 @@ model OrderItem {
   pickupVideoUrl  String?
   deliveryMedia   Json?           // Snapshot of the unit's media at delivery time: [{url, type: "image"|"video"}]
   cancellationReason String?
-  onPickupAt      DateTime?       // When item entered ON_PICKUP (for 2-day auto-complete)
+  onPickupAt      DateTime?       // When item entered ON_PICKUP (drives the 24h auto-complete)
 
   areaId          String?
   area            Area?          @relation(fields: [areaId], references: [id], onDelete: SetNull)
