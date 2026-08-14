@@ -33,8 +33,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
   const [locations, setLocations] = useState<any[]>([]);
   const [filterCityId, setFilterCityId] = useState("ALL");
   const [filterAreaId, setFilterAreaId] = useState("ALL");
-  /** Per-offer quantity typed into a row before it is added to the cart. */
-  const [rowQty, setRowQty] = useState<Record<string, number>>({});
 
   const { addToCart, updateQuantity, removeFromCart, cart, pickupArea } = useCart();
 
@@ -123,7 +121,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     : selected
       ? stockInScope(selected)
       : 0;
-  const cartItem = cart.find((item) => item.productId === selected?.id);
 
   // Cities/areas this product can actually be collected from. Listing every
   // city in the system would offer filters that only ever return nothing.
@@ -327,8 +324,6 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     );
 
     if (result.ok) {
-      // Back to zero, ready for a deliberate choice next time.
-      setRowQty((prev) => ({ ...prev, [offer.key]: 0 }));
       setMsg({
         type: "success",
         text: `Added ${quantity} × ${offer.variantLabel ? `${product.name} (${offer.variantLabel})` : product.name} for pickup in ${offer.areaName}.`,
@@ -343,6 +338,109 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     pickupArea?.areaId === offer.areaId
       ? cart.find((item) => item.productId === offer.rowId) || null
       : null;
+
+  type Offer = (typeof offers)[number];
+
+  /**
+   * Everything one offer row needs, derived from the cart rather than from
+   * local state.
+   *
+   * The stepper IS the cart control: there is no draft quantity sitting between
+   * the two, so the number on screen is always the number that will be ordered.
+   * "+" on a row that is not in the cart adds it; "−" on the last unit removes
+   * it again.
+   */
+  const offerState = (offer: Offer) => {
+    const line = cartLineFor(offer);
+    const count = line ? line.quantity : 0;
+    return {
+      line,
+      count,
+      // Never offer more than the area actually holds.
+      atMax: count >= offer.stock,
+      atMin: count <= 0,
+      isSelected: offer.key === `${selectedVariantId}:${selectedAreaId}`,
+      choose: () => {
+        setSelectedVariantId(offer.rowId);
+        setSelectedAreaId(offer.areaId);
+      },
+      increase: () => {
+        if (line) updateQuantity(offer.rowId, 1);
+        else addOfferToCart(offer, 1);
+      },
+      // updateQuantity drops the line when it would fall below one, so the last
+      // "−" is also the remove.
+      decrease: () => {
+        if (line) updateQuantity(offer.rowId, -1);
+      },
+    };
+  };
+
+  /** Shared −/+ control, used by both the desktop table and the phone cards. */
+  const OfferStepper = ({ offer }: { offer: Offer }) => {
+    const { count, atMax, atMin, increase, decrease } = offerState(offer);
+    return (
+      <div className="offer-stepper">
+        <button type="button" aria-label="Remove one" onClick={decrease} disabled={atMin}>−</button>
+        <span>{count}</span>
+        <button type="button" aria-label="Add one" onClick={increase} disabled={atMax}>+</button>
+      </div>
+    );
+  };
+
+  /** Shared price + stock badge. */
+  const OfferPrice = ({ offer }: { offer: Offer }) => {
+    const { isSelected } = offerState(offer);
+    return (
+      <div style={{ textAlign: "center" }}>
+        <span
+          className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
+          style={{
+            pointerEvents: "none",
+            minWidth: "84px",
+            justifyContent: "center",
+            borderRadius: "var(--radius-pill)",
+            fontWeight: "700",
+          }}
+        >
+          {formatPrice(offer.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+        </span>
+        <span style={{ display: "block", fontSize: "11px", color: "var(--green)", marginTop: "4px" }}>
+          {offer.stock} in stock
+        </span>
+      </div>
+    );
+  };
+
+  /** Shared cart action: add the first unit, or confirm and remove. */
+  const OfferCartAction = ({ offer, align = "flex-end" }: { offer: Offer; align?: string }) => {
+    const { line, choose, increase } = offerState(offer);
+    if (line) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: align as any, gap: "2px" }}>
+          <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--green)" }}>✓ In cart</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => removeFromCart(offer.rowId)}
+            style={{ color: "var(--error)" }}
+          >
+            Remove
+          </button>
+        </div>
+      );
+    }
+    return (
+      <button
+        type="button"
+        className="btn btn-primary btn-sm"
+        onClick={() => { choose(); increase(); }}
+        style={{ whiteSpace: "nowrap", borderRadius: "var(--radius-pill)", fontWeight: "700" }}
+      >
+        Add to Cart
+      </button>
+    );
+  };
 
   const handleCheckoutSuccess = async () => {
     setIsCheckoutOpen(false);
@@ -546,8 +644,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <p style={{ fontSize: "13px", fontWeight: "600", marginBottom: "8px", color: "var(--text-secondary)" }}>
                           Available options
                         </p>
-                        <div className="table-scroll-wrap" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
-                          <table style={{ width: "100%", minWidth: "760px" }}>
+                        {/* Desktop: an aligned table, so prices and stock line
+                            up down the column. Below `offer-*` breakpoint this
+                            is swapped for the card list further down - a
+                            six-column table on a phone is either unreadable or
+                            a horizontal scroll, and both are worse than cards. */}
+                        <div className="offer-table-wrap" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
+                          <table style={{ width: "100%" }}>
                             <thead>
                               <tr>
                                 <th>Name</th>
@@ -560,33 +663,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                             </thead>
                             <tbody>
                               {offers.map((offer) => {
-                                const isSelected = offer.key === `${selectedVariantId}:${selectedAreaId}`;
-                                const choose = () => {
-                                  setSelectedVariantId(offer.rowId);
-                                  setSelectedAreaId(offer.areaId);
-                                };
-                                // Once a row is in the cart the stepper drives the
-                                // cart line directly, so the count on screen is
-                                // always the count that will be ordered.
-                                const line = cartLineFor(offer);
-                                // Opens at zero: nothing is chosen until the
-                                // customer chooses it. Opening at 1 meant that
-                                // on a row with a single unit in stock the
-                                // count was already at both the floor and the
-                                // ceiling, so both buttons greyed out and the
-                                // stepper read as broken.
-                                const draft = Math.min(rowQty[offer.key] ?? 0, offer.stock);
-                                const setDraft = (next: number) =>
-                                  setRowQty((prev) => ({
-                                    ...prev,
-                                    [offer.key]: Math.max(0, Math.min(next, offer.stock)),
-                                  }));
-                                const count = line ? line.quantity : draft;
-                                // Never offer more than the area actually holds.
-                                const atMax = count >= offer.stock;
-                                // On a cart line, stepping below 1 removes it,
-                                // so only the not-yet-added draft has a floor.
-                                const atMin = line ? false : draft <= 0;
+                                const { isSelected, choose } = offerState(offer);
                                 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
                                 return (
@@ -621,113 +698,72 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                     </td>
                                     <td style={{ padding: "18px 16px", fontWeight: "600" }}>{offer.variantLabel || "—"}</td>
 
-                                    {/* Quantity picker, in the row. Before this
-                                        the only way to buy was a single button
-                                        far below the table, so choosing a row
-                                        meant scrolling past every other one. */}
+                                    {/* The stepper is the cart control: "+" on a
+                                        row that is not in the cart adds it, and
+                                        "−" on the last unit takes it back out.
+                                        There is no separate quantity to commit,
+                                        so what is on screen is what is ordered. */}
                                     <td style={{ padding: "18px 16px", textAlign: "center" }} onClick={stop}>
-                                      <div
-                                        style={{
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          background: "var(--background)",
-                                          border: "1px solid var(--border)",
-                                          borderRadius: "var(--radius-pill)",
-                                          overflow: "hidden",
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          aria-label="Decrease quantity"
-                                          onClick={() => (line ? updateQuantity(offer.rowId, -1) : setDraft(draft - 1))}
-                                          disabled={atMin}
-                                          style={{
-                                            padding: "6px 14px", background: "none", border: "none", fontSize: "18px",
-                                            lineHeight: 1, color: "var(--text-primary)",
-                                            cursor: atMin ? "not-allowed" : "pointer",
-                                            opacity: atMin ? 0.4 : 1,
-                                          }}
-                                        >
-                                          −
-                                        </button>
-                                        <span style={{ padding: "6px 12px", fontWeight: "700", minWidth: "34px" }}>{count}</span>
-                                        <button
-                                          type="button"
-                                          aria-label="Increase quantity"
-                                          onClick={() => (line ? updateQuantity(offer.rowId, 1) : setDraft(draft + 1))}
-                                          disabled={atMax}
-                                          style={{
-                                            padding: "6px 14px", background: "none", border: "none", fontSize: "18px",
-                                            lineHeight: 1, color: "var(--text-primary)",
-                                            cursor: atMax ? "not-allowed" : "pointer",
-                                            opacity: atMax ? 0.4 : 1,
-                                          }}
-                                        >
-                                          +
-                                        </button>
-                                      </div>
+                                      <OfferStepper offer={offer} />
                                     </td>
 
                                     <td style={{ padding: "18px 16px", textAlign: "center" }}>
-                                      <span
-                                        className={`btn btn-sm ${isSelected ? "btn-primary" : "btn-secondary"}`}
-                                        style={{
-                                          pointerEvents: "none",
-                                          minWidth: "84px",
-                                          justifyContent: "center",
-                                          borderRadius: "var(--radius-pill)",
-                                          fontWeight: "700",
-                                        }}
-                                      >
-                                        {formatPrice(offer.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
-                                      </span>
-                                      <span style={{ display: "block", fontSize: "11px", color: "var(--green)", marginTop: "4px" }}>
-                                        {offer.stock} in stock
-                                      </span>
+                                      <OfferPrice offer={offer} />
                                     </td>
 
                                     <td style={{ padding: "18px 16px", textAlign: "right" }} onClick={stop}>
-                                      {line ? (
-                                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
-                                          <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--green)" }}>✓ In cart</span>
-                                          <button
-                                            type="button"
-                                            className="btn btn-ghost btn-sm"
-                                            onClick={() => removeFromCart(offer.rowId)}
-                                            style={{ color: "var(--error)" }}
-                                          >
-                                            Remove
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          className="btn btn-primary btn-sm"
-                                          // The stepper starts at zero, so there
-                                          // is nothing to add until it is raised.
-                                          disabled={draft < 1}
-                                          onClick={() => {
-                                            choose();
-                                            addOfferToCart(offer, draft);
-                                          }}
-                                          style={{
-                                            whiteSpace: "nowrap",
-                                            borderRadius: "var(--radius-pill)",
-                                            fontWeight: "700",
-                                            opacity: draft < 1 ? 0.5 : 1,
-                                            cursor: draft < 1 ? "not-allowed" : "pointer",
-                                          }}
-                                          title={draft < 1 ? "Choose how many with + first" : undefined}
-                                        >
-                                          Add to Cart
-                                        </button>
-                                      )}
+                                      <OfferCartAction offer={offer} />
                                     </td>
                                   </tr>
                                 );
                               })}
                             </tbody>
                           </table>
+                        </div>
+
+                        {/* Phone: the same offers as cards. Everything stacks,
+                            nothing scrolls sideways, and the stepper and the
+                            cart button stay thumb-sized. */}
+                        <div className="offer-cards">
+                          {offers.map((offer) => {
+                            const { isSelected, choose } = offerState(offer);
+                            return (
+                              <div
+                                key={offer.key}
+                                onClick={choose}
+                                className="offer-card"
+                                style={{
+                                  borderColor: isSelected ? "var(--accent)" : "var(--border)",
+                                  background: isSelected ? "var(--accent-light, var(--surface-subtle))" : "var(--bg-primary)",
+                                }}
+                              >
+                                <div className="offer-card-head">
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: "600", fontSize: "15px", marginBottom: "4px" }}>
+                                      {product.name}
+                                      {offer.variantLabel && (
+                                        <span style={{ color: "var(--text-secondary)" }}> · {offer.variantLabel}</span>
+                                      )}
+                                    </div>
+                                    <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                                      📍 {offer.cityName ? `${offer.cityName} / ` : ""}🏘 {offer.areaName}
+                                    </div>
+                                    {product.productType && (
+                                      <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "2px" }}>
+                                        {product.productType}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <OfferPrice offer={offer} />
+                                </div>
+
+                                <div className="offer-card-actions" onClick={(e) => e.stopPropagation()}>
+                                  <OfferStepper offer={offer} />
+                                  <OfferCartAction offer={offer} align="flex-end" />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -798,37 +834,11 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                            )}
                          </div>
                        </div>
-                      {cartItem && selected && pickupArea?.areaId === selectedOffer?.areaId ? (
-                        <div style={{ display: "flex", alignItems: "center", background: "var(--background)", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
-                          <button onClick={() => updateQuantity(selected.id, -1)} style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
-                          <span style={{ padding: "8px 16px", fontWeight: "600", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>{cartItem.quantity}</span>
-                          <button onClick={() => updateQuantity(selected.id, 1)} disabled={cartItem.quantity >= selectedStock} style={{ padding: "8px 16px", background: "none", border: "none", cursor: cartItem.quantity >= selectedStock ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: cartItem.quantity >= selectedStock ? 0.5 : 1 }}>+</button>
-                        </div>
-                      ) : (
-                        // Mirror of the per-row button above, kept for the
-                        // customer who scrolled past the table. It buys the row
-                        // that is currently highlighted, so it needs a chosen
-                        // offer - that is what carries the collection point the
-                        // cart line (and therefore the order) is built from.
-                        <button
-                          onClick={() =>
-                            selectedOffer &&
-                            // Respect a quantity already dialled into the row's
-                            // stepper; fall back to one so this button never
-                            // silently does nothing.
-                            addOfferToCart(selectedOffer, rowQty[selectedOffer.key] || 1)
-                          }
-                          className="btn btn-primary"
-                          disabled={!selectedOffer || selectedStock < 1}
-                          style={{ padding: "12px 24px", fontSize: "16px" }}
-                        >
-                          {selectedStock < 1
-                            ? "Out of Stock"
-                            : selectedOffer
-                              ? "Add to Cart"
-                              : "Select a collection point"}
-                        </button>
-                      )}
+                      {/* No Add to Cart here on purpose. Every offer row above
+                          carries its own stepper and button, and a second
+                          control down here could only ever act on whichever row
+                          happened to be highlighted - which is exactly the
+                          confusion it used to cause. */}
                       {selectedStock < 1 && (
                         <button
                           onClick={toggleRestockNotify}

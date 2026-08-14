@@ -189,21 +189,24 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
             ) : (
               <>
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "24px" }}>
+                  {/* Each line wraps rather than squeezing: a long product name
+                      beside a stepper and a bin icon does not fit on a 375px
+                      screen, and the controls were the part that got crushed. */}
                   {cart.map((item) => (
-                    <div key={item.productId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px", background: "var(--surface-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
-                      <div>
-                        <div style={{ fontWeight: "600", marginBottom: "4px" }}>{item.name}</div>
+                    <div key={item.productId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap", padding: "12px", background: "var(--surface-subtle)", borderRadius: "var(--radius-md)", border: "1px solid var(--border)" }}>
+                      <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                        <div style={{ fontWeight: "600", marginBottom: "4px", overflowWrap: "anywhere" }}>{item.name}</div>
                         <div style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
                           {formatPrice(item.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} each
                         </div>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", background: "var(--background)", borderRadius: "var(--radius-sm)", overflow: "hidden", border: "1px solid var(--border)" }}>
-                          <button onClick={() => updateQuantity(item.productId, -1)} style={{ padding: "4px 12px", background: "none", border: "none", cursor: "pointer", color: "var(--text-primary)" }}>-</button>
-                          <span style={{ padding: "4px 12px", fontWeight: "600", borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>{item.quantity}</span>
-                          <button onClick={() => updateQuantity(item.productId, 1)} disabled={item.quantity >= item.stockCount} style={{ padding: "4px 12px", background: "none", border: "none", cursor: item.quantity >= item.stockCount ? "not-allowed" : "pointer", color: "var(--text-primary)", opacity: item.quantity >= item.stockCount ? 0.5 : 1 }}>+</button>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginLeft: "auto" }}>
+                        <div className="offer-stepper">
+                          <button onClick={() => updateQuantity(item.productId, -1)} aria-label="Remove one">−</button>
+                          <span>{item.quantity}</span>
+                          <button onClick={() => updateQuantity(item.productId, 1)} disabled={item.quantity >= item.stockCount} aria-label="Add one">+</button>
                         </div>
-                        <button onClick={() => removeFromCart(item.productId)} style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", padding: "4px" }}>🗑️</button>
+                        <button onClick={() => removeFromCart(item.productId)} aria-label="Remove item" style={{ background: "none", border: "none", color: "var(--error)", cursor: "pointer", padding: "8px", fontSize: "18px" }}>🗑️</button>
                       </div>
                     </div>
                   ))}
@@ -291,10 +294,12 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
 
                 <div style={{ marginBottom: "24px" }}>
                   <h3 style={{ fontSize: "16px", marginBottom: "12px" }}>Payment Method</h3>
-                  <div style={{ display: "flex", gap: "12px" }}>
+                  {/* Stacks on a narrow screen instead of shrinking both
+                      buttons until their labels wrap mid-word. */}
+                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                     <button
                       className={`btn ${paymentMethod === "WALLET" ? "btn-primary" : "btn-secondary"}`}
-                      style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px", padding: "12px" }}
+                      style={{ flex: "1 1 160px", display: "flex", flexDirection: "column", gap: "4px", padding: "12px" }}
                       onClick={() => setPaymentMethod("WALLET")}
                     >
                       <span style={{ fontWeight: "600" }}>Wallet Balance</span>
@@ -302,7 +307,7 @@ export default function CheckoutModal({ isOpen, onClose, user, onCheckoutSuccess
                     </button>
                     <button
                       className={`btn ${paymentMethod === "CRYPTO" ? "btn-primary" : "btn-secondary"}`}
-                      style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px", padding: "12px", justifyContent: "center" }}
+                      style={{ flex: "1 1 160px", display: "flex", flexDirection: "column", gap: "4px", padding: "12px", justifyContent: "center" }}
                       onClick={() => setPaymentMethod("CRYPTO")}
                     >
                       <span style={{ fontWeight: "600" }}>Direct Crypto</span>

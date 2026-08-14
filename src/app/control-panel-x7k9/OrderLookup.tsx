@@ -118,7 +118,9 @@ export default function OrderLookup() {
                 key={c.id}
                 onClick={() => { setQuery(c.id); search(c.id); }}
                 className="btn btn-secondary btn-sm"
-                style={{ justifyContent: "space-between", textAlign: "left", gap: "12px" }}
+                // Five fields on one line does not fit a phone; wrapping keeps
+                // every candidate readable instead of clipping the date.
+                style={{ justifyContent: "flex-start", textAlign: "left", gap: "10px", flexWrap: "wrap", height: "auto", padding: "10px 12px" }}
               >
                 <span style={{ fontFamily: "monospace" }}>{c.id.slice(0, 13)}…</span>
                 <span>{c.username}</span>
