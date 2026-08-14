@@ -135,9 +135,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               name: childName(row.label),
               price: row.price,
               // Keep the shared display fields in step with the parent.
+              // Formula and CAS describe the compound, not the pack size, so an
+              // option inherits them exactly as it inherits the type and image.
               description: parent.description,
               imageUrl: parent.imageUrl,
               productType: parent.productType,
+              formula: parent.formula,
+              casNumber: parent.casNumber,
               currency: parent.currency,
               categoryId: parent.categoryId,
             },
@@ -152,6 +156,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
               description: parent.description,
               imageUrl: parent.imageUrl,
               productType: parent.productType,
+              formula: parent.formula,
+              casNumber: parent.casNumber,
               currency: parent.currency,
               categoryId: parent.categoryId,
               // Start from the parent's locations so a new option is not born

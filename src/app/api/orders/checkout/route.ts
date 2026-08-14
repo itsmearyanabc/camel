@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { CHECKOUT_TX_OPTIONS } from "@/lib/stockReservation";
+import { CHECKOUT_TX_OPTIONS, reserveProductStock } from "@/lib/stockReservation";
 import { getOngoingDiscount, ongoingDiscountAmount } from "@/lib/ongoingDiscount";
 
 export async function POST(req: Request) {
@@ -113,67 +113,41 @@ export async function POST(req: Request) {
 
         if (!product) throw new Error(`Product not found: ${productId}`);
 
-        // Check area-specific stock if areaId is provided
-        let areaDetail = null;
-        if (areaId) {
-          areaDetail = await tx.productAreaDetail.findUnique({
-            where: { productId_areaId: { productId: product.id, areaId } }
-          });
-
-          // No row means this product is simply not sold in that area. Without
-          // this the whole stock check was skipped, letting a caller order any
-          // quantity of anything by naming an area it isn't stocked in.
-          if (!areaDetail) {
-            throw new Error(`Not enough stock for ${product.name} in this area.`);
-          }
-
-          if (areaDetail.stockQuantity < quantity) {
-            throw new Error(`Not enough stock for ${product.name} in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}`);
-          }
-        } else {
-          // Fallback to global stock check
-          if (product.stockQuantity < quantity) {
-            throw new Error(`Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}`);
-          }
-        }
-
         const itemCost = Number(product.price);
         totalAmountDue += itemCost * quantity;
 
-        let cooldownEndAt: Date = new Date(); // Default to now (immediate delivery)
-        if (areaDetail && areaDetail.cooldownMinutes > 0) {
-          cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + areaDetail.cooldownMinutes);
+        // The availability check, the FIFO per-unit claim, the area and global
+        // decrements and the SALE ledger entry all live in reserveProductStock -
+        // the same call the Telegram bot and the crypto checkout already make.
+        //
+        // This route used to carry its own copy of that logic. Two copies of the
+        // most concurrency-sensitive code in the app meant every fix to the
+        // reservation rules had to be made twice, and the website silently drifted
+        // from what Telegram did. Behaviour is unchanged: the helper performs the
+        // same conditional updateMany claims, in the same order, inside this same
+        // transaction, so a failure still rolls the whole checkout back.
+        //
+        // The helper names the failure but not the product, and a cart can hold
+        // several lines, so the product name is prefixed back on here to keep the
+        // message the customer sees as specific as it was before.
+        let reservedUnitIds: string[];
+        let cooldownMinutes: number;
+        try {
+          ({ reservedUnitIds, cooldownMinutes } = await reserveProductStock(tx, {
+            productId: product.id,
+            areaId,
+            quantity,
+            userId: session.userId,
+            note: "Order checkout",
+          }));
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : "could not be reserved.";
+          throw new Error(`${product.name}: ${reason}`);
         }
 
-        // Reserve unique per-unit stock items (FIFO) for this area, if they exist.
-        let reservedUnits: Array<{ id: string }> = [];
-        if (areaDetail) {
-          const availableCount = await tx.stockItem.count({
-            where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" }
-          });
-
-          if (availableCount > 0) {
-            if (availableCount < quantity) {
-              throw new Error(`Not enough unique units for ${product.name} in this area. Requested: ${quantity}, Available: ${availableCount}`);
-            }
-            reservedUnits = await tx.stockItem.findMany({
-              where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
-              orderBy: { createdAt: "asc" },
-              take: quantity,
-              select: { id: true }
-            });
-
-            // Claim atomically: only rows still AVAILABLE flip to USED. Without
-            // the status predicate two buyers who read the same row would both
-            // be assigned it and receive the same pickup location.
-            const claimed = await tx.stockItem.updateMany({
-              where: { id: { in: reservedUnits.map((u) => u.id) }, status: "AVAILABLE" },
-              data: { status: "USED" }
-            });
-            if (claimed.count !== reservedUnits.length) {
-              throw new Error("Not enough stock — those units were just taken by another customer.");
-            }
-          }
+        const cooldownEndAt: Date = new Date(); // Default to now (immediate delivery)
+        if (cooldownMinutes > 0) {
+          cooldownEndAt.setMinutes(cooldownEndAt.getMinutes() + cooldownMinutes);
         }
 
         for (let i = 0; i < quantity; i++) {
@@ -183,53 +157,12 @@ export async function POST(req: Request) {
             status: "COOLDOWN_ACTIVE",
             areaId: areaId,
             cooldownEndAt,
-            stockItemId: reservedUnits[i] ? reservedUnits[i].id : null,
+            stockItemId: reservedUnitIds[i] || null,
           });
         }
-        
+
         if (!updatedProductIds.includes(product.id)) {
           updatedProductIds.push(product.id);
-        }
-        
-        // Deduct stock - use area-specific if available, otherwise global.
-        // Both decrements carry their own "still enough left" predicate so a
-        // concurrent order cannot drive the counter negative between the check
-        // above and the write here.
-        if (areaDetail) {
-          const areaTaken = await tx.productAreaDetail.updateMany({
-            where: { id: areaDetail.id, stockQuantity: { gte: quantity } },
-            data: { stockQuantity: { decrement: quantity } }
-          });
-          if (areaTaken.count === 0) {
-            throw new Error(`Not enough stock for ${product.name} in this area.`);
-          }
-
-          // Create stock entry for the sale
-          await tx.stockEntry.create({
-            data: {
-              productAreaDetailId: areaDetail.id,
-              quantity: -quantity,
-              type: "SALE",
-              notes: `Order checkout - ${quantity} unit(s)`,
-              createdBy: session.userId
-            }
-          });
-
-          // Global stock mirrors the sum of the areas; the area gate above is
-          // the real check, so this follows unconditionally.
-          await tx.product.update({
-            where: { id: product.id },
-            data: { stockQuantity: { decrement: quantity } }
-          });
-        } else {
-          // No area: the global counter is the only gate.
-          const taken = await tx.product.updateMany({
-            where: { id: product.id, stockQuantity: { gte: quantity } },
-            data: { stockQuantity: { decrement: quantity } }
-          });
-          if (taken.count === 0) {
-            throw new Error(`Not enough stock for ${product.name}.`);
-          }
         }
       }
 
@@ -342,7 +275,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, order });
   } catch (error: any) {
     const msg = error?.message || "";
-    const isUserError = msg.includes("Insufficient") || msg.includes("Not enough stock") || msg.includes("another customer");
+    // Anything the customer can act on is echoed back verbatim; everything else
+    // becomes a generic 500 so internal detail never reaches the browser.
+    //
+    // "Not enough unique units" and the not-sold-in-this-area case are listed
+    // explicitly because they never matched the "Not enough stock" prefix - a
+    // customer who hit either one used to get an unhelpful "Checkout failed"
+    // even though the cause was theirs to fix by picking another area.
+    const isUserError =
+      msg.includes("Insufficient") ||
+      msg.includes("Not enough stock") ||
+      msg.includes("Not enough unique units") ||
+      msg.includes("not available in the selected area") ||
+      msg.includes("another customer");
     return NextResponse.json({ error: isUserError ? msg : "Checkout failed" }, { status: isUserError ? 400 : 500 });
   }
 }

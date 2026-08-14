@@ -532,6 +532,17 @@ export function createTelegramBot(token: string, botName: string) {
 
     let text = `${t(lang, "buy.compound")}: *${esc(parent.name)}*\n`;
     if (parent.productType) text += `_${esc(parent.productType)}_\n`;
+    // Formula and CAS sit on one line so a compound with both does not push the
+    // price and stock further down the message.
+    //
+    // No backticks: `esc` escapes for legacy Markdown, and inside a code span
+    // Telegram stops honouring those escapes - a formula like Ca(OH)2 would
+    // reach the customer as Ca\(OH\)2.
+    const idParts = [
+      parent.formula ? `🧪 ${esc(parent.formula)}` : "",
+      parent.casNumber ? `CAS ${esc(parent.casNumber)}` : "",
+    ].filter(Boolean);
+    if (idParts.length > 0) text += `${idParts.join("  ·  ")}\n`;
     if (parent.description) text += `\n${esc(parent.description.slice(0, 300))}\n`;
     text += `\n`;
 

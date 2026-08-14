@@ -252,6 +252,21 @@ export default function ProductManagement() {
     )
   ).sort((a, b) => a.localeCompare(b));
 
+  /**
+   * Formula / CAS values already in the catalogue, offered as datalist hints.
+   *
+   * Unlike product type these are not a closed set - two products rarely share
+   * a CAS number - so they stay free-text inputs and this only saves retyping
+   * when the same compound is listed again under a different name.
+   */
+  const distinctValues = (pick: (p: Product) => string | null) =>
+    Array.from(new Set(products.map((p) => (pick(p) || "").trim()).filter((v) => v.length > 0))).sort(
+      (a, b) => a.localeCompare(b)
+    );
+
+  const formulaOptions = distinctValues((p) => p.formula);
+  const casNumberOptions = distinctValues((p) => p.casNumber);
+
   /** Variant rows belonging to a parent, in creation order. */
   const variantsOf = (parentId: string) =>
     products
@@ -1207,6 +1222,20 @@ export default function ProductManagement() {
                                 {product.productType}
                               </span>
                             )}
+                            {(product.formula || product.casNumber) && (
+                              <div
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--text-secondary)",
+                                  marginTop: "4px",
+                                  fontFamily: "var(--font-mono, monospace)",
+                                }}
+                              >
+                                {product.formula}
+                                {product.formula && product.casNumber ? " · " : ""}
+                                {product.casNumber && `CAS ${product.casNumber}`}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1583,6 +1612,50 @@ export default function ProductManagement() {
                   )}
                   <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
                     Shown to customers on the shop and in the Telegram bot
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Chemical Formula</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. NaCl, H2SO4"
+                    list="formula-options"
+                    value={formData.formula}
+                    onChange={(e) => setFormData({ ...formData, formula: e.target.value })}
+                    {...adminOnlyField}
+                  />
+                  {/* Suggestions only - the field stays free text, so a formula
+                      that has never been used before can still be typed in. */}
+                  <datalist id="formula-options">
+                    {formulaOptions.map((f) => (
+                      <option key={f} value={f} />
+                    ))}
+                  </datalist>
+                  <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                    Shown to customers on the shop and in the Telegram bot
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">CAS Number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. 7647-14-5"
+                    list="cas-options"
+                    value={formData.casNumber}
+                    onChange={(e) => setFormData({ ...formData, casNumber: e.target.value })}
+                    {...adminOnlyField}
+                  />
+                  <datalist id="cas-options">
+                    {casNumberOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                  <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+                    CAS Registry Number, shown next to the formula
                   </small>
                 </div>
 

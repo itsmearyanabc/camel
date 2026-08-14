@@ -12,7 +12,19 @@ function isUsableToken(token: string | undefined, placeholder: string): token is
 let isShuttingDown = false;
 const activeBots: any[] = [];
 
-function startBotWithRetry(bot: any, name: string) {
+/**
+ * Telegram allows exactly one long-poller per bot token, so a 409 means
+ * another process holds the poll - usually the embedded bots in the web
+ * server (see src/instrumentation.ts), or a previous run still exiting.
+ */
+function isPollConflict(err: any): boolean {
+  return (
+    err?.error_code === 409 ||
+    /\b409\b|terminated by other getUpdates/i.test(String(err?.message || ""))
+  );
+}
+
+function startBotWithRetry(bot: any, name: string, attempt = 0) {
   if (isShuttingDown) return;
   bot
     .start({
@@ -22,9 +34,24 @@ function startBotWithRetry(bot: any, name: string) {
     })
     .catch((err: any) => {
       if (isShuttingDown) return;
-      console.error(`❌ [${name}] Error:`, err.message);
-      console.log(`🔄 [${name}] Retrying in 5 seconds...`);
-      setTimeout(() => startBotWithRetry(bot, name), 5000);
+
+      // A conflict retried every 5s makes the two pollers fight indefinitely
+      // and neither serves customers. Back off so the other side can finish,
+      // and say plainly what is wrong - the usual cause is running `npm run
+      // bots` while the website is already running them embedded.
+      const conflict = isPollConflict(err);
+      const delay = conflict ? Math.min(30000, 5000 * 2 ** attempt) : 5000;
+
+      if (conflict) {
+        console.warn(`⚠️ [${name}] Another poller holds this bot token (409).`);
+        console.warn(`   Set DISABLE_EMBEDDED_BOTS=true on the website if you run bots here.`);
+        console.log(`🔄 [${name}] Retrying in ${delay / 1000} seconds...`);
+      } else {
+        console.error(`❌ [${name}] Error:`, err.message);
+        console.log(`🔄 [${name}] Retrying in 5 seconds...`);
+      }
+
+      setTimeout(() => startBotWithRetry(bot, name, conflict ? attempt + 1 : 0), delay);
     });
 }
 

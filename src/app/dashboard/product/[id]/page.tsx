@@ -553,6 +553,34 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         {product.productType && (
                           <span className="badge badge-purple">{product.productType}</span>
                         )}
+                        {product.formula && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontFamily: "var(--font-mono, monospace)",
+                              background: "var(--surface-subtle)",
+                              color: "var(--text-primary)",
+                              border: "1px solid var(--border)",
+                            }}
+                            title="Chemical formula"
+                          >
+                            {product.formula}
+                          </span>
+                        )}
+                        {product.casNumber && (
+                          <span
+                            className="badge"
+                            style={{
+                              fontFamily: "var(--font-mono, monospace)",
+                              background: "var(--surface-subtle)",
+                              color: "var(--text-primary)",
+                              border: "1px solid var(--border)",
+                            }}
+                            title="CAS Registry Number"
+                          >
+                            CAS {product.casNumber}
+                          </span>
+                        )}
                         {(() => {
                           const allAreas = (hasVariants ? selected?.areas : product.areas) || [];
                           const areas = allAreas.filter(

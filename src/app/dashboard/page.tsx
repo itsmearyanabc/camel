@@ -739,6 +739,36 @@ export default function Dashboard() {
                                 {product.productType}
                               </span>
                             )}
+                            {product.formula && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: "11px",
+                                  fontFamily: "var(--font-mono, monospace)",
+                                  background: "var(--surface-subtle)",
+                                  color: "var(--text-primary)",
+                                  border: "1px solid var(--border)",
+                                }}
+                                title="Chemical formula"
+                              >
+                                {product.formula}
+                              </span>
+                            )}
+                            {product.casNumber && (
+                              <span
+                                className="badge"
+                                style={{
+                                  fontSize: "11px",
+                                  fontFamily: "var(--font-mono, monospace)",
+                                  background: "var(--surface-subtle)",
+                                  color: "var(--text-primary)",
+                                  border: "1px solid var(--border)",
+                                }}
+                                title="CAS Registry Number"
+                              >
+                                CAS {product.casNumber}
+                              </span>
+                            )}
                           </div>
                           <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                             {(() => {
