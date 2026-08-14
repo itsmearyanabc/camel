@@ -97,28 +97,50 @@ export async function register() {
 
     console.log("=========================================");
 
-    // APP_URL is read at runtime; NEXT_PUBLIC_* is frozen at build time, so it
-    // is only a fallback here.
+    // These endpoints live in THIS process, so call them on the loopback
+    // interface instead of routing back out through DNS, TLS and the reverse
+    // proxy. Going out to the public hostname meant that a restart, or any
+    // brief proxy hiccup, answered with an HTML error page - which arrived here
+    // as `SyntaxError: Unexpected token '<', "<!DOCTYPE "... is not valid JSON`
+    // and lost that run. scripts/vps-cron.sh already calls 127.0.0.1 for
+    // exactly this reason. CRON_BASE_URL overrides it if the app is ever split
+    // across hosts.
     const cronBaseUrl = () =>
-      (process.env.APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
+      (process.env.CRON_BASE_URL || `http://127.0.0.1:${process.env.PORT || 3000}`)
         .trim()
         .replace(/^["']|["']$/g, "")
         .replace(/\/+$/, "");
 
+    /**
+     * Call one cron endpoint and return its JSON.
+     *
+     * Throws on a non-2xx rather than parsing the body: an error page is HTML,
+     * and reading it as JSON raises a SyntaxError that says nothing about what
+     * actually went wrong.
+     */
+    const callCron = async (path: string) => {
+      const cronSecret = process.env.CRON_SECRET || "";
+      if (!cronSecret) return null; // the endpoints refuse unauthenticated calls by design
+
+      const res = await fetch(`${cronBaseUrl()}${path}`, {
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      });
+      if (!res.ok) {
+        throw new Error(`${path} returned HTTP ${res.status}`);
+      }
+      return res.json();
+    };
+
     // Background Cron: trigger the cooldowns every minute
     const cronInterval = setInterval(() => {
       if (isShuttingDown) return;
-      const cronSecret = process.env.CRON_SECRET || "";
-      fetch(`${cronBaseUrl()}/api/cron/process-cooldowns`, {
-        headers: { "Authorization": `Bearer ${cronSecret}` }
-      })
-        .then(res => res.json())
+      callCron("/api/cron/process-cooldowns")
         .then(data => {
-          if (data.processedCount > 0 || data.autoCompletedCount > 0) {
+          if (data && (data.processedCount > 0 || data.autoCompletedCount > 0)) {
             console.log(`[Cron] Processed ${data.processedCount} cooldowns, ${data.autoCompletedCount} auto-completions.`);
           }
         })
-        .catch(err => console.error("[Cron] Failed to process cooldowns:", err));
+        .catch(err => console.error("[Cron] Failed to process cooldowns:", err.message));
     }, 60 * 1000);
 
     // Background Cron: reclaim stock from unpaid crypto orders every 5 minutes.
@@ -127,20 +149,15 @@ export async function register() {
     // the product would show as permanently out of stock.
     const expirePaymentsInterval = setInterval(() => {
       if (isShuttingDown) return;
-      const cronSecret = process.env.CRON_SECRET || "";
-      if (!cronSecret) return; // endpoint refuses unauthenticated calls by design
-      fetch(`${cronBaseUrl()}/api/cron/expire-payments`, {
-        headers: { "Authorization": `Bearer ${cronSecret}` }
-      })
-        .then(res => res.json())
+      callCron("/api/cron/expire-payments")
         .then(data => {
-          if (data.cancelledCount > 0 || data.rescuedCount > 0) {
+          if (data && (data.cancelledCount > 0 || data.rescuedCount > 0)) {
             console.log(
               `[Cron] Expired ${data.cancelledCount} unpaid order(s), rescued ${data.rescuedCount}.`
             );
           }
         })
-        .catch(err => console.error("[Cron] Failed to expire payments:", err));
+        .catch(err => console.error("[Cron] Failed to expire payments:", err.message));
     }, 5 * 60 * 1000);
 
     // Background Cron: delete delivery photos/videos from orders that finished
@@ -149,18 +166,13 @@ export async function register() {
     // runs daily rather than often.
     const runMediaCleanup = () => {
       if (isShuttingDown) return;
-      const cronSecret = process.env.CRON_SECRET || "";
-      if (!cronSecret) return; // endpoint refuses unauthenticated calls by design
-      fetch(`${cronBaseUrl()}/api/cron/cleanup-media`, {
-        headers: { "Authorization": `Bearer ${cronSecret}` }
-      })
-        .then(res => res.json())
+      callCron("/api/cron/cleanup-media")
         .then(data => {
-          if (data.filesDeleted > 0) {
+          if (data && data.filesDeleted > 0) {
             console.log(`[Cron] Deleted ${data.filesDeleted} expired delivery file(s).`);
           }
         })
-        .catch(err => console.error("[Cron] Failed to clean up delivery media:", err));
+        .catch(err => console.error("[Cron] Failed to clean up delivery media:", err.message));
     };
 
     // A plain 24h interval only fires 24h after boot, so on a server that is
@@ -181,7 +193,6 @@ export async function register() {
         clearInterval(cronInterval);
         clearInterval(expirePaymentsInterval);
         clearTimeout(cleanupMediaKickoff);
-        clearInterval(cleanupMediaInterval);
         clearInterval(cleanupMediaInterval);
         for (const bot of activeBots) {
           try {

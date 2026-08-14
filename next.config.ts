@@ -1,6 +1,20 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
+  // Pin the project root.
+  //
+  // Next infers it by walking up for a lockfile, and the VPS has a stray
+  // /root/package-lock.json sitting above the app - so it picked /root and
+  // warned on every build AND on every boot. Pinning both keys makes the root
+  // deterministic regardless of what else exists above the deployment
+  // directory: `turbopack.root` is what the build reads, `outputFileTracingRoot`
+  // is what the production server reads.
+  turbopack: {
+    root: __dirname,
+  },
+  outputFileTracingRoot: __dirname,
+
   // Security headers
   async headers() {
     return [

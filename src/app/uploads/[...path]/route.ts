@@ -20,10 +20,27 @@ const MIME_TYPES: Record<string, string> = {
   ".mov": "video/quicktime",
 };
 
+/**
+ * Cache policy for one upload.
+ *
+ * Product images are permanent, so they get the long immutable cache. Delivery
+ * media does NOT: it is deleted from disk once the order-history window passes
+ * (see src/lib/mediaRetention.ts), and a year-long `immutable` cache means a CDN
+ * keeps serving a file we deliberately destroyed - the deletion never actually
+ * takes effect for anyone holding the URL. A short cache keeps repeat views off
+ * the origin without outliving the file itself.
+ */
+function cacheControlFor(urlPath: string): string {
+  return urlPath.startsWith("delivery/")
+    ? "public, max-age=3600, must-revalidate"
+    : "public, max-age=31536000, immutable";
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path: pathArray } = await params;
   const uploadsRoot = path.join(process.cwd(), "public", "uploads");
   const filePath = path.resolve(uploadsRoot, ...pathArray);
+  const cacheControl = cacheControlFor(pathArray.join("/"));
 
   // The path segments come straight from the URL, so confirm the resolved file
   // is still inside the uploads directory - otherwise a "../" segment that
@@ -68,7 +85,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
             "Content-Range": `bytes ${start}-${end}/${size}`,
             "Content-Length": String(end - start + 1),
             "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=31536000, immutable",
+            "Cache-Control": cacheControl,
           },
         });
       }
@@ -81,7 +98,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
           "Content-Type": contentType,
           "Content-Length": String(size),
           "Accept-Ranges": "bytes",
-          "Cache-Control": "public, max-age=31536000, immutable",
+          "Cache-Control": cacheControl,
         },
       });
     }
@@ -91,7 +108,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
       headers: {
         "Content-Type": contentType,
         "Content-Length": String(size),
-        "Cache-Control": "public, max-age=31536000, immutable",
+        "Cache-Control": cacheControl,
       },
     });
   } catch (error) {
