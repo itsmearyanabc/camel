@@ -327,7 +327,8 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
     );
 
     if (result.ok) {
-      setRowQty((prev) => ({ ...prev, [offer.key]: 1 }));
+      // Back to zero, ready for a deliberate choice next time.
+      setRowQty((prev) => ({ ...prev, [offer.key]: 0 }));
       setMsg({
         type: "success",
         text: `Added ${quantity} × ${offer.variantLabel ? `${product.name} (${offer.variantLabel})` : product.name} for pickup in ${offer.areaName}.`,
@@ -568,14 +569,24 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                 // cart line directly, so the count on screen is
                                 // always the count that will be ordered.
                                 const line = cartLineFor(offer);
-                                const draft = Math.min(rowQty[offer.key] ?? 1, offer.stock);
+                                // Opens at zero: nothing is chosen until the
+                                // customer chooses it. Opening at 1 meant that
+                                // on a row with a single unit in stock the
+                                // count was already at both the floor and the
+                                // ceiling, so both buttons greyed out and the
+                                // stepper read as broken.
+                                const draft = Math.min(rowQty[offer.key] ?? 0, offer.stock);
                                 const setDraft = (next: number) =>
                                   setRowQty((prev) => ({
                                     ...prev,
-                                    [offer.key]: Math.max(1, Math.min(next, offer.stock)),
+                                    [offer.key]: Math.max(0, Math.min(next, offer.stock)),
                                   }));
                                 const count = line ? line.quantity : draft;
+                                // Never offer more than the area actually holds.
                                 const atMax = count >= offer.stock;
+                                // On a cart line, stepping below 1 removes it,
+                                // so only the not-yet-added draft has a floor.
+                                const atMin = line ? false : draft <= 0;
                                 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
                                 return (
@@ -629,12 +640,12 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                           type="button"
                                           aria-label="Decrease quantity"
                                           onClick={() => (line ? updateQuantity(offer.rowId, -1) : setDraft(draft - 1))}
-                                          disabled={!line && draft <= 1}
+                                          disabled={atMin}
                                           style={{
                                             padding: "6px 14px", background: "none", border: "none", fontSize: "18px",
                                             lineHeight: 1, color: "var(--text-primary)",
-                                            cursor: !line && draft <= 1 ? "not-allowed" : "pointer",
-                                            opacity: !line && draft <= 1 ? 0.4 : 1,
+                                            cursor: atMin ? "not-allowed" : "pointer",
+                                            opacity: atMin ? 0.4 : 1,
                                           }}
                                         >
                                           −
@@ -692,11 +703,21 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                         <button
                                           type="button"
                                           className="btn btn-primary btn-sm"
+                                          // The stepper starts at zero, so there
+                                          // is nothing to add until it is raised.
+                                          disabled={draft < 1}
                                           onClick={() => {
                                             choose();
                                             addOfferToCart(offer, draft);
                                           }}
-                                          style={{ whiteSpace: "nowrap", borderRadius: "var(--radius-pill)", fontWeight: "700" }}
+                                          style={{
+                                            whiteSpace: "nowrap",
+                                            borderRadius: "var(--radius-pill)",
+                                            fontWeight: "700",
+                                            opacity: draft < 1 ? 0.5 : 1,
+                                            cursor: draft < 1 ? "not-allowed" : "pointer",
+                                          }}
+                                          title={draft < 1 ? "Choose how many with + first" : undefined}
                                         >
                                           Add to Cart
                                         </button>
@@ -790,7 +811,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         // offer - that is what carries the collection point the
                         // cart line (and therefore the order) is built from.
                         <button
-                          onClick={() => selectedOffer && addOfferToCart(selectedOffer, 1)}
+                          onClick={() =>
+                            selectedOffer &&
+                            // Respect a quantity already dialled into the row's
+                            // stepper; fall back to one so this button never
+                            // silently does nothing.
+                            addOfferToCart(selectedOffer, rowQty[selectedOffer.key] || 1)
+                          }
                           className="btn btn-primary"
                           disabled={!selectedOffer || selectedStock < 1}
                           style={{ padding: "12px 24px", fontSize: "16px" }}
