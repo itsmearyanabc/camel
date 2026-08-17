@@ -15,6 +15,7 @@ import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
 import SkeletonLoader from "@/components/SkeletonLoader";
 import RestockNotifyButton from "@/components/RestockNotifyButton";
+import TelegramLinksBar from "@/components/TelegramLinksBar";
 import { useLanguage } from "@/components/LanguageContext";
 
 /** A quantity/weight option of a product ("2g" @ $70) — its own sellable row. */
@@ -81,9 +82,12 @@ interface DisputeMessage {
   createdAt: string;
 }
 interface Dispute {
-  id: string; orderId: string; reason: string; status: string;
+  id: string;
+  /** Null for a general support ticket that is not about a purchase. */
+  orderId: string | null;
+  reason: string; status: string;
   resolutionType: string | null; createdAt: string;
-  order: { items: { product: Product }[] };
+  order: { items: { product: Product }[] } | null;
   messages?: DisputeMessage[];
 }
 
@@ -695,26 +699,10 @@ export default function Dashboard() {
                   )}
                 </div>
               </section>
-              {/* Telegram Bot Banner */}
-              <div style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border)", borderRadius: "var(--radius-lg)",
-                padding: "14px 20px", gap: "16px", flexWrap: "wrap",
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <span style={{ fontSize: "22px", background: "var(--accent-light)", borderRadius: "10px", padding: "8px", lineHeight: 1 }}>🤖</span>
-                  <div>
-                    <p style={{ fontWeight: 700, fontSize: "14px", margin: 0, color: "var(--text-primary)" }}>{t("dash.bot.title")}</p>
-                    <p style={{ fontSize: "12px", margin: 0, color: "var(--text-secondary)" }}>{t("dash.bot.desc")}</p>
-                  </div>
-                </div>
-                <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer"
-                  className="btn btn-primary btn-sm"
-                  style={{ gap: "6px", whiteSpace: "nowrap" }}>
-                  {t("dash.bot.btn")}
-                </a>
-              </div>
+              {/* Telegram strips: the channel directory, then the shop bot and
+                  the customer-support bot beside it. Both additions are
+                  config-driven and hide when unset — see TelegramLinksBar. */}
+              <TelegramLinksBar botUsername={BOT_USERNAME} />
 
               {shopMsg && (
                 <div className={`alert ${shopMsg.type === "error" ? "alert-error" : "alert-success"}`}>
@@ -1504,8 +1492,16 @@ export default function Dashboard() {
                   <div key={d.id} className="card" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                       <div>
-                        <h4 style={{ marginBottom: "4px" }}>Ticket for {d.order.items?.map(i => i.product?.name).join(", ")}</h4>
-                        <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Order ID: #{d.orderId.slice(0,8)}</span>
+                        {/* A ticket raised in the support bot about the account
+                            rather than a purchase has no order attached. */}
+                        <h4 style={{ marginBottom: "4px" }}>
+                          {d.order
+                            ? `Ticket for ${d.order.items?.map(i => i.product?.name).join(", ")}`
+                            : "Support ticket"}
+                        </h4>
+                        <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>
+                          {d.orderId ? `Order ID: #${d.orderId.slice(0, 8)}` : `Ticket #${d.id.slice(0, 8)}`}
+                        </span>
                       </div>
                       <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                         <span className={`badge ${d.status === "RESOLVED" ? "badge-green" : "badge-orange"}`}>{d.status}</span>

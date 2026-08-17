@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { notifyRestockSubscribersForArea } from "@/lib/restock";
+import { deleteProductPermanently } from "@/lib/productDeletion";
 
 export async function GET() {
   const session = await getSession();
@@ -311,7 +313,19 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { productId } = await req.json();
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  const productId = typeof body?.productId === "string" ? body.productId : "";
+  // Opt-in override for cleaning up test data. Absent it, order history always
+  // wins over a delete.
+  const force = body?.force === true;
+  const password = typeof body?.password === "string" ? body.password : "";
+
   if (!productId) {
     return NextResponse.json({ error: "Product ID is required" }, { status: 400 });
   }
@@ -332,17 +346,55 @@ export async function DELETE(req: NextRequest) {
     where: { productId: { in: [productId, ...variantIds] } },
   });
 
-  if (orderedCount > 0) {
+  if (orderedCount > 0 && !force) {
+    // `requiresForce` is what lets the control panel offer the override instead
+    // of dead-ending the admin on an error they cannot act on. Test products
+    // routinely pick up a few orders and there has to be a way to clear them.
     return NextResponse.json(
       {
         error:
           `This product has ${orderedCount} order(s) against it and cannot be deleted without ` +
           `destroying that order history. Set its stock to 0 instead to stop selling it.`,
+        requiresForce: true,
+        orderCount: orderedCount,
       },
       { status: 400 }
     );
   }
 
-  await prisma.product.delete({ where: { id: productId } });
-  return NextResponse.json({ success: true });
+  if (orderedCount > 0) {
+    // Irreversible and destroys customer records, so it is gated the same way
+    // permanent user deletion is: the acting admin re-enters their own
+    // password, and the role is re-read from the database so a demoted
+    // account's still-valid cookie cannot be used to do this.
+    const actor = await prisma.user.findUnique({ where: { id: session.userId } });
+    if (!actor || !["ADMIN", "SUPERADMIN"].includes(actor.role)) {
+      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 });
+    }
+
+    if (!password) {
+      return NextResponse.json(
+        { error: "Your password is required to delete a product with order history" },
+        { status: 400 }
+      );
+    }
+
+    const passwordMatch = await bcrypt.compare(password, actor.passwordHash);
+    if (!passwordMatch) {
+      return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
+    }
+
+    const summary = await deleteProductPermanently(productId);
+
+    console.warn(
+      `[PRODUCT PURGED] ${actor.username} (${actor.role}) force-deleted "${summary.name}" - ` +
+      `${summary.variantsDeleted} option(s), ${summary.orderItemsDeleted} order line(s), ` +
+      `${summary.ordersDeleted} order(s) removed, ${summary.couponUsagesReleased} coupon use(s) released.`
+    );
+
+    return NextResponse.json({ success: true, forced: true, ...summary });
+  }
+
+  const summary = await deleteProductPermanently(productId);
+  return NextResponse.json({ success: true, ...summary });
 }

@@ -1394,9 +1394,13 @@ export function createTelegramBot(token: string, botName: string) {
       text += `_No disputes submitted._`;
     } else {
       disputes.forEach((d) => {
-        const productName = d.order.items.length > 0 ? d.order.items[0].product.name : "Items";
-        const title = d.order.items.length > 1 ? `${productName} +${d.order.items.length - 1}` : productName;
-        text += `• *Dispute for ${esc(title)}* - [${esc(d.status)}]\n  Claim: "${esc(d.reason)}"\n`;
+        // A ticket raised in the support bot about the account rather than a
+        // purchase has no order behind it.
+        const items = d.order?.items ?? [];
+        const productName = items.length > 0 ? items[0].product.name : "Items";
+        const title = items.length > 1 ? `${productName} +${items.length - 1}` : productName;
+        const heading = d.order ? `Dispute for ${esc(title)}` : `Support ticket #${d.id.slice(0, 8)}`;
+        text += `• *${heading}* - [${esc(d.status)}]\n  Claim: "${esc(d.reason)}"\n`;
         if (d.status === "RESOLVED" && d.resolutionType) {
           text += `  Resolution: *${esc(d.resolutionType)}*\n`;
         }

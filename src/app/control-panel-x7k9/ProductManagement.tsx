@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 interface Product {
   id: string;
@@ -129,6 +129,42 @@ export default function ProductManagement() {
   const [uploadingMediaFor, setUploadingMediaFor] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
+  // Product-type picker. A native <select> cannot carry a per-row delete
+  // button, so the field is a custom listbox - see the Product Type field in
+  // the add/edit modal.
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [deletingType, setDeletingType] = useState<string | null>(null);
+  const typeMenuRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Products whose delete was refused because they carry order history, held
+   * here while the admin confirms the override with their password.
+   */
+  const [forceDelete, setForceDelete] = useState<{
+    targets: Array<{ id: string; name: string; orderCount: number }>;
+    password: string;
+    error: string | null;
+    running: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!typeMenuOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (typeMenuRef.current && !typeMenuRef.current.contains(e.target as Node)) {
+        setTypeMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTypeMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [typeMenuOpen]);
+
   // Live save feedback, pinned bottom-right so it is visible no matter how far
   // down the modal the admin has scrolled.
   const [saveState, setSaveState] = useState<
@@ -251,6 +287,63 @@ export default function ProductManagement() {
         .filter((t) => t.length > 0)
     )
   ).sort((a, b) => a.localeCompare(b));
+
+  /**
+   * How many product rows currently carry each type.
+   *
+   * Shown next to the delete button so an admin can tell a stray test entry
+   * from one that is live on the storefront before removing it.
+   */
+  const productTypeCounts = products.reduce<Map<string, number>>((acc, p) => {
+    const type = (p.productType || "").trim();
+    if (type) acc.set(type, (acc.get(type) || 0) + 1);
+    return acc;
+  }, new Map());
+
+  /**
+   * Remove a type from the catalogue.
+   *
+   * There is no ProductType table - the list is the distinct `productType`
+   * values in use - so this clears the column on every product carrying it and
+   * the entry disappears from the list. The products themselves are kept.
+   */
+  const handleDeleteType = async (type: string) => {
+    if (deletingType) return;
+
+    const count = productTypeCounts.get(type) || 0;
+    const warning =
+      count > 0
+        ? `Remove the "${type}" type?\n\nIt will be cleared from ${count} product(s). The products themselves are kept — they just stop showing a type on the shop and in the Telegram bot.`
+        : `Remove the "${type}" type from the list?`;
+    if (!confirm(warning)) return;
+
+    setDeletingType(type);
+    try {
+      const res = await fetch("/api/admin/product-types", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setSaveState({ status: "error", text: data.error || "Failed to remove type" });
+        return;
+      }
+
+      // The form open right now may be showing the type that just went away.
+      setFormData((prev) => (prev.productType === type ? { ...prev, productType: "" } : prev));
+      await refreshProducts();
+      setSaveState({
+        status: "success",
+        text: data.cleared > 0 ? `Removed "${type}" from ${data.cleared} product(s)` : `Removed "${type}"`,
+      });
+    } catch {
+      setSaveState({ status: "error", text: "Failed to remove type" });
+    } finally {
+      setDeletingType(null);
+    }
+  };
 
   /**
    * Formula / CAS values already in the catalogue, offered as datalist hints.
@@ -485,6 +578,39 @@ export default function ProductManagement() {
     }
   };
 
+  /**
+   * Ask the API to delete one product row.
+   *
+   * `requiresForce` comes back when the row has order history. That is not a
+   * failure the admin can do anything about on its own, so it is reported
+   * separately and the caller offers the password-confirmed override.
+   */
+  const requestDelete = async (
+    productId: string,
+    opts: { force?: boolean; password?: string } = {}
+  ): Promise<{ ok: boolean; requiresForce?: boolean; orderCount?: number; error?: string }> => {
+    try {
+      const res = await fetch("/api/admin/products", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId,
+          ...(opts.force ? { force: true, password: opts.password } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) return { ok: true };
+      return {
+        ok: false,
+        requiresForce: data?.requiresForce === true,
+        orderCount: data?.orderCount,
+        error: data?.error || "Failed to delete product",
+      };
+    } catch {
+      return { ok: false, error: "Error deleting product" };
+    }
+  };
+
   const handleDeleteProduct = async (productId: string) => {
     const childCount = variantsOf(productId).length;
     const warning = childCount > 0
@@ -492,23 +618,76 @@ export default function ProductManagement() {
       : "Are you sure you want to delete this product? This action cannot be undone.";
     if (!confirm(warning)) return;
 
-    try {
-      const res = await fetch("/api/admin/products", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId }),
-      });
+    const name = products.find((p) => p.id === productId)?.name || "this product";
+    const result = await requestDelete(productId);
 
-      if (res.ok) {
-        setMsg({ type: "success", text: "Product deleted successfully!" });
-        fetchData();
-      } else {
-        const data = await res.json();
-        setMsg({ type: "error", text: data.error || "Failed to delete product" });
-      }
-    } catch (e) {
-      setMsg({ type: "error", text: "Error deleting product" });
+    if (result.ok) {
+      setMsg({ type: "success", text: "Product deleted successfully!" });
+      fetchData();
+      return;
     }
+
+    if (result.requiresForce) {
+      setForceDelete({
+        targets: [{ id: productId, name, orderCount: result.orderCount || 0 }],
+        password: "",
+        error: null,
+        running: false,
+      });
+      return;
+    }
+
+    setMsg({ type: "error", text: result.error || "Failed to delete product" });
+  };
+
+  /**
+   * Run the password-confirmed override against every held-back product.
+   *
+   * One password entry covers the whole batch: clearing out a round of test
+   * products otherwise means retyping it once per row.
+   */
+  const submitForceDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forceDelete || forceDelete.running) return;
+
+    if (!forceDelete.password) {
+      setForceDelete({ ...forceDelete, error: "Enter your password to confirm." });
+      return;
+    }
+
+    setForceDelete({ ...forceDelete, error: null, running: true });
+
+    const failures: string[] = [];
+    let deleted = 0;
+
+    for (const target of forceDelete.targets) {
+      const result = await requestDelete(target.id, { force: true, password: forceDelete.password });
+      if (result.ok) {
+        deleted++;
+      } else {
+        failures.push(`${target.name}: ${result.error}`);
+      }
+    }
+
+    // A wrong password fails every row identically - keep the dialog open and
+    // say so, rather than closing on what looks like a partial success.
+    if (deleted === 0 && failures.length > 0) {
+      setForceDelete({
+        ...forceDelete,
+        running: false,
+        error: failures[0].includes("Incorrect password") ? "Incorrect password." : failures[0],
+      });
+      return;
+    }
+
+    setForceDelete(null);
+    setSelectedProducts(new Set());
+    setMsg(
+      failures.length > 0
+        ? { type: "error", text: `Deleted ${deleted}, failed ${failures.length}: ${failures.join(" • ")}` }
+        : { type: "success", text: `Permanently deleted ${deleted} product(s) and their order history.` }
+    );
+    fetchData();
   };
 
   const handleBulkAction = async () => {
@@ -559,19 +738,39 @@ export default function ProductManagement() {
 
       setBulkRunning(true);
       try {
-        const results = await Promise.all(
-          ids.map((productId) =>
-            fetch("/api/admin/products", {
-              method: "DELETE",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ productId }),
-            })
-          )
-        );
-        const failed = results.filter((r) => !r.ok).length;
+        const results = await Promise.all(ids.map((productId) => requestDelete(productId)));
+
+        // Rows the API held back because they carry order history are not
+        // failures - they are the ones that need the override, so they are
+        // gathered up and offered in a single confirmation instead of being
+        // reported as errors the admin cannot act on.
+        const blocked = results
+          .map((result, i) => ({ result, id: ids[i] }))
+          .filter(({ result }) => result.requiresForce)
+          .map(({ result, id }) => ({
+            id,
+            name: products.find((p) => p.id === id)?.name || id.slice(0, 8),
+            orderCount: result.orderCount || 0,
+          }));
+
+        const failed = results.filter((r) => !r.ok && !r.requiresForce).length;
+        const deleted = results.filter((r) => r.ok).length;
+
+        if (blocked.length > 0) {
+          setShowBulkModal(false);
+          setBulkAction("");
+          setBulkValue("");
+          setForceDelete({ targets: blocked, password: "", error: null, running: false });
+          if (deleted > 0 || failed > 0) {
+            setMsg({ type: "success", text: `Deleted ${deleted} of ${ids.length} — ${blocked.length} need confirmation` });
+          }
+          fetchData();
+          return;
+        }
+
         setMsg(
           failed
-            ? { type: "error", text: `Deleted ${ids.length - failed} of ${ids.length} — ${failed} failed` }
+            ? { type: "error", text: `Deleted ${deleted} of ${ids.length} — ${failed} failed` }
             : { type: "success", text: `Deleted ${ids.length} product(s)` }
         );
       } catch (e) {
@@ -669,23 +868,27 @@ export default function ProductManagement() {
     const label = variant.variantLabel || "this option";
     if (!confirm(`Delete the "${label}" option of ${parent.name}? This cannot be undone.`)) return;
 
-    try {
-      const res = await fetch("/api/admin/products", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: variant.id }),
-      });
+    const result = await requestDelete(variant.id);
 
-      if (res.ok) {
-        setMsg({ type: "success", text: `Option "${label}" deleted.` });
-        refreshProducts();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setMsg({ type: "error", text: data.error || "Failed to delete option" });
-      }
-    } catch {
-      setMsg({ type: "error", text: "Error deleting option" });
+    if (result.ok) {
+      setMsg({ type: "success", text: `Option "${label}" deleted.` });
+      refreshProducts();
+      return;
     }
+
+    if (result.requiresForce) {
+      setForceDelete({
+        targets: [
+          { id: variant.id, name: `${parent.name} (${label})`, orderCount: result.orderCount || 0 },
+        ],
+        password: "",
+        error: null,
+        running: false,
+      });
+      return;
+    }
+
+    setMsg({ type: "error", text: result.error || "Failed to delete option" });
   };
 
   const openEditModal = (product: Product) => {
@@ -958,6 +1161,21 @@ export default function ProductManagement() {
   }
 
   const isSaving = saveState?.status === "saving";
+
+  /** One row of the product-type listbox. */
+  const typeRowStyle = (selected: boolean): React.CSSProperties => ({
+    display: "block",
+    width: "100%",
+    padding: "9px 12px",
+    textAlign: "left",
+    background: selected ? "var(--accent-light)" : "transparent",
+    border: "none",
+    borderRadius: "8px",
+    color: selected ? "var(--accent)" : "var(--text-primary)",
+    fontWeight: selected ? 600 : 400,
+    fontSize: "14px",
+    cursor: "pointer",
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -1582,36 +1800,179 @@ export default function ProductManagement() {
                       </button>
                     </div>
                   ) : (
-                    <select
-                      className="form-input"
-                      value={productTypeOptions.includes(formData.productType) ? formData.productType : formData.productType ? "__CURRENT__" : ""}
-                      onChange={(e) => {
-                        if (e.target.value === "__NEW__") {
-                          setFormData({ ...formData, productType: "" });
-                          setAddingNewType(true);
-                        } else if (e.target.value !== "__CURRENT__") {
-                          setFormData({ ...formData, productType: e.target.value });
-                        }
-                      }}
-                      {...adminOnlyField}
-                    >
-                      <option value="">— No type —</option>
-                      {/* A type saved before it existed elsewhere still needs to
-                          show as the current selection, or reopening the form
-                          would silently blank it. */}
-                      {formData.productType && !productTypeOptions.includes(formData.productType) && (
-                        <option value="__CURRENT__">{formData.productType}</option>
+                    /* A custom listbox rather than a native <select>: an
+                       <option> cannot hold a delete button, and types
+                       accumulate from every product ever created, so there has
+                       to be a way to clear the stale ones out. */
+                    <div ref={typeMenuRef} style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="form-input"
+                        onClick={() => setTypeMenuOpen(!typeMenuOpen)}
+                        disabled={isStaff}
+                        aria-haspopup="listbox"
+                        aria-expanded={typeMenuOpen}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "8px",
+                          textAlign: "left",
+                          cursor: isStaff ? "not-allowed" : "pointer",
+                          opacity: isStaff ? 0.6 : 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: formData.productType ? "var(--text-primary)" : "var(--text-tertiary)",
+                          }}
+                        >
+                          {formData.productType || "— No type —"}
+                        </span>
+                        <span aria-hidden style={{ flexShrink: 0, color: "var(--text-tertiary)" }}>
+                          ▾
+                        </span>
+                      </button>
+
+                      {typeMenuOpen && (
+                        <div
+                          role="listbox"
+                          style={{
+                            position: "absolute",
+                            top: "calc(100% + 4px)",
+                            left: 0,
+                            right: 0,
+                            zIndex: 30,
+                            // The modal around this scrolls, so the panel caps
+                            // its own height instead of running off the card.
+                            maxHeight: "260px",
+                            overflowY: "auto",
+                            padding: "4px",
+                            background: "var(--bg-primary)",
+                            border: "1px solid var(--border)",
+                            borderRadius: "12px",
+                            boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={!formData.productType}
+                            onClick={() => {
+                              setFormData({ ...formData, productType: "" });
+                              setTypeMenuOpen(false);
+                            }}
+                            style={{
+                              ...typeRowStyle(!formData.productType),
+                              color: "var(--text-tertiary)",
+                            }}
+                          >
+                            — No type —
+                          </button>
+
+                          {/* A type saved before it existed anywhere else still
+                              needs to show as the current selection, or
+                              reopening the form would silently blank it. */}
+                          {formData.productType && !productTypeOptions.includes(formData.productType) && (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected
+                              onClick={() => setTypeMenuOpen(false)}
+                              style={typeRowStyle(true)}
+                            >
+                              {formData.productType}
+                            </button>
+                          )}
+
+                          {productTypeOptions.map((type) => {
+                            const selected = formData.productType === type;
+                            const inUse = productTypeCounts.get(type) || 0;
+                            const busy = deletingType === type;
+                            return (
+                              <div
+                                key={type}
+                                style={{ display: "flex", alignItems: "center", gap: "4px" }}
+                              >
+                                <button
+                                  type="button"
+                                  role="option"
+                                  aria-selected={selected}
+                                  onClick={() => {
+                                    setFormData({ ...formData, productType: type });
+                                    setTypeMenuOpen(false);
+                                  }}
+                                  style={{ ...typeRowStyle(selected), flex: 1, minWidth: 0 }}
+                                >
+                                  <span
+                                    style={{
+                                      display: "block",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {type}
+                                    <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>
+                                      {" "}· {inUse}
+                                    </span>
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteType(type)}
+                                  disabled={busy || deletingType !== null}
+                                  title={`Remove "${type}"${inUse > 0 ? ` (used by ${inUse} product(s))` : ""}`}
+                                  aria-label={`Remove ${type}`}
+                                  style={{
+                                    flexShrink: 0,
+                                    width: "32px",
+                                    height: "32px",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    background: "transparent",
+                                    border: "none",
+                                    borderRadius: "8px",
+                                    color: "var(--red)",
+                                    cursor: deletingType !== null ? "not-allowed" : "pointer",
+                                    opacity: deletingType !== null && !busy ? 0.4 : 1,
+                                    fontSize: "14px",
+                                  }}
+                                >
+                                  {busy ? "…" : "🗑️"}
+                                </button>
+                              </div>
+                            );
+                          })}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormData({ ...formData, productType: "" });
+                              setAddingNewType(true);
+                              setTypeMenuOpen(false);
+                            }}
+                            style={{
+                              ...typeRowStyle(false),
+                              borderTop: "1px solid var(--border)",
+                              borderRadius: 0,
+                              marginTop: "4px",
+                              color: "var(--accent)",
+                            }}
+                          >
+                            ➕ Add new type…
+                          </button>
+                        </div>
                       )}
-                      {productTypeOptions.map((type) => (
-                        <option key={type} value={type}>
-                          {type}
-                        </option>
-                      ))}
-                      {!isStaff && <option value="__NEW__">➕ Add new type…</option>}
-                    </select>
+                    </div>
                   )}
                   <small style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
-                    Shown to customers on the shop and in the Telegram bot
+                    Shown to customers on the shop and in the Telegram bot.
+                    {!isStaff && " 🗑️ removes a type from this list and clears it off the products using it."}
                   </small>
                 </div>
 
@@ -2475,6 +2836,124 @@ export default function ProductManagement() {
                 {bulkRunning ? "Applying..." : "Apply"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Force delete — the override for products the API held back because
+          they carry order history. Gated on the admin's own password, the same
+          way permanent user deletion is. */}
+      {forceDelete && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.8)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1100,
+            padding: "20px",
+          }}
+          onClick={() => {
+            if (!forceDelete.running) setForceDelete(null);
+          }}
+        >
+          <div
+            className="card"
+            style={{ width: "100%", maxWidth: "520px", border: "1px solid var(--red)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ fontSize: "20px", marginBottom: "8px", color: "var(--red)" }}>
+              ⚠️ Delete with order history
+            </h2>
+            <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "16px" }}>
+              {forceDelete.targets.length === 1
+                ? "This product has been ordered. Deleting it also erases those order records."
+                : `${forceDelete.targets.length} of these products have been ordered. Deleting them also erases those order records.`}{" "}
+              Orders left with nothing in them are removed, and any coupon they used is handed back.
+              This <strong>cannot be undone</strong>.
+            </p>
+
+            <div
+              style={{
+                maxHeight: "180px",
+                overflowY: "auto",
+                marginBottom: "16px",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+              }}
+            >
+              {forceDelete.targets.map((target) => (
+                <div
+                  key={target.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "10px 12px",
+                    borderBottom: "1px solid var(--border)",
+                    fontSize: "13px",
+                  }}
+                >
+                  <span style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{target.name}</span>
+                  <span className="badge badge-red" style={{ flexShrink: 0, fontSize: "11px" }}>
+                    {target.orderCount} order{target.orderCount === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {forceDelete.error && (
+              <div className="alert alert-error" style={{ marginBottom: "16px" }}>
+                {forceDelete.error}
+              </div>
+            )}
+
+            <form onSubmit={submitForceDelete} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" htmlFor="force-delete-password" style={{ fontSize: "12px" }}>
+                  Enter <strong>your</strong> admin password to confirm
+                </label>
+                <input
+                  id="force-delete-password"
+                  type="password"
+                  className="form-input"
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  value={forceDelete.password}
+                  onChange={(e) => setForceDelete({ ...forceDelete, password: e.target.value, error: null })}
+                  autoFocus
+                  required
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={forceDelete.running}
+                  onClick={() => setForceDelete(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn"
+                  disabled={forceDelete.running}
+                  style={{ background: "var(--red)", color: "#fff", opacity: forceDelete.running ? 0.6 : 1 }}
+                >
+                  {forceDelete.running
+                    ? "Deleting…"
+                    : `Delete ${forceDelete.targets.length} product${forceDelete.targets.length === 1 ? "" : "s"} anyway`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

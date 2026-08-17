@@ -38,6 +38,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Dispute not found" }, { status: 404 });
     }
 
+    // A ticket about the account rather than a purchase has no order behind it,
+    // so there is nothing to refund, credit or replace. Closing it out is the
+    // only resolution that means anything - say so rather than throwing on a
+    // null order halfway through the transaction.
+    if (!dispute.order && resolutionType !== "REJECTED") {
+      return NextResponse.json(
+        {
+          error:
+            "This ticket is not attached to an order, so it cannot be refunded, credited or replaced. " +
+            "Reply to the customer and close it instead.",
+        },
+        { status: 400 }
+      );
+    }
+
     const resolvedDispute = await prisma.$transaction(async (tx) => {
       // Atomic guard: claim the dispute as not-resolved inside the transaction
       // to prevent double-refund race condition between concurrent admin requests
@@ -49,12 +64,20 @@ export async function POST(req: Request) {
         throw new Error("ALREADY_RESOLVED");
       }
 
+      // Narrowed once, here: every compensating branch below needs a real
+      // order, and the guard before the transaction has already turned away
+      // the order-less case for anything except REJECTED.
+      const order = dispute.order;
+      if (!order && resolutionType !== "REJECTED") {
+        throw new Error("NO_ORDER");
+      }
+
       // 1. Process resolution
-      if (resolutionType === "REFUND" || resolutionType === "CREDIT") {
+      if (order && (resolutionType === "REFUND" || resolutionType === "CREDIT")) {
         // Only credit wallet for WALLET payments
         // For DIRECT_CRYPTO payments, admin already received crypto directly
         // so we just mark as refunded without wallet credit
-        if (dispute.order.paymentMethod === "WALLET") {
+        if (order.paymentMethod === "WALLET") {
           const wallet = await tx.wallet.findUnique({
             where: { userId: dispute.userId },
           });
@@ -66,7 +89,7 @@ export async function POST(req: Request) {
           // Add funds back
           await tx.wallet.update({
             where: { id: wallet.id },
-            data: { balance: { increment: dispute.order.totalAmount } },
+            data: { balance: { increment: order.totalAmount } },
           });
 
           // Add ledger record
@@ -74,7 +97,7 @@ export async function POST(req: Request) {
             data: {
               walletId: wallet.id,
               type: "REFUND",
-              amount: dispute.order.totalAmount,
+              amount: order.totalAmount,
               description: `Refund for order #${dispute.orderId} (Dispute resolved as ${resolutionType})`,
             },
           });
@@ -82,17 +105,17 @@ export async function POST(req: Request) {
 
         // Update order status to REFUNDED
         await tx.order.update({
-          where: { id: dispute.orderId },
+          where: { id: order.id },
           data: { status: "REFUNDED" },
         });
 
         await tx.orderItem.updateMany({
-          where: { orderId: dispute.orderId },
+          where: { orderId: order.id },
           data: { status: "REFUNDED" },
         });
-      } else if (resolutionType === "REPLACEMENT") {
+      } else if (order && resolutionType === "REPLACEMENT") {
         // We need to replace every item in the order
-        for (const item of dispute.order.items) {
+        for (const item of order.items) {
           const product = await tx.product.findUnique({
             where: { id: item.productId }
           });
@@ -115,7 +138,7 @@ export async function POST(req: Request) {
         }
 
         await tx.order.update({
-          where: { id: dispute.orderId },
+          where: { id: order.id },
           data: { status: "READY" },
         });
       }

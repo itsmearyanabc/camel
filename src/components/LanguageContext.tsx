@@ -36,6 +36,14 @@ const translations: Record<LanguageCode, Record<string, string>> = {
     "dash.bot.title": "Shop 24/7 with Telegram Bot",
     "dash.bot.desc": "Instant access to the store anytime, anywhere.",
     "dash.bot.btn": "🤖 Configure Bot →",
+    // Non-EN locales fall back to these through t(), and Google Translate
+    // rewrites the rendered text anyway — same as every other key here.
+    "dash.support.title": "Customer Support",
+    "dash.support.desc": "Questions about an order? Talk to our support team.",
+    "dash.support.btn": "🎧 Chat with Support →",
+    "dash.channels.title": "Join our Telegram channels",
+    "dash.channels.desc": "Drops, restocks and announcements as they happen.",
+    "dash.channels.btn": "📣 Browse channels →",
     "footer.desc": "A premium, privacy-first marketplace with secure ordering and always-on Telegram access.",
     "footer.explore": "Explore",
     "footer.home": "Home",

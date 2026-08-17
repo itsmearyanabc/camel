@@ -257,8 +257,12 @@ model OrderItem {
 
 model Dispute {
   id             String           @id @default(uuid())
-  orderId        String
-  order          Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // Nullable: a support ticket raised from the Telegram support bot may be
+  // about the account rather than a purchase, and a customer who has not
+  // ordered yet must still be able to ask for help. Order-attached tickets are
+  // unchanged and still cascade away with their order.
+  orderId        String?
+  order          Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   userId         String
   user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   reason         String

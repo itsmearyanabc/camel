@@ -113,11 +113,25 @@ async function startEmbeddedBots() {
 
   const token1 = process.env.TELEGRAM_BOT_1_TOKEN?.trim().replace(/^["']|["']$/g, "");
   const token2 = process.env.TELEGRAM_BOT_2_TOKEN?.trim().replace(/^["']|["']$/g, "");
+  const supportToken = process.env.TELEGRAM_SUPPORT_BOT_TOKEN?.trim().replace(/^["']|["']$/g, "");
 
   const hasBot1 = isUsableToken(token1, "PLACEHOLDER_BOT_1_TOKEN");
   const hasBot2 = isUsableToken(token2, "PLACEHOLDER_BOT_2_TOKEN");
 
-  if (!hasBot1 && !hasBot2) {
+  // The support bot MUST be a different bot from the shop bots. Telegram allows
+  // exactly one long-poller per token, so reusing one here would put two
+  // pollers on it: they trade 409s and neither answers customers. Refusing to
+  // start is far better than half-breaking the shop bot that already works.
+  let hasSupport = isUsableToken(supportToken, "PLACEHOLDER_SUPPORT_BOT_TOKEN");
+  if (hasSupport && (supportToken === token1 || supportToken === token2)) {
+    console.error(
+      "❌ [Bot #3 - Support] TELEGRAM_SUPPORT_BOT_TOKEN is the same token as a shop bot. " +
+      "Create a separate bot with @BotFather. Support bot NOT started."
+    );
+    hasSupport = false;
+  }
+
+  if (!hasBot1 && !hasBot2 && !hasSupport) {
     console.log("⚠️ [Bots] No Telegram bot tokens configured. Bots will not start.");
     return;
   }
@@ -150,6 +164,24 @@ async function startEmbeddedBots() {
     }
   } catch (e) {
     console.error("❌ Failed to import bot module:", e);
+  }
+
+  // Separate import and separate try/catch from the shop bots above: the
+  // support bot is a different bot with a different job, and a fault in it
+  // must never stop the shop bot from serving customers.
+  if (hasSupport) {
+    try {
+      const { createSupportBot } = await import("./bots/supportBot");
+      const supportBot = createSupportBot(supportToken!, "Bot #3 (Support)");
+      activeBots.push(supportBot);
+      if (process.env.USE_WEBHOOK !== "true") {
+        startBotWithRetry(supportBot, "Bot #3 - Support");
+      } else {
+        console.log("🤖 [Bot #3 - Support] Running in Webhook mode.");
+      }
+    } catch (e) {
+      console.error("❌ Failed to import support bot module:", e);
+    }
   }
 
   console.log("=========================================");

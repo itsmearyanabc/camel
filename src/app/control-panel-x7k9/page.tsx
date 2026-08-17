@@ -7,10 +7,11 @@ import CouponManagement from "./CouponManagement";
 import StaffManagement from "./StaffManagement";
 import ProductManagement from "./ProductManagement";
 import OrderLookup from "./OrderLookup";
+import TelegramChannels from "./TelegramChannels";
 
 // Stock is managed entirely from the Inventory tab (per-area quantities and
 // per-unit delivery links), so there is no separate stock tab.
-type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees" | "coupons";
+type Tab = "dashboard" | "products" | "locations" | "active-orders" | "all-orders" | "users" | "payments" | "disputes" | "employees" | "coupons" | "telegram";
 
 export default function ClientAdminPanel() {
   const router = useRouter();
@@ -615,6 +616,7 @@ export default function ClientAdminPanel() {
     { key: "disputes", label: "Disputes", icon: "⚖️" },
     { key: "employees", label: "Employees", icon: "👔" },
     { key: "coupons", label: "Coupons", icon: "🎟️" },
+    { key: "telegram", label: "Telegram", icon: "📣" },
   ];
 
   const tabs = allTabs.filter(t => {
@@ -1535,7 +1537,15 @@ export default function ClientAdminPanel() {
                       <div key={d.id} style={{ padding: "20px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-primary)", display: "flex", flexDirection: "column", gap: "12px" }}>
                         <div className="cp-dispute-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <span style={{ fontWeight: "600", fontSize: "15px" }}>
-                            👤 {d.user.username} <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>disputed Order #{d.order.id.slice(0,8)} ({d.order.items.map((i: any) => i.product.name).join(", ")})</span>
+                            👤 {d.user.username}{" "}
+                            {/* A support ticket raised from the Telegram bot
+                                may not be about a purchase at all, so it has
+                                no order to name. */}
+                            <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                              {d.order
+                                ? `disputed Order #${d.order.id.slice(0, 8)} (${d.order.items.map((i: any) => i.product.name).join(", ")})`
+                                : "raised a general support ticket"}
+                            </span>
                           </span>
                           <span className={`badge ${d.status === "RESOLVED" ? "badge-green" : "badge-orange"}`}>{d.status}</span>
                         </div>
@@ -1598,10 +1608,17 @@ export default function ClientAdminPanel() {
                           
                           {d.status !== "RESOLVED" ? (
                             <div className="cp-dispute-actions" style={{ display: "flex", gap: "8px" }}>
-                              <button onClick={() => handleResolveDispute(d.id, "REFUND")} className="btn btn-secondary btn-sm" style={{ color: "var(--green)" }}>Refund</button>
-                              <button onClick={() => handleResolveDispute(d.id, "CREDIT")} className="btn btn-secondary btn-sm" style={{ color: "var(--blue)" }}>Credit</button>
-                              <button onClick={() => handleResolveDispute(d.id, "REPLACEMENT")} className="btn btn-secondary btn-sm" style={{ color: "var(--purple)" }}>Replace</button>
-                              <button onClick={() => handleResolveDispute(d.id, "REJECTED")} className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }}>Reject</button>
+                              {/* Refund/Credit/Replace all act on an order. A
+                                  general ticket has none, so only closing it
+                                  out is offered - the API refuses the rest. */}
+                              {d.order && (
+                                <>
+                                  <button onClick={() => handleResolveDispute(d.id, "REFUND")} className="btn btn-secondary btn-sm" style={{ color: "var(--green)" }}>Refund</button>
+                                  <button onClick={() => handleResolveDispute(d.id, "CREDIT")} className="btn btn-secondary btn-sm" style={{ color: "var(--blue)" }}>Credit</button>
+                                  <button onClick={() => handleResolveDispute(d.id, "REPLACEMENT")} className="btn btn-secondary btn-sm" style={{ color: "var(--purple)" }}>Replace</button>
+                                </>
+                              )}
+                              <button onClick={() => handleResolveDispute(d.id, "REJECTED")} className="btn btn-secondary btn-sm" style={{ color: "var(--red)" }}>{d.order ? "Reject" : "Close ticket"}</button>
                             </div>
                           ) : (
                             <span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>Closed {new Date(d.updatedAt).toLocaleDateString()}</span>
@@ -1626,6 +1643,13 @@ export default function ClientAdminPanel() {
           {activeTab === "coupons" && (
             <div style={{ animation: "fadeIn 0.4s ease" }}>
               <CouponManagement />
+            </div>
+          )}
+
+          {/* Telegram channel directory */}
+          {activeTab === "telegram" && (
+            <div style={{ animation: "fadeIn 0.4s ease" }}>
+              <TelegramChannels />
             </div>
           )}
 

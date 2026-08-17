@@ -179,6 +179,58 @@ const EN: Dict = {
   "disputes.title": "⚖️ *Your Disputes*",
   "disputes.none": "_No disputes filed._",
   "disputes.cancelled": "Cancelled.",
+
+  // ---- support bot ----
+  // A ticket is a Dispute row, and Dispute.orderId is required, so every flow
+  // here settles which order the ticket is about before it can be raised -
+  // exactly what the website's own "Raise a Ticket" form does.
+  "support.welcome": "🎧 *Customer Support*",
+  "support.intro": "Tell us what went wrong and we will get back to you here. Your ticket goes straight to our support team.",
+  "support.notLinked":
+    "🔗 *Account not linked*\n\nOpen our shop bot and run /start to link your Telegram to your account first. Once linked, come back here and press /start.",
+  "support.raise": "🎫 Raise a Ticket",
+  "support.myTickets": "📋 My Tickets",
+  "support.chooseProblem": "❓ *What is the problem?*",
+  "support.chooseProblemHint": "Pick the closest match — you can explain in your own words next.",
+  "support.cat.payment": "💳 Payment problem",
+  "support.cat.notReceived": "📦 Order not received",
+  "support.cat.wrongLocation": "📍 Wrong or empty location",
+  "support.cat.stuck": "🕒 Order stuck / not ready",
+  "support.cat.refund": "🔁 Refund request",
+  "support.cat.account": "🔐 Account or login issue",
+  "support.cat.other": "✍️ Something else",
+  "support.chooseOrder": "📦 *Which order is this about?*",
+  "support.chooseOrderHint": "Pick the order the problem relates to.",
+  "support.noOrderOption": "🚫 Not about a specific order",
+  // A customer with no orders is no longer turned away - the ticket is raised
+  // against their account instead, so there is no dead-end message here.
+  "support.noOrdersNote":
+    "You have no orders yet, so this ticket will be raised against your account.",
+  "support.tooManyOpen":
+    "⚠️ You already have 3 open tickets. Please wait for a reply before raising another.",
+  "support.createdBodyGeneral":
+    "Ticket `{id}` is now with our support team. You will get a reply right here.",
+  "support.describe":
+    "✍️ *Describe the problem*\n\nType your message now, with as much detail as you can. Send /cancel to stop.",
+  "support.tooShort": "Please add a bit more detail (at least 10 characters), or send /cancel.",
+  "support.created": "✅ *Ticket raised*",
+  "support.createdBody":
+    "Ticket `{id}` for order `{order}` is now with our support team. You will get a reply right here.",
+  "support.alreadyOpen":
+    "⚠️ You already have an open ticket for this order. Add your message to it instead of opening a second one.",
+  "support.addToExisting": "💬 Add to my open ticket",
+  "support.ticketsTitle": "📋 *Your Tickets*",
+  "support.ticketsNone": "You have not raised any tickets yet.",
+  "support.ticketView": "Ticket {id}",
+  "support.status": "Status",
+  "support.reply": "💬 Reply",
+  "support.replyPrompt": "✍️ Type your reply now, or send /cancel.",
+  "support.replySent": "✅ Sent. Our team will see it right away.",
+  "support.resolvedNote": "This ticket is closed. Raise a new one if you still need help.",
+  "support.cancelled": "❌ Cancelled.",
+  "support.failed": "❌ Something went wrong. Please try again, or send /start.",
+  "support.backMenu": "⬅️ Back",
+  "support.newReply": "💬 *Support replied to ticket* `{id}`",
 };
 
 const RU: Dict = {

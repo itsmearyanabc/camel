@@ -92,6 +92,27 @@ async function startBots() {
     console.log("⚠️ [Bot #2 - Mirror] Token is missing or placeholder. Skipping boot.");
   }
 
+  // Support bot, kept in step with the embedded path in src/instrumentation.ts
+  // so switching between the two never silently drops customer support.
+  const supportToken = process.env.TELEGRAM_SUPPORT_BOT_TOKEN?.trim().replace(/^["']|["']$/g, "");
+  if (isUsableToken(supportToken, "PLACEHOLDER_SUPPORT_BOT_TOKEN")) {
+    // One poller per token: sharing a token with a shop bot would have the two
+    // fight over it with 409s and neither would answer.
+    if (supportToken === token1 || supportToken === token2) {
+      console.error(
+        "❌ [Bot #3 - Support] TELEGRAM_SUPPORT_BOT_TOKEN matches a shop bot token. " +
+        "Create a separate bot with @BotFather. Skipping boot."
+      );
+    } else {
+      const { createSupportBot } = await import("./supportBot");
+      const supportBot = createSupportBot(supportToken, "Bot #3 (Support)");
+      activeBots.push(supportBot);
+      startBotWithRetry(supportBot, "Bot #3 - Support");
+    }
+  } else {
+    console.log("⚠️ [Bot #3 - Support] Token is missing or placeholder. Skipping boot.");
+  }
+
   console.log("=========================================");
   console.log("💡 Keep this process running. The website (npm run dev) does NOT start bots.");
   console.log("=========================================");
