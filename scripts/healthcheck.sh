@@ -24,18 +24,6 @@ bad()  { printf '  \033[31m❌ %s\033[0m\n' "$1"; FAIL=$((FAIL + 1)); }
 warn() { printf '  \033[33m⚠️  %s\033[0m\n' "$1"; WARN=$((WARN + 1)); }
 section() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
-if [ -f "$APP_DIR/.env" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$APP_DIR/.env"
-  set +a
-else
-  echo "❌ No .env found at $APP_DIR/.env - cannot check anything."
-  exit 1
-fi
-
-BASE_URL="${CRON_BASE_URL:-http://127.0.0.1:${PORT:-3000}}"
-
 # Trim surrounding whitespace and quotes. Done with parameter expansion rather
 # than `xargs`, which treats a backslash as an escape and would silently mangle
 # a database password that contains one.
@@ -47,6 +35,47 @@ strip() {
   v="${v#\'}"; v="${v%\'}"
   printf '%s' "$v"
 }
+
+# Read KEY=VALUE pairs out of a .env file.
+#
+# `source`/`.` CANNOT be used here. An unquoted value containing "&" - which
+# every Supabase pooler URL has, e.g. "?pgbouncer=true&connection_limit=1" -
+# is parsed by the shell as a background command, and a variable assignment
+# prefixing a command is scoped to that command rather than the shell. The
+# variable then reads as EMPTY, and this script reported a perfectly healthy
+# DATABASE_URL as missing. Node's dotenv parses the file properly, so the app
+# never saw the problem - only the check did.
+load_env() {
+  local file="$1" line key value
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"                       # tolerate CRLF files
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in *=*) ;; *) continue ;; esac
+
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="$(strip "${key#export }")"
+    case "$key" in ''|*[!A-Za-z0-9_]*) continue ;; esac
+
+    value="$(strip "$value")"
+    # dotenv drops an inline comment after an unquoted value; match that so the
+    # check sees exactly what the application sees.
+    case "$value" in
+      \"*|\'*) : ;;
+      *' #'*)  value="$(strip "${value%% #*}")" ;;
+    esac
+    printf -v "$key" '%s' "$value"
+  done < "$file"
+}
+
+if [ -f "$APP_DIR/.env" ]; then
+  load_env "$APP_DIR/.env"
+else
+  echo "❌ No .env found at $APP_DIR/.env - cannot check anything."
+  exit 1
+fi
+
+BASE_URL="${CRON_BASE_URL:-http://127.0.0.1:${PORT:-3000}}"
 
 # Report whether a variable is set, without ever echoing its value.
 need_env() {
@@ -189,7 +218,10 @@ if crontab -l 2>/dev/null | grep -q "vps-cron.sh"; then
   ok "system crontab has vps-cron.sh entries"
   crontab -l 2>/dev/null | grep "vps-cron.sh" | sed 's/^/     /'
 else
-  warn "no vps-cron.sh entries in crontab — relying on the in-process timers in src/instrumentation.ts"
+  # Not a fault. src/instrumentation.ts runs the same three jobs on in-process
+  # timers (60s / 5min / daily), and system cron would only call the very same
+  # HTTP endpoints on the very same process - so it adds no resilience here.
+  ok "no system crontab entries — in-process timers handle scheduling (expected)"
 fi
 
 # --------------------------------------------------------------- environment
