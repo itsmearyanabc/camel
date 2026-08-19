@@ -8,7 +8,7 @@ import SiteFooter from "@/components/SiteFooter";
 import styles from "../dashboard.module.css";
 import type { TelegramChannel } from "@/lib/telegramLinks";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "Camel971_bot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971_bot";
 
 /** Telegram's own brand blue, so a Join button reads as a Telegram action. */
 const TELEGRAM_BLUE = "#229ED9";

@@ -25,7 +25,7 @@ export default function SiteFooter() {
         <div>
           <h3>{t("footer.secure") || "Secure access"}</h3>
           <div className="footer-links">
-            <a href="https://t.me/Camel971_bot" target="_blank" rel="noreferrer">{t("footer.bot") || "Telegram Bot"}</a>
+            <a href="https://t.me/camel_971_bot" target="_blank" rel="noreferrer">{t("footer.bot") || "Telegram Bot"}</a>
             <span>{t("footer.wallet") || "Encrypted wallet"}</span>
             <span>{t("footer.247") || "24/7 availability"}</span>
           </div>
