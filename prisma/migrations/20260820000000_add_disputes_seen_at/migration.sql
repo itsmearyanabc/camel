@@ -1,0 +1,11 @@
+-- AlterTable: per-staff "last looked at the Disputes queue" marker.
+--
+-- Drives the unseen-ticket indicator in the control panel. It is per-user on
+-- purpose: one staff member reading a ticket must not clear the alert for
+-- their colleagues.
+--
+-- Nullable with no default and no backfill, so this is a metadata-only change
+-- on Postgres - it does not rewrite the table and does not block writes.
+-- NULL reads as "never looked", which correctly marks every open ticket unseen
+-- the first time someone opens the tab.
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "disputesSeenAt" TIMESTAMP(3);

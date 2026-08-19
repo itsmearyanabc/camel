@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import DashboardAnalytics from "./DashboardAnalytics";
 import CouponManagement from "./CouponManagement";
@@ -34,6 +34,14 @@ export default function ClientAdminPanel() {
   const [deletingUser, setDeletingUser] = useState(false);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [disputes, setDisputes] = useState<any[]>([]);
+  // Tickets with customer activity this account has not looked at yet. Drives
+  // the blinking badge on the Disputes tab.
+  const [unseenDisputes, setUnseenDisputes] = useState(0);
+  // The value of the seen-marker from BEFORE the current visit to the tab.
+  // Opening the tab clears the badge immediately, so without this the NEW chips
+  // would vanish in the same instant and staff would be alerted to something
+  // they never got to see.
+  const [disputesSeenBaseline, setDisputesSeenBaseline] = useState<string | null>(null);
   const [deposits, setDeposits] = useState<any[]>([]);
   
   // Product states
@@ -74,6 +82,11 @@ export default function ClientAdminPanel() {
   // Location UI states
   const [newCityName, setNewCityName] = useState("");
   const [newAreaName, setNewAreaName] = useState("");
+  // Inline rename. Only one row is ever editable at a time, so a half-typed
+  // name cannot be left behind on another row and saved by accident.
+  const [editingLocation, setEditingLocation] = useState<{ type: "city" | "area"; id: string } | null>(null);
+  const [editingLocationName, setEditingLocationName] = useState("");
+  const [savingLocation, setSavingLocation] = useState(false);
   const [selectedCityForArea, setSelectedCityForArea] = useState("");
   const [disputeMessageTexts, setDisputeMessageTexts] = useState<Record<string, string>>({});
 
@@ -147,6 +160,127 @@ export default function ClientAdminPanel() {
       setLoading(false);
     })();
   }, []);
+
+  /**
+   * How often the unseen-ticket count is refreshed, in ms.
+   *
+   * This is the only polled request in the panel, so the number is a real
+   * traffic decision rather than a detail: one panel left open all day at 20s
+   * is ~1.4k requests, which is the same order as this site's entire daily
+   * volume. It stays affordable because the endpoint is a single indexed COUNT
+   * returning a few bytes, and because polling stops entirely while the tab is
+   * in the background - see below. Raise it before reaching for anything
+   * heavier if staff numbers grow.
+   */
+  const DISPUTE_POLL_MS = 20000;
+
+  // Read inside the poll, which runs from an effect that must not be torn down
+  // and rebuilt every time the count or the tab changes. Refs give the timer a
+  // live view of both without restarting it.
+  const lastUnseenRef = useRef(0);
+  const activeTabRef = useRef<Tab>(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+  // "Has the baseline been established yet", which is NOT the same question as
+  // "is the baseline null". A member of staff opening the queue for the first
+  // time legitimately has a null baseline - it means they have never looked -
+  // and treating that as unseeded would let the next poll overwrite it with the
+  // marker that was just written, silently clearing every NEW chip moments
+  // after they appeared.
+  const baselineSeededRef = useRef(false);
+
+  /** Reload just the ticket list. The panel-wide fetchAll is far too heavy to
+   *  put anywhere near a timer - it pulls nine endpoints including the
+   *  analytics aggregate. */
+  const refreshDisputes = async () => {
+    try {
+      const res = await fetch("/api/disputes/list");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.disputes) setDisputes(data.disputes);
+    } catch {
+      /* next tick recovers */
+    }
+  };
+
+  /** Never throws: a failed poll must leave the last known count on screen. */
+  const fetchUnseenDisputes = async () => {
+    try {
+      const res = await fetch("/api/client-admin/disputes/unseen");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.unseen === "number") {
+        // Somebody already reading the queue should see the new ticket appear,
+        // not just watch a number go up with nothing to show for it.
+        const grew = data.unseen > lastUnseenRef.current;
+        lastUnseenRef.current = data.unseen;
+        setUnseenDisputes(data.unseen);
+        if (grew && activeTabRef.current === "disputes") refreshDisputes();
+      }
+      // Only seed the baseline once. After that it is advanced solely by
+      // markDisputesSeen, so a poll landing while staff are reading cannot pull
+      // the NEW chips out from under them.
+      if (!baselineSeededRef.current) {
+        baselineSeededRef.current = true;
+        setDisputesSeenBaseline(data.seenAt ?? null);
+      }
+    } catch {
+      /* offline or mid-deploy - the next tick recovers */
+    }
+  };
+
+  /**
+   * Record that this account has looked at the queue.
+   *
+   * Clears the badge, and moves the highlight baseline to where the marker was
+   * BEFORE this call, so the tickets that triggered the alert stay visibly new
+   * for as long as the tab is open.
+   */
+  const markDisputesSeen = async () => {
+    try {
+      const res = await fetch("/api/client-admin/disputes/unseen", { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setUnseenDisputes(0);
+      lastUnseenRef.current = 0;
+      baselineSeededRef.current = true;
+      setDisputesSeenBaseline(data.previousSeenAt ?? null);
+    } catch {
+      /* the badge simply stays lit until the next attempt */
+    }
+  };
+
+  // Poll for new customer activity, but only while the panel is actually being
+  // looked at. A backgrounded tab kept polling would spend the whole working
+  // day generating requests nobody is reading; pausing also means a laptop lid
+  // closed overnight costs nothing. Regaining focus refreshes immediately, so
+  // the pause is invisible to staff.
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      fetchUnseenDisputes();
+    };
+
+    tick();
+    const timer = setInterval(tick, DISPUTE_POLL_MS);
+    document.addEventListener("visibilitychange", tick);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [user]);
+
+  // Entering the tab is what counts as "seen". Keyed on activeTab rather than
+  // on the nav button so every route into the tab clears the alert, including
+  // any future deep link.
+  useEffect(() => {
+    if (user && activeTab === "disputes") markDisputesSeen();
+  }, [activeTab, user]);
 
   const handleSendMessage = async (orderItemId: string, fallbackMessage?: string) => {
     const message = (adminMessages[orderItemId] ?? fallbackMessage ?? "").trim();
@@ -486,6 +620,58 @@ export default function ClientAdminPanel() {
     } catch (e) { setMsg({ type: "error", text: "Error adding area" }); }
   };
 
+  const startEditLocation = (id: string, type: "city" | "area", currentName: string) => {
+    setEditingLocation({ id, type });
+    setEditingLocationName(currentName);
+    setMsg(null);
+  };
+
+  const cancelEditLocation = () => {
+    setEditingLocation(null);
+    setEditingLocationName("");
+  };
+
+  /**
+   * Save a renamed city or area.
+   *
+   * Renaming touches the label and nothing else - stock, orders and pickup
+   * points all reference locations by id - so there is no confirmation step
+   * here, unlike delete. The list is refetched rather than patched locally so
+   * what staff see is what the database actually holds.
+   */
+  const handleRenameLocation = async () => {
+    if (!editingLocation || savingLocation) return;
+    const name = editingLocationName.trim();
+    if (name.length < 2) {
+      setMsg({ type: "error", text: "Name must be at least 2 characters" });
+      return;
+    }
+    setSavingLocation(true);
+    try {
+      const res = await fetch("/api/admin/locations", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingLocation.id,
+          type: editingLocation.type === "city" ? "CITY" : "AREA",
+          name,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setMsg({ type: "success", text: `${editingLocation.type === "city" ? "City" : "Area"} renamed!` });
+        cancelEditLocation();
+        await fetchAll();
+      } else {
+        setMsg({ type: "error", text: data.error || "Failed to rename location" });
+      }
+    } catch {
+      setMsg({ type: "error", text: "Error renaming location" });
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
   const handleDeleteLocation = async (id: string, type: "city" | "area") => {
     if (!confirm(`Delete this ${type}?`)) return;
     try {
@@ -507,6 +693,9 @@ export default function ClientAdminPanel() {
       });
       if (res.ok) {
         setDisputeMessageTexts(prev => ({ ...prev, [disputeId]: "" }));
+        // Answering a customer is the clearest possible signal that the queue
+        // has been dealt with, so it clears the alert too.
+        markDisputesSeen();
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -524,6 +713,9 @@ export default function ClientAdminPanel() {
       });
       if (res.ok) {
         setMsg({ type: "success", text: `Dispute resolved as ${resolutionType}!` });
+        // A resolved ticket stops being countable, so re-sync the marker rather
+        // than leaving a badge pointing at something that is now closed.
+        markDisputesSeen();
         fetchAll();
       } else {
         const d = await res.json(); setMsg({ type: "error", text: d.error });
@@ -531,6 +723,31 @@ export default function ClientAdminPanel() {
     } catch {
       setMsg({ type: "error", text: "Failed to resolve dispute" });
     }
+  };
+
+  /**
+   * Does this ticket carry customer activity newer than the last visit?
+   *
+   * Mirrors the rule the unseen endpoint counts by - an open ticket whose most
+   * recent CUSTOMER message is newer than the seen-marker - so the chips on the
+   * cards and the number on the badge can never disagree. Staff replies are
+   * ignored here for the same reason they are ignored server-side: a colleague
+   * answering is not something the team needs flagging.
+   */
+  const hasUnseenCustomerActivity = (d: any): boolean => {
+    if (d.status === "RESOLVED") return false;
+    const messages: any[] = Array.isArray(d.messages) ? d.messages : [];
+    // The API returns messages oldest-first, so the last customer entry is the
+    // most recent one.
+    let latest: string | null = null;
+    for (const m of messages) {
+      if (m.senderRole === "CUSTOMER") latest = m.createdAt;
+    }
+    if (!latest) return false;
+    // No marker means this account has never opened the queue: everything open
+    // is new to them.
+    if (!disputesSeenBaseline) return true;
+    return new Date(latest).getTime() > new Date(disputesSeenBaseline).getTime();
   };
   const handleFileChange = (orderId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -693,10 +910,26 @@ export default function ClientAdminPanel() {
                 boxShadow: activeTab === tab.key ? "var(--shadow-sm)" : "none",
               }}
             >
-              <span style={{ fontSize: "18px" }}>{tab.icon}</span> {tab.label}
+              <span
+                className={tab.key === "disputes" && unseenDisputes > 0 ? "cp-alert-blink" : undefined}
+                style={{ fontSize: "18px" }}
+              >
+                {tab.icon}
+              </span> {tab.label}
               {tab.key === "active-orders" && newOrdersCount > 0 && (
                 <span style={{ marginLeft: "auto", background: "var(--red)", color: "white", padding: "2px 8px", borderRadius: "100px", fontSize: "12px", fontWeight: "bold" }}>
                   {newOrdersCount}
+                </span>
+              )}
+              {/* Unanswered customer activity. Blinks until this account opens
+                  the tab, then lights up again the moment something new lands. */}
+              {tab.key === "disputes" && unseenDisputes > 0 && (
+                <span
+                  className="cp-alert-blink"
+                  title={`${unseenDisputes} ticket(s) with new customer messages`}
+                  style={{ marginLeft: "auto", background: "var(--red)", color: "white", padding: "2px 8px", borderRadius: "100px", fontSize: "12px", fontWeight: "bold" }}
+                >
+                  {unseenDisputes}
                 </span>
               )}
             </button>
@@ -910,19 +1143,73 @@ export default function ClientAdminPanel() {
                 <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                   {locations.map(city => (
                     <div key={city.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", padding: "16px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-                        <h4 style={{ fontSize: "18px", color: "var(--text-primary)" }}>{city.name}</h4>
-                        {isAdmin && (
-                          <button onClick={() => handleDeleteLocation(city.id, "city")} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Delete City</button>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", gap: "12px" }}>
+                        {editingLocation?.type === "city" && editingLocation.id === city.id ? (
+                          <>
+                            <input
+                              className="form-input"
+                              autoFocus
+                              value={editingLocationName}
+                              onChange={e => setEditingLocationName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") handleRenameLocation();
+                                if (e.key === "Escape") cancelEditLocation();
+                              }}
+                              style={{ fontSize: "16px", fontWeight: 600, maxWidth: "320px" }}
+                            />
+                            <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                              <button onClick={handleRenameLocation} disabled={savingLocation} className="btn btn-primary btn-sm">
+                                {savingLocation ? "Saving..." : "Save"}
+                              </button>
+                              <button onClick={cancelEditLocation} disabled={savingLocation} className="btn btn-ghost btn-sm">Cancel</button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <h4 style={{ fontSize: "18px", color: "var(--text-primary)" }}>{city.name}</h4>
+                            {isAdmin && (
+                              <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                                <button onClick={() => startEditLocation(city.id, "city", city.name)} className="btn btn-ghost btn-sm">Edit</button>
+                                <button onClick={() => handleDeleteLocation(city.id, "city")} className="btn btn-ghost btn-sm" style={{ color: "var(--red)" }}>Delete City</button>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                       <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                         {city.areas?.length === 0 && <li style={{ color: "var(--text-secondary)", fontSize: "13px" }}>No areas added.</li>}
                         {city.areas?.map((area: any) => (
-                          <li key={area.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
-                            <span>{area.name}</span>
-                            {isAdmin && (
-                              <button onClick={() => handleDeleteLocation(area.id, "area")} className="btn btn-ghost btn-sm" style={{ padding: "0 8px", color: "var(--red)" }}>Del</button>
+                          <li key={area.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", padding: "8px 12px", background: "var(--bg-secondary)", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
+                            {editingLocation?.type === "area" && editingLocation.id === area.id ? (
+                              <>
+                                <input
+                                  className="form-input"
+                                  autoFocus
+                                  value={editingLocationName}
+                                  onChange={e => setEditingLocationName(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") handleRenameLocation();
+                                    if (e.key === "Escape") cancelEditLocation();
+                                  }}
+                                  style={{ maxWidth: "320px" }}
+                                />
+                                <div style={{ display: "flex", gap: "8px", flexShrink: 0 }}>
+                                  <button onClick={handleRenameLocation} disabled={savingLocation} className="btn btn-primary btn-sm">
+                                    {savingLocation ? "Saving..." : "Save"}
+                                  </button>
+                                  <button onClick={cancelEditLocation} disabled={savingLocation} className="btn btn-ghost btn-sm">Cancel</button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <span>{area.name}</span>
+                                {isAdmin && (
+                                  <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                                    <button onClick={() => startEditLocation(area.id, "area", area.name)} className="btn btn-ghost btn-sm" style={{ padding: "0 8px" }}>Edit</button>
+                                    <button onClick={() => handleDeleteLocation(area.id, "area")} className="btn btn-ghost btn-sm" style={{ padding: "0 8px", color: "var(--red)" }}>Del</button>
+                                  </div>
+                                )}
+                              </>
                             )}
                           </li>
                         ))}
@@ -1527,27 +1814,87 @@ export default function ClientAdminPanel() {
           {/* DISPUTES */}
           {activeTab === "disputes" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "24px", animation: "fadeIn 0.4s ease" }}>
-              <h2 className="cp-heading" style={{ fontSize: "28px" }}>Dispute Logs ({disputes.length})</h2>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                <h2 className="cp-heading" style={{ fontSize: "28px", margin: 0 }}>
+                  Dispute Logs ({disputes.length})
+                  {unseenDisputes > 0 && (
+                    <span className="badge badge-red cp-alert-blink" style={{ marginLeft: "12px", verticalAlign: "middle" }}>
+                      {unseenDisputes} new
+                    </span>
+                  )}
+                </h2>
+                {/* Opening the tab already clears the alert. This is for the
+                    case where staff are ALREADY on the tab when something
+                    lands - the tab never changes, so nothing else would. */}
+                {unseenDisputes > 0 && (
+                  <button onClick={markDisputesSeen} className="btn btn-secondary btn-sm">Mark all read</button>
+                )}
+              </div>
               <div className="card" style={{ padding: "20px" }}>
                 {disputes.length === 0 ? (
                   <p style={{ color: "var(--text-secondary)", textAlign: "center", padding: "40px 0" }}>No disputes recorded.</p>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-                    {disputes.map(d => (
-                      <div key={d.id} style={{ padding: "20px", border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--bg-primary)", display: "flex", flexDirection: "column", gap: "12px" }}>
-                        <div className="cp-dispute-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontWeight: "600", fontSize: "15px" }}>
-                            👤 {d.user.username}{" "}
-                            {/* A support ticket raised from the Telegram bot
-                                may not be about a purchase at all, so it has
-                                no order to name. */}
-                            <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
-                              {d.order
-                                ? `disputed Order #${d.order.id.slice(0, 8)} (${d.order.items.map((i: any) => i.product.name).join(", ")})`
-                                : "raised a general support ticket"}
+                    {disputes.map(d => {
+                      const isUnseen = hasUnseenCustomerActivity(d);
+                      return (
+                      <div key={d.id} style={{
+                        padding: "20px",
+                        // An unseen ticket is outlined rather than tinted, so it
+                        // stands out in a long queue without making the text
+                        // any harder to read.
+                        border: isUnseen ? "1px solid var(--red)" : "1px solid var(--border)",
+                        boxShadow: isUnseen ? "0 0 0 3px var(--red-bg)" : undefined,
+                        borderRadius: "var(--radius-md)", background: "var(--bg-primary)", display: "flex", flexDirection: "column", gap: "12px"
+                      }}>
+                        <div className="cp-dispute-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 }}>
+                            <span style={{ fontWeight: "600", fontSize: "15px" }}>
+                              👤 {d.user.username}{" "}
+                              {/* A support ticket raised from the Telegram bot
+                                  may not be about a purchase at all, so it has
+                                  no order to name. */}
+                              <span style={{ color: "var(--text-secondary)", fontWeight: "normal" }}>
+                                {d.order
+                                  ? `disputed Order #${d.order.id.slice(0, 8)} (${d.order.items.map((i: any) => i.product.name).join(", ")})`
+                                  : "raised a general support ticket"}
+                              </span>
                             </span>
-                          </span>
-                          <span className={`badge ${d.status === "RESOLVED" ? "badge-green" : "badge-orange"}`}>{d.status}</span>
+
+                            {/* Direct line to the customer, so staff can follow
+                                up personally instead of only through the
+                                ticket. The href is built server-side from a
+                                validated handle - see /api/disputes/list. */}
+                            <span style={{ fontSize: "12px", color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                              {d.user.telegramUrl ? (
+                                <a
+                                  href={d.user.telegramUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  style={{ color: "var(--blue)", fontWeight: 600, textDecoration: "none" }}
+                                >
+                                  ✈️ @{d.user.telegramUsername}
+                                </a>
+                              ) : d.user.telegramLinked ? (
+                                // Telegram usernames are optional, so a linked
+                                // account can still have nothing to click.
+                                // Replying below reaches them regardless - the
+                                // support bot delivers it to the same chat.
+                                <span title="This customer has no public Telegram @username. Your reply below still reaches them through the bot.">
+                                  ✈️ Telegram linked — no public @username
+                                </span>
+                              ) : (
+                                <span>✈️ No Telegram linked</span>
+                              )}
+                            </span>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                            {isUnseen && (
+                              <span className="badge badge-red cp-alert-blink" title="New customer message since you last opened this tab">NEW</span>
+                            )}
+                            <span className={`badge ${d.status === "RESOLVED" ? "badge-green" : "badge-orange"}`}>{d.status}</span>
+                          </div>
                         </div>
                         <p style={{ color: "var(--text-secondary)", fontSize: "14px", fontStyle: "italic", margin: 0, paddingLeft: "4px" }}>
                           Description: "{d.reason}"
@@ -1625,7 +1972,8 @@ export default function ClientAdminPanel() {
                           )}
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1738,6 +2086,24 @@ export default function ClientAdminPanel() {
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Unseen-ticket alert. Fades rather than hard-blinks: it has to catch
+           the eye from across a room without becoming unbearable on a screen
+           somebody stares at all day. */
+        @keyframes cpAlertBlink {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.25; }
+        }
+        .cp-alert-blink {
+          animation: cpAlertBlink 1.1s ease-in-out infinite;
+        }
+
+        /* A flashing element is a genuine problem for some people, so honour
+           the system setting. The badge and its count are still shown - only
+           the motion stops. */
+        @media (prefers-reduced-motion: reduce) {
+          .cp-alert-blink { animation: none; }
         }
       `}} />
     </div>

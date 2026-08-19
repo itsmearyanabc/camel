@@ -18,6 +18,12 @@ model User {
   language            String           @default("EN") // EN, RU, AR, TR, ZH, ES — used by the Telegram bot
   failedLoginAttempts Int              @default(0)
   lockUntil           DateTime?
+  // Staff/admin only: the last time this account opened the Disputes queue.
+  // Everything a customer has sent since then is what the control panel counts
+  // as unseen, so each member of staff has their own indicator - a colleague
+  // reading a ticket must not clear the alert for everyone else.
+  // Null means "never looked", which correctly makes every open ticket unseen.
+  disputesSeenAt      DateTime?
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   wallet              Wallet?
