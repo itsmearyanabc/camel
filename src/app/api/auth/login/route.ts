@@ -63,10 +63,14 @@ export async function POST(req: Request) {
     }
 
     // 4. Check for Env Admin Override
-    const envAdminId = process.env.ADMIN_ID;
+    // Trimmed because the id is typed into a login box: a trailing space left
+    // behind while editing .env is invisible there and would silently stop
+    // every admin login with no way to see why.
+    const envAdminId = process.env.ADMIN_ID?.trim();
     const envAdminPassword = process.env.ADMIN_PASSWORD;
+    const envAdminConfigured = Boolean(envAdminId && envAdminPassword);
 
-    if (envAdminId && envAdminPassword && username === envAdminId && password === envAdminPassword) {
+    if (envAdminConfigured && username === envAdminId && password === envAdminPassword) {
       // Reset attempts if needed
       if (user && (user.failedLoginAttempts > 0 || user.lockUntil)) {
         await prisma.user.update({
@@ -76,21 +80,44 @@ export async function POST(req: Request) {
       }
 
       const salt = await bcrypt.genSalt(10);
-      const passwordHash = await bcrypt.hash(envAdminPassword, salt);
-      
+      const passwordHash = await bcrypt.hash(envAdminPassword!, salt);
+
+      // Carry the existing admin row over to the new id instead of leaving it
+      // behind. The row's uuid is what the wallet, the dispute read markers and
+      // every other admin-owned record point at, so creating a fresh row for a
+      // renamed ADMIN_ID strands all of it on an account nobody can log into
+      // any more and hands the new admin an empty panel. Renaming keeps the
+      // uuid — only the id and the password change, which is the whole intent
+      // of editing ADMIN_ID. Nothing is deleted either way.
+      //
+      // Only a lone SUPERADMIN row is ever touched: the control panel cannot
+      // grant that role (see api/admin/role-adjust, which rejects it), so such
+      // a row exists only because a previous ADMIN_ID created it right here.
+      if (!(await prisma.user.findUnique({ where: { username: envAdminId! } }))) {
+        const priorAdmins = await prisma.user.findMany({ where: { role: "SUPERADMIN" } });
+        if (priorAdmins.length === 1) {
+          await prisma.user.update({
+            where: { id: priorAdmins[0].id },
+            data: { username: envAdminId! },
+          });
+        }
+      }
+
       const superAdmin = await prisma.user.upsert({
-        where: { username: envAdminId },
+        where: { username: envAdminId! },
         update: {
           passwordHash: passwordHash,
           role: "SUPERADMIN",
+          failedLoginAttempts: 0,
+          lockUntil: null,
         },
         create: {
-          username: envAdminId,
+          username: envAdminId!,
           passwordHash: passwordHash,
           role: "SUPERADMIN",
         },
       });
-      
+
       const wallet = await prisma.wallet.findUnique({ where: { userId: superAdmin.id } });
       if (!wallet) {
         await prisma.wallet.create({
@@ -120,8 +147,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    
+    // The admin credentials live in the environment; the SUPERADMIN row is only
+    // a mirror that the override above rewrites on each successful env login.
+    // That mirror still holds the PREVIOUS id and password hash right after
+    // .env is rotated, and reaching this line means the submitted credentials
+    // did NOT match the current environment — so accepting the stored hash here
+    // would authenticate exactly the credential pair the rotation was meant to
+    // revoke. That is why the retired id kept working after ADMIN_ID changed.
+    // Any username matching ADMIN_ID, and any leftover SUPERADMIN row under an
+    // old name, must be verified against the environment and nothing else.
+    const isEnvManagedAdmin =
+      envAdminConfigured && (username === envAdminId || user.role === "SUPERADMIN");
+
+    const passwordMatch = isEnvManagedAdmin
+      ? false
+      : await bcrypt.compare(password, user.passwordHash);
+
     if (!passwordMatch) {
       const newAttempts = user.failedLoginAttempts + 1;
       let lockDurationMs = 0;

@@ -36,6 +36,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // The admin account is verified against the environment, not against this
+    // row, and the login route rewrites its hash from ADMIN_PASSWORD on every
+    // successful login. Writing a new hash here would report success and then
+    // change nothing that logging in actually reads, so refuse and point at the
+    // one place the password can really be changed.
+    const envAdminId = process.env.ADMIN_ID?.trim();
+    if (
+      envAdminId &&
+      process.env.ADMIN_PASSWORD &&
+      (user.username === envAdminId || user.role === "SUPERADMIN")
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "This account's password comes from ADMIN_PASSWORD in the server environment. Change it in the server's .env and restart the app.",
+        },
+        { status: 400 }
+      );
+    }
+
     // Verify current password
     const passwordMatch = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!passwordMatch) {
