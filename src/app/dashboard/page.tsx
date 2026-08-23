@@ -17,6 +17,7 @@ import SkeletonLoader from "@/components/SkeletonLoader";
 import RestockNotifyButton from "@/components/RestockNotifyButton";
 import TelegramLinksBar from "@/components/TelegramLinksBar";
 import { useLanguage } from "@/components/LanguageContext";
+import { useCart } from "@/components/cart/CartContext";
 
 /** A quantity/weight option of a product ("2g" @ $70) — its own sellable row. */
 interface ProductVariant {
@@ -97,6 +98,26 @@ const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971
 
 export default function Dashboard() {
   const router = useRouter();
+  const { cart } = useCart();
+
+  /**
+   * Units of this product the customer already holds in their cart.
+   *
+   * Counted across the product's quantity options too: a cart line is keyed
+   * by the option's own product row, so a parent card would otherwise look
+   * fully available while its options are sitting in the cart.
+   */
+  const cartQuantityFor = (product: any): number => {
+    const ids = new Set<string>([
+      product.id,
+      ...((product.variants || []).map((v: any) => v.id) as string[]),
+    ]);
+    return cart.reduce(
+      (sum, line) => (ids.has(line.productId) ? sum + line.quantity : sum),
+      0
+    );
+  };
+
   const [activeTab, setActiveTab] = useState<Tab>("shop");
   const [userOrderViewType, setUserOrderViewType] = useState<"ACTIVE" | "HISTORY">("ACTIVE");
   const [userOrderFilter, setUserOrderFilter] = useState("ALL");
@@ -761,28 +782,45 @@ export default function Dashboard() {
                           <div style={{ marginBottom: "4px", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                             {(() => {
                               const areaDetails = (product as any).areaDetails || [];
-                              const hasAreaStock = areaDetails.some((d: any) => d.stockQuantity > 0);
-                              if (hasAreaStock) {
-                                return areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
+
+                              // Exact counts are staff-only, so a customer sees
+                              // availability rather than a number. Whatever is already
+                              // in this cart is spoken for, which is what makes the card
+                              // flip to sold out the instant the cart takes the last
+                              // unit instead of the customer finding out at checkout.
+                              const reserved = cartQuantityFor(product);
+                              const onHand = product.stockQuantity || 0;
+                              const available = onHand - reserved;
+
+                              if (available <= 0) {
+                                const allInCart = reserved > 0 && onHand > 0;
+                                return (
+                                  <>
+                                    <span className="badge badge-out_of_stock">
+                                      {allInCart ? "ALL IN YOUR CART" : "OUT OF STOCK"}
+                                    </span>
+                                    {/* Restock alerts fire per sellable row. On a
+                                        product with quantity options the stock is
+                                        on the options, so the alert is offered on
+                                        the product page once one is chosen. A product
+                                        that is only sold out because of this cart is
+                                        not a restock, so it gets no bell. */}
+                                    {!allInCart && (product.variants?.length ?? 0) === 0 && (
+                                      <RestockNotifyButton productId={product.id} compact />
+                                    )}
+                                  </>
+                                );
+                              }
+
+                              const inStockAreas = areaDetails.filter((d: any) => d.stockQuantity > 0);
+                              if (inStockAreas.length > 0) {
+                                return inStockAreas.map((d: any) => (
                                   <span key={d.areaId} className="badge badge-in_stock" style={{ fontSize: "11px" }}>
-                                    {d.area?.name || "Area"} ({d.stockQuantity})
+                                    {d.area?.name || "Area"}
                                   </span>
                                 ));
                               }
-                              return (
-                                <>
-                                  <span className={`badge badge-${product.stockQuantity > 0 ? "in_stock" : "out_of_stock"}`}>
-                                    {product.stockQuantity > 0 ? "IN_STOCK" : "OUT_OF_STOCK"} ({product.stockQuantity})
-                                  </span>
-                                  {/* Restock alerts fire per sellable row. On a
-                                      product with quantity options the stock is
-                                      on the options, so the alert is offered on
-                                      the product page once one is chosen. */}
-                                  {product.stockQuantity <= 0 && (product.variants?.length ?? 0) === 0 && (
-                                    <RestockNotifyButton productId={product.id} compact />
-                                  )}
-                                </>
-                              );
+                              return <span className="badge badge-in_stock">IN STOCK</span>;
                             })()}
                             {/* Per-area Notify Me bells for out-of-stock areas (per flavour/variant) */}
                             {(() => {
@@ -849,7 +887,7 @@ export default function Dashboard() {
                                 background: "var(--surface-subtle)",
                                 opacity: variant.stockQuantity > 0 ? 1 : 0.45,
                               }}
-                              title={variant.stockQuantity > 0 ? `${variant.stockQuantity} available` : "Out of stock"}
+                              title={variant.stockQuantity > 0 ? "In stock" : "Out of stock"}
                             >
                               <strong>{variant.variantLabel}</strong>
                               <span style={{ color: "var(--text-secondary)" }}>
@@ -1299,14 +1337,20 @@ export default function Dashboard() {
                                 </div>
                               )}
 
-                              {item.status === "ON_PICKUP" && (
+                              {/* Pickup details stay visible after the item auto-completes.
+                                  The photos, videos and location are the customer's record of
+                                  what they were sent, and gating this on ON_PICKUP alone is why
+                                  order history looked empty 24h later. They disappear only when
+                                  the media retention window clears them - see
+                                  src/lib/mediaRetention.ts. */}
+                              {(item.status === "ON_PICKUP" || item.status === "COMPLETED") && (
                                 <div style={{
                                   background: "var(--blue-bg)", padding: "14px",
                                   borderRadius: "var(--radius-md)", marginBottom: "12px",
                                   border: "1px solid rgba(0, 122, 255, 0.2)"
                                 }}>
                                   <p style={{ fontSize: "12px", color: "var(--blue)", marginBottom: "6px", fontWeight: "600", textTransform: "uppercase" }}>
-                                    📍 Ready for Pickup
+                                    {item.status === "COMPLETED" ? "✅ Delivered" : "📍 Ready for Pickup"}
                                   </p>
                                   {item.adminMessage && (
                                     <p style={{ fontSize: "14px", color: "var(--text-primary)", whiteSpace: "pre-wrap", fontFamily: "monospace", marginBottom: "12px" }}>

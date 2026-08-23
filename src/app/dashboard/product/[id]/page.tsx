@@ -538,7 +538,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                                 {areaDetails.filter((d: any) => d.stockQuantity > 0).map((d: any) => (
                                   <span key={d.areaId} className="badge badge-in_stock">
-                                    {d.area?.name || "Area"} ({d.stockQuantity})
+                                    {d.area?.name || "Area"}
                                   </span>
                                 ))}
                               </div>
@@ -546,7 +546,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                           }
                           return (
                             <span className={`badge badge-${totalStock > 0 ? "in_stock" : "out_of_stock"}`}>
-                              {totalStock > 0 ? "IN STOCK" : "OUT OF STOCK"} ({totalStock})
+                              {totalStock > 0 ? "IN STOCK" : "OUT OF STOCK"}
                             </span>
                           );
                         })()}
@@ -807,7 +807,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
                           {variants.map((variant) => {
                             const isSelected = variant.id === selectedVariantId;
-                            const scopedStock = stockInScope(variant);
+                            // Units already in the cart are spoken for, so an option
+                            // reads as sold out the moment the cart holds its last one
+                            // rather than refusing the customer when they try to add.
+                            const inCart = cart
+                              .filter((line) => line.productId === variant.id)
+                              .reduce((sum, line) => sum + line.quantity, 0);
+                            const scopedStock = Math.max(0, stockInScope(variant) - inCart);
                             const soldOut = scopedStock < 1;
                             return (
                               <button
@@ -835,7 +841,13 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                                   {formatPrice(variant.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
                                 </span>
                                 <span style={{ fontSize: "11px", color: soldOut ? "var(--red)" : "var(--green)" }}>
-                                  {soldOut ? (scopedAreaIds ? "Not here" : "Out of stock") : `${scopedStock} left`}
+                                  {soldOut
+                                    ? inCart > 0
+                                      ? "In your cart"
+                                      : scopedAreaIds
+                                        ? "Not here"
+                                        : "Out of stock"
+                                    : "In stock"}
                                 </span>
                               </button>
                             );

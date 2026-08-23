@@ -4,12 +4,18 @@ import { Prisma } from "@prisma/client";
 /**
  * How long a customer keeps sight of a finished order.
  *
- * This is the single retention policy for order history, and the delivery
- * media cleanup in src/lib/mediaRetention.ts reads the same number - a
- * customer must never open a 60-day-old order and find the photos gone, which
- * is exactly what happened while media was purged after 7 days.
+ * Hidden, never deleted. visibleOrdersWhere filters what the customer is
+ * shown; every row stays in the database for the control panel, the revenue
+ * figures and dispute lookups, which would otherwise lose a month of history
+ * every month.
+ *
+ * Delivery photos and videos are purged sooner - see MEDIA_RETENTION_DAYS in
+ * src/lib/mediaRetention.ts. The two numbers are deliberately different now,
+ * which is safe because the cleanup clears the database reference before it
+ * unlinks the file: an order between the two windows renders with no gallery
+ * rather than a broken image.
  */
-export const ORDER_HISTORY_RETENTION_DAYS = 90;
+export const ORDER_HISTORY_RETENTION_DAYS = 30;
 
 /** Statuses that mean an order is finished and the clock has started. */
 const FINISHED_STATUSES = ["COMPLETED", "CANCELLED"];

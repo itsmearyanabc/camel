@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard } from "grammy";
 import { prisma } from "../lib/db";
-import { getStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
+import { getPublicStockState, escapeTelegramMarkdown as esc } from "../lib/stock";
 import { createCryptoOrderForProduct, PAYMENT_WINDOW_MINUTES } from "../lib/cryptoOrder";
 import { reserveProductStock, getAvailableAreasForProduct, CHECKOUT_TX_OPTIONS } from "../lib/stockReservation";
 import { deliverReadyOrderItem } from "../lib/orderDelivery";
@@ -12,6 +12,7 @@ import {
   isDisplayCurrency,
   currencyLabel,
 } from "../lib/botCurrency";
+import { getTelegramChannels } from "../lib/telegramLinks";
 import { encryptPassword, isEncryptionConfigured } from "../lib/encryption";
 import { getOngoingDiscount, ongoingDiscountAmount } from "../lib/ongoingDiscount";
 import bcrypt from "bcryptjs";
@@ -138,6 +139,42 @@ export function createTelegramBot(token: string, botName: string) {
     };
   }
 
+  /**
+   * Language for a visitor who has no account yet: whatever Telegram reports
+   * for them, falling back to English. Shared so the welcome screen and the
+   * channel directory behind it never disagree about the language.
+   */
+  function guessLanguage(ctx: any): string {
+    const guessed = (ctx.from?.language_code || "").slice(0, 2).toUpperCase();
+    return isBotLanguage(guessed) ? guessed : "EN";
+  }
+
+  /**
+   * The welcome screen shown to a Telegram user with no linked account.
+   *
+   * Built in one place because two things render it: /start, and the back
+   * button on the channel directory. A visitor who opens the channel list and
+   * comes back must land on exactly the screen they left.
+   */
+  function welcomeNoAuthScreen(lang: string, telegramId: number) {
+    const text =
+      `${t(lang, "welcome.title")}\n\n` +
+      `${t(lang, "welcome.noAccount")} \`${telegramId}\`\n\n` +
+      `${t(lang, "welcome.choose")}`;
+
+    const keyboard = new InlineKeyboard()
+      .text(t(lang, "welcome.link"), "auth_login")
+      .row()
+      .text(t(lang, "welcome.create"), "auth_signup")
+      .row()
+      // Third option, deliberately offered before linking or creating an
+      // account: the channels are public, so a visitor should be able to
+      // find them without signing up for anything first.
+      .text(t(lang, "welcome.channels"), "welcome_channels");
+
+    return { text, keyboard };
+  }
+
   // 1. Start Command / Welcome Menu
   bot.command("start", async (ctx) => {
     const telegramId = ctx.from?.id;
@@ -148,22 +185,10 @@ export function createTelegramBot(token: string, botName: string) {
     const user = await getUserByTelegram(telegramId);
 
     if (!user) {
-      // No account yet, so no stored language preference — fall back to the
-      // language Telegram reports for this user before defaulting to English.
-      const guessed = (ctx.from?.language_code || "").slice(0, 2).toUpperCase();
-      const lang = isBotLanguage(guessed) ? guessed : "EN";
+      const lang = guessLanguage(ctx);
+      const screen = welcomeNoAuthScreen(lang, telegramId);
 
-      const welcomeNoAuth =
-        `${t(lang, "welcome.title")}\n\n` +
-        `${t(lang, "welcome.noAccount")} \`${telegramId}\`\n\n` +
-        `${t(lang, "welcome.choose")}`;
-
-      const keyboard = new InlineKeyboard()
-        .text(t(lang, "welcome.link"), "auth_login")
-        .row()
-        .text(t(lang, "welcome.create"), "auth_signup");
-
-      await ctx.reply(welcomeNoAuth, { parse_mode: "Markdown", reply_markup: keyboard });
+      await ctx.reply(screen.text, { parse_mode: "Markdown", reply_markup: screen.keyboard });
       return;
     }
 
@@ -206,6 +231,63 @@ export function createTelegramBot(token: string, botName: string) {
         `*What is ${num1} + ${num2}?*`,
       { parse_mode: "Markdown" }
     );
+    await ctx.answerCallbackQuery();
+  });
+
+  // Public channel directory, reachable from the welcome screen before the
+  // visitor has linked or created an account. The list is exactly the one an
+  // admin publishes in the control panel (Setting table), so adding a channel
+  // there appears here immediately - no restart and no deploy.
+  bot.callbackQuery("welcome_channels", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    // A linked customer keeps their stored language; a visitor falls back to
+    // whatever Telegram reports for them.
+    const user = await getUserByTelegram(telegramId);
+    const lang = user?.language || guessLanguage(ctx);
+
+    const channels = await getTelegramChannels();
+
+    const keyboard = new InlineKeyboard();
+    for (const channel of channels) {
+      // Button labels are plain text, so a channel name needs no Markdown
+      // escaping here, and the URL is already validated as an https t.me
+      // link by getTelegramChannels().
+      keyboard.url(channel.name.slice(0, 60), channel.url).row();
+    }
+    keyboard.text(t(lang, "common.backWelcome"), "welcome_back");
+
+    const body = channels.length === 0 ? t(lang, "channels.none") : t(lang, "channels.intro");
+
+    await ctx.editMessageText(`${t(lang, "channels.title")}\n\n${body}`, {
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery("welcome_back", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (!telegramId) return;
+
+    // Someone who linked their account while the channel list was open should
+    // land on the real menu rather than back on the "no account" screen.
+    const user = await getUserByTelegram(telegramId);
+    if (user) {
+      await ctx.editMessageText(await welcomeAuthText(userView(user)), {
+        parse_mode: "Markdown",
+        reply_markup: mainMenuKeyboard(user.language || "EN"),
+      });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    const screen = welcomeNoAuthScreen(guessLanguage(ctx), telegramId);
+    await ctx.editMessageText(screen.text, {
+      parse_mode: "Markdown",
+      reply_markup: screen.keyboard,
+    });
     await ctx.answerCallbackQuery();
   });
 
@@ -480,7 +562,7 @@ export function createTelegramBot(token: string, botName: string) {
       if (parent.productType) text += ` — _${esc(parent.productType)}_`;
       text +=
         `\n  ${t(lang, "shop.price")}: ${low === high ? low : `${low} – ${high}`}` +
-        ` | ${t(lang, "shop.stock")}: ${getStockState(totalStock).replace(/_/g, " ")}\n\n`;
+        ` | ${t(lang, "shop.stock")}: ${getPublicStockState(totalStock).replace(/_/g, " ")}\n\n`;
 
       if (totalStock > 0) {
         // With options the customer picks one first; a single-price product
@@ -556,9 +638,9 @@ export function createTelegramBot(token: string, botName: string) {
       text += item.variantLabel
         ? `▪️ *${esc(item.variantLabel)}* — ${price}\n`
         : `${t(lang, "shop.price")}: *${price}*\n`;
-      text += `   ${t(lang, "shop.stock")}: ${getStockState(item.stockQuantity).replace(/_/g, " ")}\n`;
+      text += `   ${t(lang, "shop.stock")}: ${getPublicStockState(item.stockQuantity).replace(/_/g, " ")}\n`;
       if (areas.length > 0) {
-        text += `   📍 ${esc(areas.map((a) => `${a.areaName} (${a.stockQuantity})`).join(", "))}\n`;
+        text += `   📍 ${esc(areas.map((a) => a.areaName).join(", "))}\n`;
       }
       text += `\n`;
 
@@ -600,7 +682,7 @@ export function createTelegramBot(token: string, botName: string) {
 
     category.products.forEach((prod) => {
       const stockCount = prod.stockQuantity;
-      const state = getStockState(stockCount);
+      const state = getPublicStockState(stockCount);
       text +=
         `• *${esc(prod.name)}* (${esc(prod.formula || "")})\n` +
         `  Price: $${Number(prod.price).toFixed(2)} | Stock: ${state.replace(/_/g, " ")}\n\n`;
@@ -738,8 +820,9 @@ export function createTelegramBot(token: string, botName: string) {
 
     const keyboard = new InlineKeyboard();
     for (const a of areas) {
-      const label =
-        `${a.cityName} - ${a.areaName} (${t(lang, "area.left", { count: a.stockQuantity })})`;
+      // Only areas that still hold stock are listed here, and the exact count
+      // is staff-only, so the customer simply picks a collection point.
+      const label = `${a.cityName} - ${a.areaName}`;
       // Callback data is capped at 64 bytes, so only the area id travels here;
       // the product is already held in pendingPurchases.
       keyboard.text(label.slice(0, 64), `pickarea_${a.areaId}`).row();

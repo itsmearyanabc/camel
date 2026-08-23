@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import styles from "../auth.module.css";
 
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971_bot";
+
 export default function Login() {
   const router = useRouter();
   const [username, setUsername] = useState("");
@@ -43,7 +45,18 @@ export default function Login() {
   return <main className={styles.page}>
     <div className={styles.topbar}><Link href="/" className={styles.brand}><img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover", marginRight: 8 }} />Camel971</Link><ThemeToggle compact /></div>
     <section className={styles.card}>
-      <div className={styles.heading}><h1>Sign in</h1><p>Enter your details below to access your Camel971account.</p></div>
+      <div className={styles.heading}>
+        <div className={styles.headingRow}>
+          <h1>Sign in</h1>
+          {/* Reachable before signing in on purpose: the bot is a full second
+              storefront, and a visitor who prefers it should not have to get
+              through this form first. */}
+          <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer" className={styles.botLink}>
+            <span aria-hidden>✈️</span><span>Telegram bot</span>
+          </a>
+        </div>
+        <p>Enter your details below to access your Camel971account.</p>
+      </div>
       {error && <div className="alert alert-error">{error}</div>}
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.field}><label htmlFor="login-username">Login</label><input id="login-username" className="form-input" value={username} onChange={(e) => { setUsername(e.target.value); setError(""); }} placeholder="Enter login" required /></div>

@@ -111,7 +111,12 @@ export async function GET() {
 
     return NextResponse.json({ categories }, {
       headers: {
-        "Cache-Control": "public, s-maxage=30, stale-while-revalidate=59",
+        // Never cache this. It is the only stock source the product page has,
+        // and it is served through Cloudflare - an edge copy kept showing a
+        // sold-out product as available for up to 90 seconds, which is exactly
+        // the window in which a customer commits to buying something that is
+        // already gone.
+        "Cache-Control": "no-store",
       }
     });
   } catch (error) {

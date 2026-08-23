@@ -29,6 +29,13 @@
 .heading { margin-bottom: 26px; }
 .heading h1 { font-size: 29px; margin-bottom: 8px; }
 .heading p { color: var(--text-secondary); font-size: 14px; line-height: 1.55; }
+/* Heading sits beside the Telegram shortcut, so the bot is reachable without
+   signing in first. h1 loses its own margin here - the row owns the spacing. */
+.headingRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.headingRow h1 { margin-bottom: 0; }
+.botLink { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px; background: #229ED9; color: #fff; font-size: 13px; font-weight: 700; white-space: nowrap; text-decoration: none; transition: filter .15s ease; }
+.botLink:hover { filter: brightness(1.1); }
+@media (max-width: 400px) { .botLink span:last-child { display: none; } .botLink { padding: 8px 11px; } }
 .form { display: grid; gap: 17px; }
 .field { display: grid; gap: 7px; }
 .field label { font-size: 13px; font-weight: 700; color: var(--text-primary); }
