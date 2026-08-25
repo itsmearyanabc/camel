@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { grantReferralBonusOnFirstPurchase } from "@/lib/bonuses";
 
 export async function POST(req: Request) {
   try {
@@ -56,6 +57,15 @@ export async function POST(req: Request) {
         },
       });
     });
+
+    // A completed order is what turns a referral into money. The helper decides
+    // whether anything is owed - not referred, already paid, or nothing actually
+    // COMPLETED all return without paying - so calling it unconditionally here
+    // keeps the rule in one place instead of copied into every completion path.
+    // Awaited rather than fired and forgotten. A floating promise here would
+    // have no error handling and nothing keeping it alive across a restart, and
+    // this one moves money - it belongs inside the request that caused it.
+    await grantReferralBonusOnFirstPurchase(session.userId);
 
     return NextResponse.json({ success: true, order: updatedOrder });
   } catch (error) {

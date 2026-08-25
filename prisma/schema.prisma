@@ -24,6 +24,26 @@ model User {
   // reading a ticket must not clear the alert for everyone else.
   // Null means "never looked", which correctly makes every open ticket unseen.
   disputesSeenAt      DateTime?
+
+  // ---- Signup and referral bonuses -----------------------------------------
+  // Share code for this account, generated on demand and never reused. Null
+  // means "not generated yet" - every account predating the feature backfills
+  // itself the first time its owner looks at their profile.
+  referralCode        String?          @unique
+  // Who invited this account, captured once at signup and never editable
+  // afterwards. SetNull rather than Cascade: deleting a referrer must not take
+  // the people they invited with it.
+  referredById        String?
+  referredBy          User?            @relation("UserReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals           User[]           @relation("UserReferrals")
+  // Timestamps rather than booleans, and both are the ONLY thing that gates a
+  // payout. A "does this account have a telegramId" test would pay again after
+  // an unlink/relink, and "does this account have a completed order" would pay
+  // the referrer once per order; a one-shot timestamp claimed with a
+  // conditional updateMany cannot do either. See src/lib/bonuses.ts.
+  signupBonusGrantedAt   DateTime?
+  referralBonusGrantedAt DateTime?
+
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
   wallet              Wallet?
@@ -33,6 +53,8 @@ model User {
   reviews             Review[]
   notifications       Notification[]
   restockSubscriptions RestockSubscription[]
+
+  @@index([referredById])
 }
 
 model Wallet {

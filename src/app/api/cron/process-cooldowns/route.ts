@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { deliverReadyOrderItem, retryPendingTelegramDeliveries } from "@/lib/orderDelivery";
+import { grantReferralBonusOnFirstPurchase } from "@/lib/bonuses";
 
 // Helper for escaping markdown for Telegram (MarkdownV2). The backslash must
 // be in the set too: leaving it out turns a name containing one into a dangling
@@ -126,6 +127,11 @@ export async function GET(req: Request) {
           console.error("Failed to send auto-complete telegram message for item", item.id, err);
         }
       }
+
+      // The auto-complete path matters most for referrals: an order nobody
+      // ever confirms by hand still lands here after the pickup window, so a
+      // referrer is paid whether or not their invitee taps anything.
+      await grantReferralBonusOnFirstPurchase(item.order.userId);
 
       autoCompletedCount++;
     }

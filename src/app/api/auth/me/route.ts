@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 import { getCurrencyMultiplier } from "@/lib/exchangeRates";
+import { getOrCreateReferralCode, REFERRAL_BONUS_AMOUNT } from "@/lib/bonuses";
 
 export async function GET() {
   try {
@@ -21,6 +22,14 @@ export async function GET() {
             status: true,
           },
         },
+        // Joined into the query that already runs rather than counted
+        // separately. This endpoint is hit on every dashboard load, and the
+        // database is a free-tier instance with a small connection pool - two
+        // extra COUNT round-trips per load is a real cost for two numbers that
+        // are already on the row set being fetched.
+        referrals: {
+          select: { referralBonusGrantedAt: true },
+        },
       },
     });
 
@@ -33,6 +42,14 @@ export async function GET() {
     const currency = user.wallet?.currency || "USD";
     const exchangeRate = await getCurrencyMultiplier(currency);
 
+    // Backfills accounts created before the referral programme existed. The
+    // write happens at most once in an account's life - every later load reads
+    // the code straight off the row above and touches nothing.
+    const referralCode = user.referralCode ?? (await getOrCreateReferralCode(user.id));
+    const referralInvited = user.referrals.length;
+    const referralEarned =
+      user.referrals.filter((r) => r.referralBonusGrantedAt !== null).length * REFERRAL_BONUS_AMOUNT;
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -44,6 +61,9 @@ export async function GET() {
         createdAt: user.createdAt.toISOString(),
         totalOrders: completedOrders.length,
         totalSpent,
+        referralCode,
+        referralInvited,
+        referralEarned,
         wallet: {
           balance: user.wallet?.balance || 0.0,
           currency,
@@ -73,6 +93,9 @@ export async function GET() {
         createdAt: new Date().toISOString(),
         totalOrders: 0,
         totalSpent: 0,
+        referralCode: "TESTCODE",
+        referralInvited: 0,
+        referralEarned: 0,
         wallet: {
           balance: 1000.0,
           currency: "USD",

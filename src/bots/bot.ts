@@ -15,14 +15,25 @@ import {
 import { getTelegramChannels } from "../lib/telegramLinks";
 import { encryptPassword, isEncryptionConfigured } from "../lib/encryption";
 import { getOngoingDiscount, ongoingDiscountAmount } from "../lib/ongoingDiscount";
+import {
+  grantTelegramSignupBonus,
+  grantReferralBonusOnFirstPurchase,
+  resolveReferralCode,
+  normaliseReferralCode,
+  getOrCreateReferralCode,
+  REFERRAL_BONUS_AMOUNT,
+} from "../lib/bonuses";
 import bcrypt from "bcryptjs";
 
 // Session state storage for bot login/registration
 interface AuthState {
   action: "LOGIN" | "SIGNUP" | "CHANGE_PASSWORD" | null;
-  step: "CAPTCHA" | "USERNAME" | "PASSWORD" | "CURRENT_PASSWORD";
+  step: "CAPTCHA" | "USERNAME" | "PASSWORD" | "CURRENT_PASSWORD" | "REFERRAL";
   captchaAnswer?: number;
   username?: string;
+  /** Signup only: the bcrypt hash, carried across the referral-code step.
+   *  Hashed as soon as it is typed so the plaintext never sits in this map. */
+  passwordHash?: string;
   failedAttempts?: number;
   lockedUntil?: number; // timestamp
 }
@@ -457,6 +468,11 @@ export function createTelegramBot(token: string, botName: string) {
     const currency = user.wallet?.currency || "USD";
     const balance = await formatMoney(user.wallet?.balance ?? 0, currency);
 
+    // Minted on first view, so accounts that predate the referral programme get
+    // a code simply by opening this screen. Rendered as a code span because it
+    // is meant to be copied, and Telegram makes that one tap.
+    const referralCode = await getOrCreateReferralCode(user.id);
+
     const text =
       `${t(lang, "profile.title")}\n\n` +
       `${t(lang, "profile.username")}: *${esc(user.username)}*\n` +
@@ -465,7 +481,11 @@ export function createTelegramBot(token: string, botName: string) {
       `${t(lang, "profile.memberSince")}: *${user.createdAt.toLocaleDateString("en-GB")}*\n` +
       `${t(lang, "profile.balance")}: *${balance}*\n` +
       `${t(lang, "profile.language")}: *${esc(languageLabel(lang))}*\n` +
-      `${t(lang, "profile.currency")}: *${esc(currencyLabel(currency))}*`;
+      `${t(lang, "profile.currency")}: *${esc(currencyLabel(currency))}*` +
+      (referralCode
+        ? `\n\n${t(lang, "profile.referralCode")}: \`${referralCode}\`\n` +
+          `${t(lang, "profile.referralHint", { amount: REFERRAL_BONUS_AMOUNT.toFixed(2) })}`
+        : "");
 
     const keyboard = new InlineKeyboard()
       .text(t(lang, "common.backSettings"), "settings_menu")
@@ -1422,6 +1442,11 @@ export function createTelegramBot(token: string, botName: string) {
       }
     });
 
+    // Referral payout, same helper the website completion paths call, so an
+    // order confirmed from Telegram pays the referrer exactly as one confirmed
+    // on the site does.
+    await grantReferralBonusOnFirstPurchase(user.id);
+
     await ctx.answerCallbackQuery({ text: "🎉 Order marked as Completed!" });
 
     const order = await prisma.order.findUnique({
@@ -1733,9 +1758,20 @@ export function createTelegramBot(token: string, botName: string) {
           },
         });
 
+        // The link just made is proof of ownership - Telegram supplied this id,
+        // the customer did not type it - so this is one of only two places
+        // allowed to pay the signup bonus. Idempotent: an account that has
+        // already been paid (including one that unlinked and came back) gets
+        // nothing, so the message below adapts to what actually happened.
+        const bonus = await grantTelegramSignupBonus(user.id);
+
         userStates.delete(telegramId);
         await ctx.reply(
-          "✅ Success! Your Telegram account has been linked to your website profile. Type /start to open the Shop!"
+          "✅ Success! Your Telegram account has been linked to your website profile." +
+            (bonus.granted
+              ? `\n\n🎁 Welcome bonus: $${bonus.amount.toFixed(2)} has been added to your wallet.`
+              : "") +
+            "\n\nType /start to open the Shop!"
         );
       }
     } else if (state.action === "SIGNUP") {
@@ -1770,12 +1806,43 @@ export function createTelegramBot(token: string, botName: string) {
           return;
         }
 
-        const username = state.username!;
+        // Hash now and carry only the hash forward. The referral question comes
+        // between here and the account being created, and parking a plaintext
+        // password in an in-memory map for that long buys nothing.
         const salt = await bcrypt.genSalt(10);
         const passwordHash = await bcrypt.hash(text, salt);
 
+        // The password must not linger in the chat history either.
+        await ctx.deleteMessage().catch(() => {});
+
+        userStates.set(telegramId, {
+          action: "SIGNUP",
+          step: "REFERRAL",
+          username: state.username,
+          passwordHash,
+        });
+        await ctx.reply(
+          "🎟️ *Referral code* (optional)\n\n" +
+            "Were you invited by someone? Enter their referral code and they earn " +
+            `$${REFERRAL_BONUS_AMOUNT.toFixed(2)} once you complete your first order.\n\n` +
+            "Send /skip if you do not have one.",
+          { parse_mode: "Markdown" }
+        );
+      } else if (state.step === "REFERRAL") {
+        const username = state.username!;
+        const passwordHash = state.passwordHash!;
+
+        // An unknown code must never cost someone their account, so it is only
+        // ever resolved - never validated as a gate. A typo just means no
+        // referrer is attached, and the reply below says so plainly rather than
+        // letting them believe their friend will be paid.
+        const skipped = text === "/skip" || normaliseReferralCode(text).length === 0;
+        const referredById = skipped ? null : await resolveReferralCode(text);
+        const codeRejected = !skipped && !referredById;
+
+        let newUserId: string;
         try {
-          await prisma.$transaction(async (tx) => {
+          newUserId = await prisma.$transaction(async (tx) => {
             const user = await tx.user.create({
               data: {
                 username,
@@ -1783,6 +1850,7 @@ export function createTelegramBot(token: string, botName: string) {
                 telegramId: String(telegramId),
                 telegramUsername: ctx.from.username || null,
                 role: "CUSTOMER",
+                referredById,
               },
             });
 
@@ -1792,6 +1860,8 @@ export function createTelegramBot(token: string, botName: string) {
                 balance: 0.0,
               },
             });
+
+            return user.id;
           });
         } catch (error: any) {
           userStates.delete(telegramId);
@@ -1803,9 +1873,22 @@ export function createTelegramBot(token: string, botName: string) {
           return;
         }
 
+        // Created through the bot, so the Telegram id came from Telegram and the
+        // link is proven. This and the LOGIN path above are the only two places
+        // that may pay this bonus - see src/lib/bonuses.ts.
+        const bonus = await grantTelegramSignupBonus(newUserId);
+
         userStates.delete(telegramId);
         await ctx.reply(
-          "🎉 Account successfully registered and linked! You can now access all services. Type /start to open the Shop!"
+          "🎉 Account successfully registered and linked!" +
+            (bonus.granted
+              ? `\n\n🎁 Welcome bonus: $${bonus.amount.toFixed(2)} has been added to your wallet.`
+              : "") +
+            (referredById ? "\n\n🎟️ Referral code accepted." : "") +
+            (codeRejected
+              ? "\n\n⚠️ That referral code was not recognised, so no referrer was attached. Your account is fine."
+              : "") +
+            "\n\nType /start to open the Shop!"
         );
       }
     }

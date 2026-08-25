@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { grantReferralBonusOnFirstPurchase } from "@/lib/bonuses";
 import { restoreOrderItemStock } from "@/lib/orderReservation";
 
 export async function POST(req: Request) {
@@ -61,6 +62,13 @@ export async function POST(req: Request) {
 
       return item;
     });
+
+    // Same one-shot referral payout every other completion path calls. It
+    // decides for itself whether anything is owed, so calling it here costs a
+    // cheap indexed read when there is nothing to pay.
+    if (status === "COMPLETED") {
+      await grantReferralBonusOnFirstPurchase(orderItem.order.userId);
+    }
 
     let telegramSent = false;
     let telegramError: string | null = null;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { grantReferralBonusOnFirstPurchase } from "@/lib/bonuses";
 import { deliverReadyOrderItem, retryPendingTelegramDeliveries } from "@/lib/orderDelivery";
 
 export async function POST(req: Request) {
@@ -77,6 +78,11 @@ export async function POST(req: Request) {
             }
           },
         });
+
+        // Referral payout, scoped to the request that actually completed the
+        // order. Calling it on every poll instead would cost two queries each
+        // time a customer sits on the dashboard with a finished order open.
+        await grantReferralBonusOnFirstPurchase(order.userId);
       }
     }
 

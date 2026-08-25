@@ -85,6 +85,47 @@ export async function register() {
     }
     global.__telegram_bots_started = true;
 
+    // Schema first, and awaited, before anything else touches the database.
+    //
+    // Dynamically imported for the same reason the bot modules are: a static
+    // import would pull Prisma into the Edge compilation of this file.
+    //
+    // THE TIMEOUT IS NOT OPTIONAL. Next.js documents that register() "must
+    // complete before the server is ready to handle requests" - so anything
+    // that hangs in here does not degrade a feature, it stops the entire site
+    // from ever coming up. The database is a Supabase free-tier instance
+    // reached over the network, and a saturated pooler or a blip during a
+    // deploy is exactly the kind of thing that hangs rather than fails.
+    //
+    // Racing a timer bounds the worst case: the site boots regardless, at most
+    // SCHEMA_BOOT_TIMEOUT_MS later than it otherwise would. The losing promise
+    // is not cancelled, so a slow-but-working bootstrap still finishes and
+    // applies moments after boot - the situation heals itself.
+    const SCHEMA_BOOT_TIMEOUT_MS = 30_000;
+    try {
+      const { ensureSchema } = await import("./lib/schemaBootstrap");
+
+      let timer: NodeJS.Timeout | undefined;
+      const timedOut = Symbol("timeout");
+      const timeout = new Promise<typeof timedOut>((resolve) => {
+        timer = setTimeout(() => resolve(timedOut), SCHEMA_BOOT_TIMEOUT_MS);
+        // Never let this timer be the reason the process stays alive.
+        timer.unref?.();
+      });
+
+      const result = await Promise.race([ensureSchema(), timeout]);
+      if (timer) clearTimeout(timer);
+
+      if (result === timedOut) {
+        console.error(
+          `⚠️ [Schema] Bootstrap did not finish within ${SCHEMA_BOOT_TIMEOUT_MS / 1000}s. ` +
+            "Starting the server anyway - it is still running in the background."
+        );
+      }
+    } catch (e) {
+      console.error("❌ [Schema] Bootstrap module failed to load:", e);
+    }
+
     // Bots and cron are started independently below.
     //
     // They used to share one code path, and every early return in the bot

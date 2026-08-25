@@ -91,6 +91,10 @@ export default function NotificationBell() {
         return "✅";
       case "ORDER_CANCELLED":
         return "❌";
+      case "BONUS":
+        return "🎁";
+      case "RESTOCK":
+        return "📢";
       default:
         return "🔔";
     }
@@ -115,6 +119,7 @@ export default function NotificationBell() {
     <div style={{ position: "relative" }}>
       <button
         onClick={() => setShowDropdown(!showDropdown)}
+        aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
         style={{
           position: "relative",
           background: "none",
@@ -127,6 +132,10 @@ export default function NotificationBell() {
         🔔
         {unreadCount > 0 && (
           <span
+            /* The blinking light. Keyframes live in globals.css so the
+               animation can be switched off under prefers-reduced-motion,
+               which an inline style cannot express. */
+            className="notif-badge-pulse"
             style={{
               position: "absolute",
               top: "4px",

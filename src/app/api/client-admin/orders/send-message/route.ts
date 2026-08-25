@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { grantReferralBonusOnFirstPurchase } from "@/lib/bonuses";
 import { escapeTelegramMarkdown } from "@/lib/stock";
 import fs from "fs";
 import path from "path";
@@ -55,7 +56,10 @@ export async function POST(req: Request) {
       localFileType = fileType;
     }
 
-    const updatedOrderItem = await prisma.$transaction(async (tx) => {
+    // Destructured so `updatedOrderItem` keeps meaning exactly what it did
+    // before - the Telegram message body and the response payload both read
+    // fields straight off it.
+    const { item: updatedOrderItem, orderCompleted } = await prisma.$transaction(async (tx) => {
       const item = await tx.orderItem.update({
         where: { id: orderItemId },
         data: {
@@ -78,8 +82,15 @@ export async function POST(req: Request) {
         await tx.order.update({ where: { id: orderItem.orderId }, data: { status: "COMPLETED" } });
       }
 
-      return item;
+      return { item, orderCompleted: allCompleted };
     });
+
+    // Same one-shot referral payout every other completion path calls, scoped
+    // to the message that actually closed the order so a routine admin note
+    // does not cost an extra pair of queries.
+    if (orderCompleted) {
+      await grantReferralBonusOnFirstPurchase(orderItem.order.userId);
+    }
 
     let telegramSent = false;
     let telegramError: string | null = null;

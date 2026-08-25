@@ -18,8 +18,18 @@ export default function Register() {
   const [captchaQuestion, setCaptchaQuestion] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
   const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Prefill from ?ref=CODE so a referrer can share one link instead of asking
+  // their invitee to copy a code across by hand - the step where codes get
+  // mistyped and the referrer quietly loses their bonus. Read from the URL
+  // rather than useSearchParams so this page needs no Suspense boundary.
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("ref");
+    if (fromUrl) setReferralCode(fromUrl.trim().toUpperCase());
+  }, []);
 
   const loadCaptcha = async () => {
     try { const res = await fetch("/api/auth/captcha"); const data = await res.json(); if (res.ok) { setCaptchaQuestion(data.question); setCaptchaToken(data.token); setCaptchaAnswer(""); } }
@@ -34,7 +44,7 @@ export default function Register() {
         setLoading(false);
         return;
       }
-      const res = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password, confirmPassword, captchaAnswer, captchaToken }) });
+      const res = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password, confirmPassword, referralCode, captchaAnswer, captchaToken }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Registration failed"); setLoading(false); loadCaptcha(); return; }
       router.push("/dashboard"); router.refresh();
@@ -61,6 +71,7 @@ export default function Register() {
         <div className={styles.field}><label htmlFor="reg-username">Login</label><input id="reg-username" className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Minimum 3 characters" required /></div>
         <div className={styles.field}><label htmlFor="reg-password">Password</label><div className={styles.passwordWrap}><input id="reg-password" type={showPassword ? "text" : "password"} className="form-input" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Minimum 6 characters" required /><button type="button" className={styles.iconButton} onClick={() => setShowPassword(!showPassword)} aria-label="Toggle password visibility">{showPassword ? "◉" : "◌"}</button></div></div>
         <div className={styles.field}><label htmlFor="reg-confirm-password">Confirm Password</label><div className={styles.passwordWrap}><input id="reg-confirm-password" type={showConfirmPassword ? "text" : "password"} className="form-input" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Minimum 6 characters" required /><button type="button" className={styles.iconButton} onClick={() => setShowConfirmPassword(!showConfirmPassword)} aria-label="Toggle password visibility">{showConfirmPassword ? "◉" : "◌"}</button></div></div>
+        <div className={styles.field}><label htmlFor="reg-referral">Referral code <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>(optional)</span></label><input id="reg-referral" className="form-input" value={referralCode} onChange={(e) => setReferralCode(e.target.value.toUpperCase())} placeholder="Enter a friend's code" autoComplete="off" spellCheck={false} /><p style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "4px" }}>Invited by someone? Their code earns them a bonus once you complete your first order.</p></div>
         <div className={styles.captcha}><div className={styles.captchaLine}><label htmlFor="reg-captcha">Security check</label><button type="button" className={styles.refresh} onClick={loadCaptcha}>↻ Refresh</button></div><div className={styles.captchaQuestion}>{captchaQuestion || "Loading…"}</div><input id="reg-captcha" className="form-input" value={captchaAnswer} onChange={(e) => setCaptchaAnswer(e.target.value)} placeholder="Enter solution" required style={{ marginTop: 10 }} /></div>
         <button type="submit" className={`btn btn-primary ${styles.submit}`} disabled={loading}>{loading ? "Creating account…" : "Create account"}</button>
       </form>

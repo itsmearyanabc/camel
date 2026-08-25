@@ -13,6 +13,8 @@
     "reset-db": "tsx --env-file=.env src/scripts/reset_db_with_admin.ts",
     "wipe-customers": "tsx --env-file=.env src/scripts/wipe_customers.ts",
     "set-webhooks": "node scripts/set-webhooks.js",
+    "test:bonuses": "tsx scripts/test-bonuses.ts",
+    "test:schema": "tsx scripts/test-schema-bootstrap.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

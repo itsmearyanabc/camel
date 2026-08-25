@@ -219,6 +219,9 @@ export default function Dashboard() {
   const [deleteMsg, setDeleteMsg] = useState<{ type: "error" | "success"; text: string } | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Referral card: brief "Copied" confirmation after a copy.
+  const [refCopied, setRefCopied] = useState<"" | "code" | "link">("");
+
   // Telegram settings state
   const [tgIdInput, setTgIdInput] = useState("");
   const [tgUsernameInput, setTgUsernameInput] = useState("");
@@ -388,6 +391,34 @@ export default function Dashboard() {
     } catch {
       setDeleteMsg({ type: "error", text: "An error occurred" });
       setDeleteLoading(false);
+    }
+  };
+
+  /**
+   * Copy the referral code (or a ready-made signup link) to the clipboard.
+   *
+   * navigator.clipboard is unavailable on insecure origins and in a few
+   * in-app browsers, so a textarea + execCommand fallback keeps the button
+   * working rather than failing silently and leaving nothing on the clipboard.
+   */
+  const copyReferral = async (value: string, which: "code" | "link") => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = value;
+        el.style.position = "fixed";
+        el.style.opacity = "0";
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
+      setRefCopied(which);
+      setTimeout(() => setRefCopied(""), 2000);
+    } catch {
+      // Nothing to recover from - the code is on screen and can be selected.
     }
   };
 
@@ -1159,7 +1190,7 @@ export default function Dashboard() {
                       {ledgers.map(log => (
                         <tr key={log.id}>
                           <td style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>{new Date(log.createdAt).toLocaleString()}</td>
-                          <td><span className={`badge ${log.type === "DEPOSIT" || log.type === "REFUND" ? "badge-green" : "badge-red"}`}>{log.type}</span></td>
+                          <td><span className={`badge ${["DEPOSIT", "REFUND", "CREDIT", "BONUS"].includes(log.type) ? "badge-green" : "badge-red"}`}>{log.type}</span></td>
                           <td style={{ fontWeight: "600", color: log.amount > 0 ? "var(--green)" : "var(--red)" }}>
                             {log.amount > 0 ? `+${formatPrice(log.amount, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}` : `-${formatPrice(Math.abs(log.amount), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}`}
                           </td>
@@ -1692,6 +1723,46 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* Referral programme.
+                  Hidden entirely when no code could be minted, rather than
+                  rendering an empty box the customer cannot act on. */}
+              {user.referralCode && (
+                <div className="card">
+                  <h3 style={{ marginBottom: "4px" }}>Invite friends</h3>
+                  <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "20px" }}>
+                    Share your code. When someone signs up with it and completes their first order, $5.00 is added to your wallet.
+                  </p>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "20px" }}>
+                    <code style={{
+                      fontSize: "22px", fontWeight: "800", letterSpacing: "0.14em",
+                      padding: "12px 18px", borderRadius: "10px",
+                      background: "var(--bg-secondary)", border: "1px dashed var(--border)",
+                      color: "var(--accent)", userSelect: "all",
+                    }}>{user.referralCode}</code>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => copyReferral(user.referralCode, "code")}>
+                      {refCopied === "code" ? "✓ Copied" : "Copy code"}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => copyReferral(`${window.location.origin}/auth/register?ref=${user.referralCode}`, "link")}>
+                      {refCopied === "link" ? "✓ Copied" : "Copy invite link"}
+                    </button>
+                  </div>
+
+                  <div className="grid-2col" style={{ gap: "16px" }}>
+                    <div>
+                      <p style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>Friends Joined</p>
+                      <p style={{ fontWeight: "700", fontSize: "20px" }}>{user.referralInvited || 0}</p>
+                    </div>
+                    <div>
+                      <p style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>Bonus Earned</p>
+                      <p style={{ fontWeight: "700", fontSize: "20px", color: "var(--green)" }}>
+                        {formatPrice(user.referralEarned || 0, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1825,6 +1896,20 @@ export default function Dashboard() {
                     <p style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Link your Telegram account to access the 24/7 shop bot and receive order updates</p>
                   </div>
                 </div>
+
+                {/* Says plainly where the welcome bonus comes from. Saving an id
+                    in this form links the account but pays nothing - the id
+                    typed here is not verified, so the payout only happens when
+                    Telegram itself supplies the id, i.e. from inside the bot.
+                    Without this note a customer saves the form, sees no $5, and
+                    has no way to work out why. */}
+                {!user.telegramId && (
+                  <div className="alert alert-info" style={{ marginBottom: "20px" }}>
+                    🎁 <strong>Get $5 free.</strong> Open the Telegram bot and link your account there —
+                    the welcome bonus lands in your wallet automatically. Saving an ID in this form
+                    links your account but does not pay the bonus.
+                  </div>
+                )}
 
                 {tgMsg && (
                   <div className={`alert ${tgMsg.type === "error" ? "alert-error" : "alert-success"}`} style={{ marginBottom: "20px" }}>

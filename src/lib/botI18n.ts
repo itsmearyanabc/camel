@@ -170,6 +170,8 @@ const EN: Dict = {
   "profile.balance": "Balance",
   "profile.language": "Language",
   "profile.currency": "Currency",
+  "profile.referralCode": "🎟️ Your referral code",
+  "profile.referralHint": "Share it — you earn ${amount} once someone who signs up with it completes their first order.",
 
   // ---- password ----
   "password.promptCurrent": "🔒 *Change Password*\n\nFirst, type your *current* password to confirm it is you, or /cancel to go back.",
@@ -370,6 +372,8 @@ const RU: Dict = {
   "profile.balance": "Баланс",
   "profile.language": "Язык",
   "profile.currency": "Валюта",
+  "profile.referralCode": "🎟️ Ваш реферальный код",
+  "profile.referralHint": "Поделитесь им — вы получите ${amount}, когда приглашённый вами человек завершит первый заказ.",
 
   "password.promptCurrent": "🔒 *Смена пароля*\n\nСначала введите свой *текущий* пароль для подтверждения, или /cancel для возврата.",
   "password.wrongCurrent": "❌ Это не ваш текущий пароль. Попробуйте снова или /cancel.",
@@ -516,6 +520,8 @@ const AR: Dict = {
   "profile.balance": "الرصيد",
   "profile.language": "اللغة",
   "profile.currency": "العملة",
+  "profile.referralCode": "🎟️ رمز الإحالة الخاص بك",
+  "profile.referralHint": "شاركه — ستحصل على ${amount} عندما يُكمل شخص سجّل به أول طلب له.",
 
   "password.promptCurrent": "🔒 *تغيير كلمة المرور*\n\nأولاً، اكتب كلمة المرور *الحالية* للتأكيد، أو /cancel للعودة.",
   "password.wrongCurrent": "❌ هذه ليست كلمة المرور الحالية. حاول مرة أخرى أو /cancel.",
@@ -662,6 +668,8 @@ const TR: Dict = {
   "profile.balance": "Bakiye",
   "profile.language": "Dil",
   "profile.currency": "Para birimi",
+  "profile.referralCode": "🎟️ Referans kodunuz",
+  "profile.referralHint": "Paylaşın — kodunuzla kaydolan biri ilk siparişini tamamladığında ${amount} kazanırsınız.",
 
   "password.promptCurrent": "🔒 *Şifre Değiştir*\n\nÖnce kimliğinizi doğrulamak için *mevcut* şifrenizi yazın veya geri dönmek için /cancel.",
   "password.wrongCurrent": "❌ Bu mevcut şifreniz değil. Tekrar deneyin veya /cancel.",
@@ -808,6 +816,8 @@ const ZH: Dict = {
   "profile.balance": "余额",
   "profile.language": "语言",
   "profile.currency": "货币",
+  "profile.referralCode": "🎟️ 您的推荐码",
+  "profile.referralHint": "分享它 — 使用该推荐码注册的人完成首笔订单后，您将获得 ${amount}。",
 
   "password.promptCurrent": "🔒 *修改密码*\n\n请先输入您的*当前*密码以验证身份，或发送 /cancel 返回。",
   "password.wrongCurrent": "❌ 这不是您的当前密码。请重试或发送 /cancel。",
@@ -954,6 +964,8 @@ const ES: Dict = {
   "profile.balance": "Saldo",
   "profile.language": "Idioma",
   "profile.currency": "Moneda",
+  "profile.referralCode": "🎟️ Tu código de referido",
+  "profile.referralHint": "Compártelo: ganas ${amount} cuando alguien que se registre con él complete su primer pedido.",
 
   "password.promptCurrent": "🔒 *Cambiar contraseña*\n\nPrimero, escribe tu contraseña *actual* para confirmar que eres tú, o /cancel para volver.",
   "password.wrongCurrent": "❌ Esa no es tu contraseña actual. Inténtalo de nuevo o /cancel.",
