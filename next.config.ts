@@ -1,6 +1,48 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+/**
+ * Content-Security-Policy, assembled from a list so each directive stays
+ * readable and adding a third party is one line rather than editing a
+ * 600-character string.
+ *
+ * The Google Ads entries are load-bearing: gtag.js is fetched from
+ * googletagmanager.com and reports conversions to googleadservices and
+ * doubleclick. Without them the browser blocks the tag before it runs and
+ * not a single conversion is ever recorded - silently, because a CSP
+ * violation only shows in the console.
+ */
+const CSP = [
+  "default-src 'self'",
+
+  // 'unsafe-inline' is what lets the gtag bootstrap snippet in
+  // src/app/layout.tsx execute. It was already required by the app.
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' " +
+    "https://www.googletagmanager.com https://www.googleadservices.com " +
+    "https://googleads.g.doubleclick.net https://www.google-analytics.com",
+
+  // globals.css imports DM Sans / Space Grotesk from Google Fonts. This was
+  // missing, so the browser blocked the stylesheet and the whole site quietly
+  // fell back to system fonts.
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: blob: https:",
+  // ...and the font files themselves come from gstatic.
+  "font-src 'self' data: https://fonts.gstatic.com",
+
+  // Where the tag actually reports back to. Conversion pixels travel as
+  // images (already allowed by img-src https:), but the beacon/fetch calls
+  // need to be listed here or they fail.
+  "connect-src 'self' https://api.telegram.org " +
+    "https://www.googletagmanager.com https://www.google-analytics.com " +
+    "https://analytics.google.com https://stats.g.doubleclick.net " +
+    "https://googleads.g.doubleclick.net https://www.googleadservices.com " +
+    "https://www.google.com https://ad.doubleclick.net",
+
+  // Google Ads drops a conversion iframe; without this it inherits
+  // default-src 'self' and is blocked.
+  "frame-src 'self' https://td.doubleclick.net https://www.googletagmanager.com",
+].join("; ");
+
 const nextConfig: NextConfig = {
   // Pin the project root.
   //
@@ -27,7 +69,7 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
           { key: "X-DNS-Prefetch-Control", value: "off" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-          { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.telegram.org;" },
+          { key: "Content-Security-Policy", value: CSP },
         ],
       },
     ];
