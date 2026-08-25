@@ -25,6 +25,15 @@ import { LanguageProvider } from "@/components/LanguageContext";
  * the campaign data this is being installed to measure.
  */
 const GOOGLE_ADS_ID = "AW-18263963659";
+
+/**
+ * X (Twitter) Ads base pixel id.
+ *
+ * Derived from the event id X issued for the sign-up event, "tw-remr0-reo55":
+ * X formats those as tw-{pixelId}-{eventId}. The event id itself lives in
+ * src/lib/analytics.ts.
+ */
+const X_PIXEL_ID = "remr0";
 const ADS_ENABLED = process.env.NODE_ENV === "production";
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -61,6 +70,28 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               `}
             </Script>
           </>
+        )}
+
+        {/* X (Twitter) Ads pixel.
+
+            Kept entirely separate from the Google tag above - its own loader,
+            its own global (window.twq), its own cookies and its own servers.
+            Neither platform can see or affect the other's numbers, and one
+            failing to load leaves the other recording normally.
+
+            Sitewide for the same reason as Google: the pixel has to be present
+            on the page an ad click lands on, not only the page that converts,
+            or the click can never be attributed to the sign-up.
+
+            The Content-Security-Policy in next.config.ts must allow
+            static.ads-twitter.com or this is blocked before it runs. */}
+        {ADS_ENABLED && (
+          <Script id="x-ads-pixel" strategy="afterInteractive">
+            {`
+              !function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);},s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
+              twq('config','${X_PIXEL_ID}');
+            `}
+          </Script>
         )}
       </body>
     </html>

@@ -19,7 +19,10 @@ const CSP = [
   // src/app/layout.tsx execute. It was already required by the app.
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' " +
     "https://www.googletagmanager.com https://www.googleadservices.com " +
-    "https://googleads.g.doubleclick.net https://www.google-analytics.com",
+    "https://googleads.g.doubleclick.net https://www.google-analytics.com " +
+    // X (Twitter) Ads loads its pixel from here. Listed separately from the
+    // Google entries so removing one platform never disturbs the other.
+    "https://static.ads-twitter.com",
 
   // globals.css imports DM Sans / Space Grotesk from Google Fonts. This was
   // missing, so the browser blocked the stylesheet and the whole site quietly
@@ -36,7 +39,9 @@ const CSP = [
     "https://www.googletagmanager.com https://www.google-analytics.com " +
     "https://analytics.google.com https://stats.g.doubleclick.net " +
     "https://googleads.g.doubleclick.net https://www.googleadservices.com " +
-    "https://www.google.com https://ad.doubleclick.net",
+    "https://www.google.com https://ad.doubleclick.net " +
+    // Where the X pixel reports its conversions.
+    "https://analytics.twitter.com https://t.co",
 
   // Google Ads drops a conversion iframe; without this it inherits
   // default-src 'self' and is blocked.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import styles from "../auth.module.css";
+import { trackSignUp } from "@/lib/analytics";
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971_bot";
 
@@ -47,6 +48,11 @@ export default function Register() {
       const res = await fetch("/api/auth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password, confirmPassword, referralCode, captchaAnswer, captchaToken }) });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Registration failed"); setLoading(false); loadCaptcha(); return; }
+      // The account genuinely exists from this line on, which makes this the
+      // only honest place to count a sign-up: on submit it would count
+      // attempts, and on the dashboard it would count every later visit.
+      // Fires Google and X independently and never throws - see lib/analytics.
+      trackSignUp();
       router.push("/dashboard"); router.refresh();
     } catch { setError("An unexpected error occurred. Please try again."); setLoading(false); loadCaptcha(); }
   };
