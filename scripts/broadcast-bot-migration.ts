@@ -93,12 +93,27 @@ async function saveProgress(sent: Set<string>): Promise<void> {
  * by MarkdownV2 rejecting a whole message over one unescaped character, and a
  * broadcast that silently fails for everybody would be the worst outcome here.
  */
+type SendOutcome = "sent" | "unreachable" | "failed";
+
+/**
+ * Outcome plus Telegram's own wording.
+ *
+ * The description is carried back rather than discarded because the bucket
+ * alone is misleading: "unreachable" covers a customer who blocked the bot AND
+ * a bot that is restricted from sending to anybody, and those need opposite
+ * responses. A run that reports only counts cannot tell you which happened.
+ */
+interface SendResult {
+  outcome: SendOutcome;
+  description: string;
+}
+
 async function sendOne(
   token: string,
   chatId: string,
   text: string,
   attempt = 0
-): Promise<"sent" | "unreachable" | "failed"> {
+): Promise<SendResult> {
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,10 +123,10 @@ async function sendOne(
     signal: AbortSignal.timeout(15000),
   });
 
-  if (res.ok) return "sent";
+  if (res.ok) return { outcome: "sent", description: "ok" };
 
   const body: any = await res.json().catch(() => ({}));
-  const description = String(body?.description || "");
+  const description = String(body?.description || `HTTP ${res.status}`);
 
   // Rate limited: Telegram tells us exactly how long to wait, so wait and retry
   // rather than dropping the customer. Bounded, because an account that is
@@ -120,7 +135,7 @@ async function sendOne(
   if (res.status === 429) {
     if (attempt >= MAX_RATE_LIMIT_RETRIES) {
       console.error(`    still rate limited after ${attempt} retries, skipping ${chatId}`);
-      return "failed";
+      return { outcome: "failed", description };
     }
     const retryAfter = Number(body?.parameters?.retry_after) || 5;
     console.log(`    rate limited, waiting ${retryAfter}s...`);
@@ -131,11 +146,11 @@ async function sendOne(
   // The customer blocked the bot, deleted their account, or never actually
   // started a chat. Nothing to fix and no point retrying.
   if (res.status === 403 || /bot was blocked|user is deactivated|chat not found/i.test(description)) {
-    return "unreachable";
+    return { outcome: "unreachable", description };
   }
 
   console.error(`    failed for ${chatId}: ${res.status} ${description}`);
-  return "failed";
+  return { outcome: "failed", description };
 }
 
 async function main() {
@@ -222,13 +237,22 @@ async function main() {
   let unreachable = 0;
   let failed = 0;
 
+  // Every distinct thing Telegram said, and how often. Printed at the end so a
+  // run that delivers nothing still tells you WHY, rather than leaving you to
+  // probe one chat by hand afterwards.
+  const reasons = new Map<string, number>();
+
   for (const [i, chatId] of targets.entries()) {
-    let outcome: "sent" | "unreachable" | "failed";
+    let outcome: SendOutcome;
     try {
-      outcome = await sendOne(token, chatId, text);
+      const result = await sendOne(token, chatId, text);
+      outcome = result.outcome;
+      reasons.set(result.description, (reasons.get(result.description) || 0) + 1);
     } catch (err) {
       outcome = "failed";
-      console.error(`    error for ${chatId}:`, err instanceof Error ? err.message : err);
+      const description = err instanceof Error ? err.message : String(err);
+      reasons.set(description, (reasons.get(description) || 0) + 1);
+      console.error(`    error for ${chatId}:`, description);
     }
 
     if (outcome === "sent") {
@@ -259,6 +283,20 @@ async function main() {
   console.log(`  delivered:   ${sent}`);
   console.log(`  unreachable: ${unreachable}  (blocked the bot, or never started it)`);
   console.log(`  failed:      ${failed}  (re-run to retry just these)`);
+
+  console.log(`\nWhat Telegram actually said:`);
+  for (const [reason, count] of [...reasons.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${String(count).padStart(4)}  ${reason}`);
+  }
+
+  if (sent === 0 && targets.length > 0) {
+    console.log(
+      `\nNothing was delivered. If the reason above is the same for every` +
+        `\nrecipient, the problem is the sending bot rather than the customers -` +
+        `\nconfirm with: npx tsx --env-file=.env scripts/probe-telegram-send.ts --chat=<your id>` +
+        `\nThen re-run this with --reset once the cause is fixed.`
+    );
+  }
 }
 
 main()
