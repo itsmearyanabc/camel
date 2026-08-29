@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import styles from "../auth.module.css";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971_bot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_products_bot";
 
 export default function Login() {
   const router = useRouter();

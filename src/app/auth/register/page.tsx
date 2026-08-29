@@ -7,7 +7,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import styles from "../auth.module.css";
 import { trackSignUp } from "@/lib/analytics";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_971_bot";
+const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_products_bot";
 
 export default function Register() {
   const router = useRouter();
