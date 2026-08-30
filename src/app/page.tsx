@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import SiteFooter from "@/components/SiteFooter";
 import ThemeToggle from "@/components/ThemeToggle";
 import TelegramChannelsStrip from "@/components/TelegramChannelsStrip";
+import DeliveryGuideBanner from "@/components/DeliveryGuideBanner";
 import styles from "./home.module.css";
 
 export const revalidate = 0;
@@ -20,6 +21,7 @@ export default async function Home() {
     </header>
     <main>
       <TelegramChannelsStrip />
+      <DeliveryGuideBanner />
       <section className={styles.hero} id="discover">
         <div className={styles.copy}><span className={styles.eyebrow}>◆ Private marketplace</span><h1>The <span>Camel971</span> experience, refined.</h1><p>Experience seamless shopping, manage your funds securely, and track orders with absolute confidence.</p><div className={styles.heroActions}><Link href={dashboardHref} className="btn btn-primary">{session ? "Open dashboard" : "Create account"} <span>→</span></Link>{!session && <Link href="/auth/login" className="btn btn-secondary">Sign in</Link>}</div></div>
         <div className={styles.visual} aria-hidden="true"><img src="/logo.png?v=2" alt="Camel971Hero" className={styles.heroImg} style={{ borderRadius: '50%', objectFit: 'cover' }} /><div className={`${styles.floatCard} ${styles.topCard}`}><span>Industry-grade security</span><strong>Private by design</strong></div><div className={`${styles.floatCard} ${styles.bottomCard}`}><span>Always at your service</span><strong>24/7 bot access</strong></div></div>
