@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { createSession } from "@/lib/auth";
-import { decryptAnswer } from "../captcha/route";
 import { rateLimit, getRateLimitIdentifier } from "@/lib/rate-limit";
+import { verifyTurnstile } from "@/lib/turnstile";
 
 export async function POST(req: Request) {
   try {
@@ -22,28 +22,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const { username, password, captchaAnswer, captchaToken } = await req.json();
+    const { username, password, turnstileToken } = await req.json();
 
-    // 1. CAPTCHA Validation
-    if (!captchaToken || !captchaAnswer) {
-      return NextResponse.json({ error: "CAPTCHA is required" }, { status: 400 });
-    }
-
-    const decrypted = decryptAnswer(captchaToken);
-    if (!decrypted) {
-      return NextResponse.json({ error: "Invalid CAPTCHA token" }, { status: 400 });
-    }
-
-    try {
-      const captchaData = JSON.parse(decrypted);
-      if (captchaData.expiresAt < Date.now()) {
-        return NextResponse.json({ error: "CAPTCHA expired, please try again" }, { status: 400 });
-      }
-      if (captchaData.answer !== captchaAnswer.trim()) {
-        return NextResponse.json({ error: "Incorrect CAPTCHA answer" }, { status: 400 });
-      }
-    } catch (e) {
-      return NextResponse.json({ error: "Invalid CAPTCHA payload" }, { status: 400 });
+    // 1. Bot verification (Cloudflare Turnstile)
+    //
+    // Checked before the password is looked at, so a bot spraying credentials
+    // never reaches the database or the bcrypt comparison. `identifier` is the
+    // real client IP resolved above and is passed to Cloudflare as a signal.
+    const turnstile = await verifyTurnstile(turnstileToken, identifier);
+    if (!turnstile.success) {
+      return NextResponse.json({ error: turnstile.error }, { status: 400 });
     }
 
     // 2. Validate Inputs

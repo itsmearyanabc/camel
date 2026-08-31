@@ -22,7 +22,11 @@ const CSP = [
     "https://googleads.g.doubleclick.net https://www.google-analytics.com " +
     // X (Twitter) Ads loads its pixel from here. Listed separately from the
     // Google entries so removing one platform never disturbs the other.
-    "https://static.ads-twitter.com",
+    "https://static.ads-twitter.com " +
+    // Cloudflare Turnstile's loader (src/components/Turnstile.tsx). It also
+    // needs frame-src below - the widget draws itself in an iframe, so
+    // allowing only the script leaves an empty box and no visible error.
+    "https://challenges.cloudflare.com",
 
   // globals.css imports DM Sans / Space Grotesk from Google Fonts. This was
   // missing, so the browser blocked the stylesheet and the whole site quietly
@@ -41,11 +45,17 @@ const CSP = [
     "https://googleads.g.doubleclick.net https://www.googleadservices.com " +
     "https://www.google.com https://ad.doubleclick.net " +
     // Where the X pixel reports its conversions.
-    "https://analytics.twitter.com https://t.co",
+    "https://analytics.twitter.com https://t.co " +
+    // Turnstile posts the solved challenge back from inside its iframe.
+    "https://challenges.cloudflare.com",
 
   // Google Ads drops a conversion iframe; without this it inherits
-  // default-src 'self' and is blocked.
-  "frame-src 'self' https://td.doubleclick.net https://www.googletagmanager.com",
+  // default-src 'self' and is blocked. Turnstile needs it too: the widget is
+  // plain DOM until it has to show an interactive challenge, and that
+  // challenge is an iframe - so leaving this out works right up until the
+  // first visitor Cloudflare decides to actually challenge.
+  "frame-src 'self' https://td.doubleclick.net https://www.googletagmanager.com " +
+    "https://challenges.cloudflare.com",
 ].join("; ");
 
 const nextConfig: NextConfig = {

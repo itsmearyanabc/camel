@@ -92,17 +92,11 @@ let testOrderId = null;
 async function testAuthentication() {
   logSection('1. AUTHENTICATION & SECURITY TESTS');
 
-  // Test 1.1: Get CAPTCHA
-  try {
-    const captcha = await apiRequest('/api/auth/captcha');
-    logTest(
-      'GET /api/auth/captcha',
-      captcha.ok && captcha.data.question && captcha.data.token,
-      captcha.ok ? 'CAPTCHA generated successfully' : 'Failed to generate CAPTCHA'
-    );
-  } catch (error) {
-    logTest('GET /api/auth/captcha', false, error.message);
-  }
+  // The arithmetic CAPTCHA endpoint this used to probe is gone; Cloudflare
+  // Turnstile replaced it and issues its token in the browser, so there is no
+  // endpoint here to call. Run these tests against a server configured with
+  // Cloudflare's always-passes test secret (1x0000000000000000000000000000000AA)
+  // and the dummy token below is accepted.
 
   // Test 1.2: Register new user
   try {
@@ -112,8 +106,7 @@ async function testAuthentication() {
         email: testUser.email,
         password: testUser.password,
         name: testUser.name,
-        captchaToken: 'test-token', // In real test, solve CAPTCHA
-        captchaAnswer: '10',
+        turnstileToken: 'test-token',
       }),
     });
     
@@ -133,8 +126,7 @@ async function testAuthentication() {
       body: JSON.stringify({
         email: testUser.email,
         password: testUser.password,
-        captchaToken: 'test-token',
-        captchaAnswer: '10',
+        turnstileToken: 'test-token',
       }),
     });
     
@@ -158,8 +150,7 @@ async function testAuthentication() {
       body: JSON.stringify({
         email: testUser.email,
         password: 'WrongPassword123!',
-        captchaToken: 'test-token',
-        captchaAnswer: '10',
+        turnstileToken: 'test-token',
       }),
     });
     

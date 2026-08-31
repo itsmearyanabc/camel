@@ -2,38 +2,27 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { createSession } from "@/lib/auth";
-import { decryptAnswer } from "../captcha/route";
+import { getClientIp } from "@/lib/rate-limit";
+import { verifyTurnstile } from "@/lib/turnstile";
 import { encryptPassword, isEncryptionConfigured } from "@/lib/encryption";
 import { resolveReferralCode, normaliseReferralCode } from "@/lib/bonuses";
 
 export async function POST(req: Request) {
   try {
-    const { username, password, confirmPassword, telegramUsername, telegramId, referralCode, captchaAnswer, captchaToken } = await req.json();
+    const { username, password, confirmPassword, telegramUsername, telegramId, referralCode, turnstileToken } = await req.json();
 
     if (password !== confirmPassword) {
       return NextResponse.json({ error: "Passwords do not match" }, { status: 400 });
     }
 
-    // 1. CAPTCHA Validation
-    if (!captchaToken || !captchaAnswer) {
-      return NextResponse.json({ error: "CAPTCHA is required" }, { status: 400 });
-    }
-
-    const decrypted = decryptAnswer(captchaToken);
-    if (!decrypted) {
-      return NextResponse.json({ error: "Invalid CAPTCHA token" }, { status: 400 });
-    }
-
-    try {
-      const captchaData = JSON.parse(decrypted);
-      if (captchaData.expiresAt < Date.now()) {
-        return NextResponse.json({ error: "CAPTCHA expired, please try again" }, { status: 400 });
-      }
-      if (captchaData.answer !== captchaAnswer.trim()) {
-        return NextResponse.json({ error: "Incorrect CAPTCHA answer" }, { status: 400 });
-      }
-    } catch (e) {
-      return NextResponse.json({ error: "Invalid CAPTCHA payload" }, { status: 400 });
+    // 1. Bot verification (Cloudflare Turnstile)
+    //
+    // First gate on the route, before any database work. Mass account creation
+    // is what this endpoint is worth attacking for — each account is a wallet
+    // and a referral code — so nothing is written until the challenge passes.
+    const turnstile = await verifyTurnstile(turnstileToken, getClientIp(req));
+    if (!turnstile.success) {
+      return NextResponse.json({ error: turnstile.error }, { status: 400 });
     }
 
     // 2. Validate Inputs

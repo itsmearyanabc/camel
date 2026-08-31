@@ -42,10 +42,11 @@
 .passwordWrap { position: relative; }
 .passwordWrap input { padding-right: 46px; }
 .iconButton { position: absolute; top: 50%; right: 8px; translate: 0 -50%; color: var(--text-secondary); background: transparent; border: 0; cursor: pointer; padding: 8px; font-size: 17px; }
+/* Wrapper around the Cloudflare Turnstile widget. Keeps the same framed look
+   the arithmetic question used to have, so the form's rhythm is unchanged. */
 .captcha { padding: 15px; background: var(--surface-subtle); border: 1px solid var(--border); border-radius: 14px; }
 .captchaLine { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.captchaQuestion { font-weight: 800; letter-spacing: .04em; }
-.refresh { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.captchaLabel { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 .submit { width: 100%; min-height: 48px; border-radius: 13px; }
 .alternate { margin-top: 23px; padding-top: 20px; border-top: 1px solid var(--border); text-align: center; color: var(--text-secondary); font-size: 14px; }
 .alternate a { color: var(--text-primary); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
