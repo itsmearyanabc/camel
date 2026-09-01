@@ -39,18 +39,26 @@ interface GoogleConversion {
  * read double, cost-per-conversion reads half, and any Smart Bidding strategy
  * fed by that action optimises against a number that is not real.
  *
- * The account now holds THREE sign-up actions. Google's wizard minted a fresh
- * one every time the setup flow was walked through, which is exactly the
- * duplication warned about above:
+ * The account holds FOUR sign-up actions as of 2026-09-01. Google's wizard
+ * mints a brand new one every single time the conversion setup flow is walked
+ * through, and they are all still live:
  *
  *   BxOYCKiFp-ccEIvw94RE   "Sign-up"      - plain count, no value
- *   3byJCN33muocEIvw94RE   "Sign-up (1)"  - value 1.0 INR   (retired 2026-09-01)
+ *   3byJCN33muocEIvw94RE   "Sign-up (1)"  - value 1.0 INR
  *   EW8_CMWryOscEIvw94RE   "Sign-up (2)"  - value 1.0 INR   <- the one in use
+ *   0hcCCN7WvescEIvw94RE   "Sign-up (3)"  - value 1.0 INR
  *
- * Exactly one of them fires. The other two should be archived or marked
- * "Secondary" in the Google Ads UI as well: leaving three Primary actions on
- * the account invites the next person to "fix" the tag by adding the missing
- * two, which is how the double-counting above happens.
+ * EXACTLY ONE OF THEM FIRES, and that is not an oversight. They are four
+ * copies of the same event, so listing all four here would report four
+ * conversions for one account: the count reads 4x, cost-per-conversion reads a
+ * quarter of the truth, and Smart Bidding optimises against a number that was
+ * never real. Google hands out a snippet for each, which makes "they are all
+ * missing" the natural and completely wrong conclusion.
+ *
+ * Which one is kept does not matter - they are interchangeable. What matters is
+ * that it stays at one. Archive or mark "Secondary" the other three in the
+ * Google Ads UI so the account stops advertising three unused snippets, and
+ * stop re-running the conversion setup wizard: each run adds another.
  *
  * ON THE CURRENCY - INR is the Google Ads ACCOUNT's billing currency. It is
  * not a currency the shop ever charges, and it is not meant to be: customers
