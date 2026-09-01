@@ -39,25 +39,42 @@ interface GoogleConversion {
  * read double, cost-per-conversion reads half, and any Smart Bidding strategy
  * fed by that action optimises against a number that is not real.
  *
- * The account currently holds two sign-up actions:
+ * The account now holds THREE sign-up actions. Google's wizard minted a fresh
+ * one every time the setup flow was walked through, which is exactly the
+ * duplication warned about above:
  *
  *   BxOYCKiFp-ccEIvw94RE   "Sign-up"      - plain count, no value
- *   3byJCN33muocEIvw94RE   "Sign-up (1)"  - value 1.0 INR   <- the one in use
+ *   3byJCN33muocEIvw94RE   "Sign-up (1)"  - value 1.0 INR   (retired 2026-09-01)
+ *   EW8_CMWryOscEIvw94RE   "Sign-up (2)"  - value 1.0 INR   <- the one in use
  *
- * The value-bearing one is used because it is a superset: it counts the same
- * sign-up and additionally carries a value, so value-based bidding stays
- * available. The nominal 1.0 is Google's own placeholder - a sign-up has no
- * revenue yet - and INR matches the account's billing currency.
+ * Exactly one of them fires. The other two should be archived or marked
+ * "Secondary" in the Google Ads UI as well: leaving three Primary actions on
+ * the account invites the next person to "fix" the tag by adding the missing
+ * two, which is how the double-counting above happens.
  *
- * Add the other only if you have deliberately marked one action "Secondary" in
- * Google Ads, which keeps it out of the headline figures and out of bidding.
- * Otherwise leave this at one entry.
+ * ON THE CURRENCY - INR is the Google Ads ACCOUNT's billing currency. It is
+ * not a currency the shop ever charges, and it is not meant to be: customers
+ * pay in CRYPTO only. The fiat codes in lib/currencies.ts (USD, EUR, RUB, UAH,
+ * KZT, TRY) are display currencies - formatPrice converts a price for showing
+ * it - not payment currencies.
+ *
+ * None of that reaches this call, because a sign-up earns no revenue at all.
+ * The 1.0 is Google's own placeholder meaning "one of these happened" rather
+ * than an amount of money, and the currency exists only so Google knows what
+ * to convert it into. Naming the account's own currency means it converts
+ * nothing; naming any other means Google applies a live exchange rate to an
+ * invented number, so the reported value drifts with the FX market for no
+ * reason. Hence INR, and hence leave it alone.
+ *
+ * If a real purchase conversion is ever added, note that gtag takes ISO-4217
+ * codes only - "BTC" and "USDT" are not valid values. A crypto order has to be
+ * reported as its fiat equivalent at the time of sale.
  *
  * An empty array disables the Google half entirely and leaves X recording
  * normally - the whole reason the two platforms are kept apart.
  */
 const GOOGLE_SIGNUP_CONVERSIONS: GoogleConversion[] = [
-  { sendTo: "AW-18263963659/3byJCN33muocEIvw94RE", value: 1.0, currency: "INR" },
+  { sendTo: "AW-18263963659/EW8_CMWryOscEIvw94RE", value: 1.0, currency: "INR" },
 ];
 
 declare global {
