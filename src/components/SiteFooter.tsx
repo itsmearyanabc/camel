@@ -4,6 +4,7 @@ import Link from "next/link";
 import ThemeToggle from "./ThemeToggle";
 
 import { useLanguage } from "./LanguageContext";
+import { BOT_LINK } from "@/lib/botIdentity";
 
 export default function SiteFooter() {
   const { t } = useLanguage();
@@ -25,7 +26,7 @@ export default function SiteFooter() {
         <div>
           <h3>{t("footer.secure") || "Secure access"}</h3>
           <div className="footer-links">
-            <a href="https://t.me/camel_products_bot" target="_blank" rel="noreferrer">{t("footer.bot") || "Telegram Bot"}</a>
+            <a href={BOT_LINK} target="_blank" rel="noreferrer">{t("footer.bot") || "Telegram Bot"}</a>
             <span>{t("footer.wallet") || "Encrypted wallet"}</span>
             <span>{t("footer.247") || "24/7 availability"}</span>
           </div>

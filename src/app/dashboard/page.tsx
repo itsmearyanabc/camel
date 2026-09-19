@@ -11,6 +11,7 @@ import SiteFooter from "@/components/SiteFooter";
 import DashboardNav from "@/components/DashboardNav";
 import { formatPrice } from "@/lib/currencies";
 import styles from "./dashboard.module.css";
+import { BOT_USERNAME } from "@/lib/botIdentity";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
 import SkeletonLoader from "@/components/SkeletonLoader";
@@ -94,7 +95,6 @@ interface Dispute {
 
 type Tab = "shop" | "wallet" | "orders" | "disputes" | "profile" | "settings" | "favorites" | "reviews";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_products_bot";
 
 export default function Dashboard() {
   const router = useRouter();

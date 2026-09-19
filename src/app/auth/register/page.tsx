@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import ThemeToggle from "@/components/ThemeToggle";
 import Turnstile, { TURNSTILE_ENABLED } from "@/components/Turnstile";
 import styles from "../auth.module.css";
+import { BOT_USERNAME } from "@/lib/botIdentity";
 import { trackSignUp } from "@/lib/analytics";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_products_bot";
 
 export default function Register() {
   const router = useRouter();

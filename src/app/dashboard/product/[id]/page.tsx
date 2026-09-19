@@ -7,12 +7,12 @@ import DashboardNav from "@/components/DashboardNav";
 import SiteFooter from "@/components/SiteFooter";
 import { formatPrice } from "@/lib/currencies";
 import styles from "../../dashboard.module.css";
+import { BOT_USERNAME } from "@/lib/botIdentity";
 import { useCart } from "@/components/cart/CartContext";
 import CartWidget from "@/components/cart/CartWidget";
 import CheckoutModal from "@/components/cart/CheckoutModal";
 import Reviews from "@/components/Reviews";
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "camel_products_bot";
 
 export default function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
