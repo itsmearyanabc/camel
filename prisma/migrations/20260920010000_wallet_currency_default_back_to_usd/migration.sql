@@ -1,0 +1,14 @@
+-- AlterTable: put the wallet display default back to USD.
+--
+-- Supersedes 20260920000000_default_wallet_currency_aed, which set it to 'AED'
+-- for a few hours on 2026-09-20. AED remains fully available - it is in the
+-- currency picker and converts at the live rate - it is simply not what a new
+-- account starts on. USD is the unit balances and prices are actually held in,
+-- so an untouched account needs no conversion at all.
+--
+-- Existing rows are deliberately untouched: this changes only what a NEW wallet
+-- starts with, never what a customer is already looking at.
+--
+-- Metadata-only on Postgres: no row rewrite, no lasting lock. Kept in step with
+-- src/lib/schemaBootstrap.ts, which is what actually applies it on a deploy.
+ALTER TABLE "Wallet" ALTER COLUMN "currency" SET DEFAULT 'USD';

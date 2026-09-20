@@ -60,3 +60,24 @@ export async function getCurrencyMultiplier(currencyCode: string): Promise<numbe
   const rates = await getExchangeRates();
   return rates[currencyCode] || 1;
 }
+
+/**
+ * The display currency AND its rate, as one value.
+ *
+ * Every endpoint that ships a wallet to the dashboard must go through this.
+ * The dashboard multiplies each price by wallet.exchangeRate, so an endpoint
+ * that returns a currency WITHOUT its rate silently prices the entire
+ * storefront at 1:1 - which is exactly how dirham labels ended up sitting on
+ * dollar numbers: /api/auth/me computed the rate, /api/dashboard/init did not,
+ * and both call setUser on the same page.
+ *
+ * Returning the pair together is what stops the two drifting again: there is
+ * no longer a way to select a currency and forget its rate.
+ */
+export async function resolveWalletDisplay(
+  currency: string | null | undefined
+): Promise<{ currency: string; exchangeRate: number }> {
+  const { DEFAULT_CURRENCY } = await import("./currencies");
+  const code = currency || DEFAULT_CURRENCY;
+  return { currency: code, exchangeRate: await getCurrencyMultiplier(code) };
+}

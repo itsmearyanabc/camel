@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
-import { getCurrencyMultiplier } from "@/lib/exchangeRates";
-import { DEFAULT_CURRENCY } from "@/lib/currencies";
+import { resolveWalletDisplay } from "@/lib/exchangeRates";
 import { getOrCreateReferralCode, REFERRAL_BONUS_AMOUNT } from "@/lib/bonuses";
 
 export async function GET() {
@@ -40,8 +39,9 @@ export async function GET() {
 
     const completedOrders = user.orders.filter(o => ["PAID", "READY", "COMPLETED"].includes(o.status));
     const totalSpent = completedOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
-    const currency = user.wallet?.currency || DEFAULT_CURRENCY;
-    const exchangeRate = await getCurrencyMultiplier(currency);
+    // Shared with /api/dashboard/init: both ship a wallet to the same page, so
+    // the currency and its rate are resolved in one place rather than twice.
+    const { currency, exchangeRate } = await resolveWalletDisplay(user.wallet?.currency);
 
     // Backfills accounts created before the referral programme existed. The
     // write happens at most once in an account's life - every later load reads

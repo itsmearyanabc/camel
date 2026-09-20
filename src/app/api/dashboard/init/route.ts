@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { visibleOrdersWhere } from "@/lib/orderHistory";
+import { resolveWalletDisplay } from "@/lib/exchangeRates";
 
 /** Merge id-keyed rows (cities/areas), keeping the first of each id. */
 function unionById<T extends { id: string }>(...lists: T[][]): T[] {
@@ -177,8 +178,18 @@ export async function GET() {
       } as any);
     }
 
+    // The dashboard multiplies every price by wallet.exchangeRate, so the rate
+    // has to travel with the wallet here exactly as it does from /api/auth/me.
+    // Both endpoints call setUser on the same page; when only one carried the
+    // rate, the other priced the whole storefront at 1:1.
+    const walletDisplay = user.wallet ? await resolveWalletDisplay(user.wallet.currency) : null;
+    const userWithRate = {
+      ...user,
+      wallet: user.wallet && walletDisplay ? { ...user.wallet, ...walletDisplay } : user.wallet,
+    };
+
     return NextResponse.json({
-      user,
+      user: userWithRate,
       categories: allCategories,
       cities,
       ledgers,

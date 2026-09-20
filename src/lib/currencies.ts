@@ -5,17 +5,17 @@ export interface CurrencyInfo {
 }
 
 /**
- * Default display currency for a brand-new account.
+ * Display currency a brand-new account starts on, before anyone chooses.
  *
- * The shop trades out of Dubai, so AED is what a customer expects to see
- * before they have chosen anything. Balances are still HELD in USD - currency
- * is a display preference everywhere, converted at the live rate - so changing
- * this never touches a balance.
+ * USD, matching the unit balances and prices are actually held in, so a
+ * customer who never touches the picker sees numbers that need no conversion.
+ * Every other currency in FIAT_CURRENCIES - AED included - is one click away in
+ * the dashboard picker and converts at the live rate.
  *
  * Kept in step with Wallet.currency's @default in prisma/schema.prisma and the
  * column default applied by src/lib/schemaBootstrap.ts.
  */
-export const DEFAULT_CURRENCY = "AED";
+export const DEFAULT_CURRENCY = "USD";
 
 /**
  * The currency every balance, price and invoice is actually HELD in.
