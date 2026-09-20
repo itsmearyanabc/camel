@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import ThemeToggle from "@/components/ThemeToggle";
-import { formatPrice, FIAT_CURRENCIES } from "@/lib/currencies";
+import { formatPrice, FIAT_CURRENCIES, DEFAULT_CURRENCY } from "@/lib/currencies";
 import { useLanguage, LanguageCode } from "@/components/LanguageContext";
 import NotificationBell from "@/components/NotificationBell";
 import styles from "../app/dashboard/dashboard.module.css";
@@ -74,7 +74,7 @@ export default function DashboardNav({
 
   const username = user?.username || "USER";
   const balance = user?.wallet?.balance || 0;
-  const activeCurrency = user?.wallet?.currency || "USD";
+  const activeCurrency = user?.wallet?.currency || DEFAULT_CURRENCY;
 
   // All supported currencies for the dropdown
   const currencyList = Object.values(FIAT_CURRENCIES);
@@ -161,7 +161,7 @@ export default function DashboardNav({
                   style={{ justifyContent: "space-between" }}
                 >
                   <span style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ width: "18px", fontWeight: "bold", fontSize: "15px", textAlign: "center" }}>{cur.symbol}</span>
+                    <span style={{ minWidth: "18px", fontWeight: "bold", fontSize: "15px", textAlign: "center" }}>{cur.symbol}</span>
                     {cur.name}
                   </span>
                   {activeCurrency === cur.code && (

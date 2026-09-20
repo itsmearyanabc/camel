@@ -62,7 +62,7 @@ model Wallet {
   userId    String         @unique
   user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   balance   Decimal        @default(0.0) @db.Decimal(12, 2)
-  currency  String         @default("USD")
+  currency  String         @default("AED")
   updatedAt DateTime       @updatedAt
   ledgers   WalletLedger[]
 

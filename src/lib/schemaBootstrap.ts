@@ -28,9 +28,11 @@ import { prisma } from "./db";
  * rewrite the table, so even the first run does not block writes.
  *
  * KEEPING THIS IN STEP
- * prisma/migrations/20260825000000_add_signup_and_referral_bonuses/migration.sql
- * holds the same statements for anyone running migrations the ordinary way.
- * The two must not drift. When you add a statement here, add it there too.
+ * Every statement below also lives in prisma/migrations, for anyone running
+ * migrations the ordinary way: the referral columns in
+ * 20260825000000_add_signup_and_referral_bonuses, the wallet currency default
+ * in 20260920000000_default_wallet_currency_aed. The two sides must not drift -
+ * when you add a statement here, add a migration for it too.
  */
 
 interface Statement {
@@ -88,6 +90,17 @@ const STATEMENTS: Statement[] = [
         END IF;
       END $$;
     `,
+  },
+  {
+    // The shop trades out of Dubai, so a new wallet should display dirhams
+    // rather than dollars. Only the DEFAULT moves - existing rows keep whatever
+    // currency their owner is already seeing, because silently restating a
+    // customer's balance in another unit is not ours to do unasked.
+    //
+    // Metadata-only on Postgres: SET DEFAULT rewrites no rows and takes no
+    // lasting lock, and re-running it on an already-updated column is a no-op.
+    label: "Wallet.currency default of AED",
+    sql: `ALTER TABLE "Wallet" ALTER COLUMN "currency" SET DEFAULT 'AED'`,
   },
 ];
 

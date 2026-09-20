@@ -9,7 +9,7 @@ import ParallaxIntro from "@/components/ParallaxIntro";
 import Reviews from "@/components/Reviews";
 import SiteFooter from "@/components/SiteFooter";
 import DashboardNav from "@/components/DashboardNav";
-import { formatPrice } from "@/lib/currencies";
+import { formatPrice, SETTLEMENT_CURRENCY } from "@/lib/currencies";
 import styles from "./dashboard.module.css";
 import { BOT_USERNAME } from "@/lib/botIdentity";
 import CartWidget from "@/components/cart/CartWidget";
@@ -482,7 +482,11 @@ export default function Dashboard() {
       
       setPendingDeposit(d.depositRequest);
       setShowDepositInstructions(true);
-      setWalletMessage(`Deposit request for ${formatPrice(parseFloat(depositAmount), user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)} submitted successfully!`);
+      // Stated in the settlement currency on purpose. Deposits are invoiced in
+      // USD (/api/wallet/deposit sends priceCurrency: "usd") and credited in
+      // USD, so converting the typed figure into the display currency here told
+      // the customer a number that nothing would ever charge them.
+      setWalletMessage(`Deposit request for ${formatPrice(parseFloat(depositAmount), SETTLEMENT_CURRENCY, 1)} submitted successfully!`);
       setDepositAmount("");
       await loadDashboardData();
     } catch { setWalletMessage("Error processing deposit"); }
@@ -1114,8 +1118,20 @@ export default function Dashboard() {
 
                     <form onSubmit={handleDeposit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                       <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">Deposit Amount ({user?.wallet?.currency === 'EUR' ? '€' : '$'})</label>
+                        {/* Always USD. The gateway is invoiced in USD and the wallet is
+                            credited in USD whatever currency the customer reads their
+                            balance in, so this label must not follow wallet.currency -
+                            it used to, and promised euros for a charge always taken
+                            in dollars. */}
+                        <label className="form-label">Deposit Amount (USD)</label>
                         <input className="form-input" type="number" step="0.01" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} required placeholder="100.00" />
+                        {/* A customer reading the rest of the dashboard in dirhams should
+                            not have to guess what unit this box wants. */}
+                        {user?.wallet?.currency && user.wallet.currency !== SETTLEMENT_CURRENCY && parseFloat(depositAmount) > 0 && (
+                          <p style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "6px" }}>
+                            {"\u2248"} {formatPrice(parseFloat(depositAmount), user.wallet.currency, user.wallet.exchangeRate || 1)} at today{"'"}s rate
+                          </p>
+                        )}
                       </div>
                       <button type="submit" className="btn btn-primary" style={{ width: "100%" }}>
                         Deposit via Crypto

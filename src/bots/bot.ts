@@ -12,6 +12,7 @@ import {
   isDisplayCurrency,
   currencyLabel,
 } from "../lib/botCurrency";
+import { DEFAULT_CURRENCY, SETTLEMENT_CURRENCY } from "../lib/currencies";
 import { getTelegramChannels } from "../lib/telegramLinks";
 import { encryptPassword, isEncryptionConfigured } from "../lib/encryption";
 import { getOngoingDiscount, ongoingDiscountAmount } from "../lib/ongoingDiscount";
@@ -414,7 +415,7 @@ export function createTelegramBot(token: string, botName: string) {
       return;
     }
     const lang = user.language || "EN";
-    const current = user.wallet?.currency || "USD";
+    const current = user.wallet?.currency || DEFAULT_CURRENCY;
 
     const keyboard = new InlineKeyboard();
     DISPLAY_CURRENCIES.forEach((c, i) => {
@@ -1086,8 +1087,16 @@ export function createTelegramBot(token: string, botName: string) {
         if (!wallet) {
           throw new Error(`Insufficient wallet balance.\n\nPlease log in to our website to deposit funds.`);
         }
-        if (wallet.currency !== product.currency) {
-          throw new Error(`This item is priced in ${product.currency}, but your wallet uses ${wallet.currency}. Currency conversion is not available.`);
+        // Compared against the settlement currency, NOT wallet.currency.
+        //
+        // wallet.currency is a display preference (see src/lib/botCurrency.ts):
+        // the balance itself is always held in USD. Comparing it to the product
+        // currency only ever passed because both happened to default to USD -
+        // the moment a customer picked any other display currency, this refused
+        // every purchase they tried to make. What actually matters is that the
+        // price is denominated in the same unit as the balance being debited.
+        if (product.currency !== SETTLEMENT_CURRENCY) {
+          throw new Error(`This item is priced in ${product.currency}, which cannot be paid from a wallet balance held in ${SETTLEMENT_CURRENCY}.`);
         }
 
         // Debit only if the balance still covers it. Reading the balance and

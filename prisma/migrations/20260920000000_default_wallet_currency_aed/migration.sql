@@ -1,0 +1,11 @@
+-- AlterTable: new wallets display UAE dirhams, matching where the shop trades.
+--
+-- Only the DEFAULT changes. Existing rows keep the currency their owner is
+-- already seeing; restating someone's balance in another unit without asking
+-- is a separate, deliberate decision.
+--
+-- Metadata-only on Postgres: no row rewrite, no lasting lock, and re-running it
+-- on an already-updated column does nothing. Kept in step with the matching
+-- statement in src/lib/schemaBootstrap.ts, which is what actually applies it on
+-- a deploy (the VPS pulls, builds and restarts - there is no migrate step).
+ALTER TABLE "Wallet" ALTER COLUMN "currency" SET DEFAULT 'AED';

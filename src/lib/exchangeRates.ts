@@ -36,7 +36,12 @@ export async function getExchangeRates(): Promise<Record<string, number>> {
   }
 
   // Fallback if API fails — approximate rates so prices aren't shown 1:1
+  // AED is pegged to the dollar at 3.6725 and has been since 1997, so unlike
+  // the others this fallback is not an approximation - it is the rate. It
+  // matters more than the rest too: AED is the default display currency, so a
+  // missing entry here would silently show dirham prices at dollar numbers.
   return ratesCache || {
+    AED: 3.6725,
     USD: 1,
     EUR: 0.92,
     GBP: 0.79,

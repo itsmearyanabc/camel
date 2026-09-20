@@ -1,6 +1,7 @@
 // Relative imports on purpose: shared with the Telegram bot, which runs under
 // tsx and does not resolve the "@/" path alias.
 import { getCurrencyMultiplier } from "./exchangeRates";
+import { DEFAULT_CURRENCY, joinCurrencySymbol } from "./currencies";
 
 /**
  * Currencies a customer can display amounts in.
@@ -10,6 +11,7 @@ import { getCurrencyMultiplier } from "./exchangeRates";
  * Balances are always *held* in USD - this is a display preference only.
  */
 export const DISPLAY_CURRENCIES = [
+  { code: "AED", symbol: "AED", label: "🇦🇪 UAE Dirham" },
   { code: "USD", symbol: "$", label: "🇺🇸 US Dollar" },
   { code: "EUR", symbol: "€", label: "🇪🇺 Euro" },
   { code: "RUB", symbol: "₽", label: "🇷🇺 Ruble" },
@@ -18,16 +20,20 @@ export const DISPLAY_CURRENCIES = [
   { code: "TRY", symbol: "₺", label: "🇹🇷 Lira" },
 ] as const;
 
+/** Fallback entry for a wallet whose currency is missing or no longer offered. */
+const DEFAULT_ENTRY =
+  DISPLAY_CURRENCIES.find((c) => c.code === DEFAULT_CURRENCY) ?? DISPLAY_CURRENCIES[0];
+
 export function isDisplayCurrency(code: unknown): boolean {
   return typeof code === "string" && DISPLAY_CURRENCIES.some((c) => c.code === code);
 }
 
 export function currencySymbol(code: string | null | undefined): string {
-  return DISPLAY_CURRENCIES.find((c) => c.code === code)?.symbol ?? "$";
+  return DISPLAY_CURRENCIES.find((c) => c.code === code)?.symbol ?? DEFAULT_ENTRY.symbol;
 }
 
 export function currencyLabel(code: string | null | undefined): string {
-  return DISPLAY_CURRENCIES.find((c) => c.code === code)?.label ?? "🇺🇸 US Dollar";
+  return DISPLAY_CURRENCIES.find((c) => c.code === code)?.label ?? DEFAULT_ENTRY.label;
 }
 
 /**
@@ -41,7 +47,7 @@ export async function formatMoney(
   amountUsd: number | string | { toString(): string },
   currencyCode: string | null | undefined
 ): Promise<string> {
-  const code = isDisplayCurrency(currencyCode) ? String(currencyCode) : "USD";
+  const code = isDisplayCurrency(currencyCode) ? String(currencyCode) : DEFAULT_CURRENCY;
   const usd = Number(amountUsd) || 0;
 
   if (code === "USD") {
@@ -54,5 +60,5 @@ export async function formatMoney(
   // Minor units are meaningless for these high-denomination currencies, and
   // showing them just makes the message noisier.
   const decimals = converted >= 1000 ? 0 : 2;
-  return `${currencySymbol(code)}${converted.toFixed(decimals)}`;
+  return joinCurrencySymbol(currencySymbol(code), converted.toFixed(decimals));
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SETTLEMENT_CURRENCY } from "@/lib/currencies";
 
 /**
  * Order ID lookup for customer service.
@@ -166,8 +167,16 @@ export default function OrderLookup() {
               <Field
                 label="Wallet"
                 value={
+                  // Balances are HELD in USD; walletCurrency is only the label the
+                  // customer reads them under. Stamping their display currency onto
+                  // this figure showed staff "1836.25 AED" for a $500 balance - a
+                  // 3.67x error to act on while issuing a refund or an adjustment.
                   order.customer.walletBalance != null
-                    ? `${Number(order.customer.walletBalance).toFixed(2)} ${order.customer.walletCurrency || "USD"}`
+                    ? `${Number(order.customer.walletBalance).toFixed(2)} ${SETTLEMENT_CURRENCY}` +
+                      (order.customer.walletCurrency &&
+                      order.customer.walletCurrency !== SETTLEMENT_CURRENCY
+                        ? ` (customer sees ${order.customer.walletCurrency})`
+                        : "")
                     : "—"
                 }
               />

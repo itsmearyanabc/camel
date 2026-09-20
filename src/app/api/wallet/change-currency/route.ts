@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { isDisplayCurrency } from '@/lib/botCurrency';
 
 export async function POST(request: Request) {
   try {
@@ -11,7 +12,11 @@ export async function POST(request: Request) {
 
     const { currency } = await request.json();
 
-    if (!['USD', 'EUR', 'RUB', 'UAH', 'KZT', 'TRY'].includes(currency)) {
+    // Validated against the one shared list rather than a copy of it. This
+    // used to be a hardcoded array, which is exactly how a currency offered in
+    // the UI ends up rejected here - the bot and the website already agree via
+    // DISPLAY_CURRENCIES, and now so does this endpoint.
+    if (!isDisplayCurrency(currency)) {
       return NextResponse.json({ error: 'Invalid currency' }, { status: 400 });
     }
 
