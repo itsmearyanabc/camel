@@ -106,10 +106,10 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
     const existing = cart.find((item) => item.productId === product.id);
     if (existing && existing.quantity + quantity > product.stockCount) {
-      return { ok: false, error: `Only ${product.stockCount} unit(s) available here.` };
+      return { ok: false, error: "No more units are available here." };
     }
     if (!existing && quantity > product.stockCount) {
-      return { ok: false, error: `Only ${product.stockCount} unit(s) available here.` };
+      return { ok: false, error: "No more units are available here." };
     }
 
     setCart((prev) => {

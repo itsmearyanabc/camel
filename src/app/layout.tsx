@@ -5,11 +5,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Camel971 — Private Marketplace",
   description: "Browse, order, and track deliveries with Camel971.",
-  icons: {
-    icon: "/logo.png",
-    shortcut: "/logo.png",
-    apple: "/logo.png",
-  },
+  // Tab and home-screen icons come from src/app/icon.png and
+  // src/app/apple-icon.png; Next.js gives those files priority over any
+  // `icons` listed here, so none are.
 };
 
 import { LanguageProvider } from "@/components/LanguageContext";

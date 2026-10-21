@@ -45,18 +45,7 @@ export default async function DeliveryGuidePage() {
     <div className={styles.page}>
       <header className={styles.nav}>
         <Link href="/" className="brand-lockup">
-          <img
-            src="/logo.png?v=2"
-            alt="Camel971"
-            className="brand-logo"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              objectFit: "cover",
-              boxShadow: "0 2px 8px rgba(189,123,28,0.3)",
-            }}
-          />
+          <img src="/logo-wordmark.png" alt="Camel971" className="brand-wordmark" />
         </Link>
         <div className={styles.navLinks}>
           <Link href="/#discover">Discover</Link>

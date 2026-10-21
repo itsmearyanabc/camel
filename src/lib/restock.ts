@@ -25,7 +25,7 @@ export async function notifyRestockSubscribers(productId: string): Promise<void>
     const botConfigured = botToken && botToken !== "PLACEHOLDER_BOT_1_TOKEN";
 
     const title = "Back in Stock";
-    const message = `Good news! "${product.name}" is back in stock (${product.stockQuantity} available). Grab it before it's gone!`;
+    const message = `Good news! "${product.name}" is back in stock. Grab it before it's gone!`;
     const link = `/dashboard/product/${product.id}`;
 
     for (const sub of subs) {
@@ -49,7 +49,7 @@ export async function notifyRestockSubscribers(productId: string): Promise<void>
         try {
           const tgMessage =
             `🔔 *Back in Stock!*\n\n` +
-            `*${product.name}* is available again (${product.stockQuantity} in stock).\n\n` +
+            `*${product.name}* is available again.\n\n` +
             `Open the store to grab it before it's gone!`;
 
           await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {

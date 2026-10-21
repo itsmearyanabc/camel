@@ -12,7 +12,7 @@ export default function SiteFooter() {
     <footer className="site-footer">
       <div className="footer-grid">
         <div className="footer-intro">
-          <Link href="/" className="brand-lockup"><img src="/logo.png" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} /><span>Camel971</span></Link>
+          <Link href="/" className="brand-lockup"><img src="/logo-wordmark.png" alt="Camel971" className="brand-wordmark brand-wordmark-lg" /></Link>
           <p>{t("footer.desc") || "A premium, privacy-first marketplace with secure ordering and always-on Telegram access."}</p>
         </div>
         <div>

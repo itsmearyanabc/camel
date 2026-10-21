@@ -153,12 +153,12 @@ export async function POST(req: Request) {
         }
 
         if (areaDetail.stockQuantity < quantity) {
-          return NextResponse.json({ error: `Not enough stock for ${product.name} in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}` }, { status: 400 });
+          return NextResponse.json({ error: `Not enough stock for ${product.name} in this area.` }, { status: 400 });
         }
       } else {
         // Fallback to global stock check
         if (product.stockQuantity < quantity) {
-          return NextResponse.json({ error: `Not enough stock for ${product.name}. Requested: ${quantity}, Available: ${product.stockQuantity}` }, { status: 400 });
+          return NextResponse.json({ error: `Not enough stock for ${product.name}.` }, { status: 400 });
         }
       }
 
@@ -274,7 +274,7 @@ export async function POST(req: Request) {
             throw new Error("This product is not available in the selected area.");
           }
           if (areaDetail.stockQuantity < quantity) {
-            throw new Error(`Not enough stock. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}`);
+            throw new Error("Not enough stock.");
           }
 
           // Reserve unique per-unit stock items (FIFO) if they exist
@@ -283,7 +283,7 @@ export async function POST(req: Request) {
           });
           if (availableCount > 0) {
             if (availableCount < quantity) {
-              throw new Error(`Not enough unique units for product in this area. Requested: ${quantity}, Available: ${availableCount}`);
+              throw new Error("Not enough unique units for product in this area.");
             }
             reservedUnits = await tx.stockItem.findMany({
               where: { productAreaDetailId: areaDetail.id, status: "AVAILABLE" },
@@ -488,6 +488,14 @@ export async function POST(req: Request) {
     });
 
   } catch (error) {
+    // The stock re-checks inside the transaction throw when another buyer
+    // took the last unit between validation and reservation. That is the
+    // customer's to act on (pick another area, try again), so it is echoed
+    // like the wallet checkout does instead of becoming a generic 500.
+    const msg = error instanceof Error ? error.message : "";
+    if (msg.startsWith("Not enough") || msg.includes("not available in the selected area")) {
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
     console.error("Crypto checkout error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

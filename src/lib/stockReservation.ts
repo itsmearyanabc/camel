@@ -69,7 +69,7 @@ export async function reserveProductStock(
 
     if (areaDetail.stockQuantity < quantity) {
       throw new Error(
-        `Not enough stock in this area. Requested: ${quantity}, Available: ${areaDetail.stockQuantity}`
+        "Not enough stock in this area."
       );
     }
 
@@ -84,7 +84,7 @@ export async function reserveProductStock(
     if (availableCount > 0) {
       if (availableCount < quantity) {
         throw new Error(
-          `Not enough unique units in this area. Requested: ${quantity}, Available: ${availableCount}`
+          "Not enough unique units in this area."
         );
       }
       const units = await tx.stockItem.findMany({
@@ -144,7 +144,7 @@ export async function reserveProductStock(
     });
     if (taken.count === 0) {
       throw new Error(
-        `Not enough stock. Requested: ${quantity}, Available: ${product.stockQuantity}`
+        "Not enough stock."
       );
     }
   }

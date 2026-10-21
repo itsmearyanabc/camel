@@ -406,7 +406,7 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
           {formatPrice(offer.price, user?.wallet?.currency || "USD", user?.wallet?.exchangeRate || 1)}
         </span>
         <span style={{ display: "block", fontSize: "11px", color: "var(--green)", marginTop: "4px" }}>
-          {offer.stock} in stock
+          In stock
         </span>
       </div>
     );
@@ -614,9 +614,9 @@ export default function ProductPage({ params }: { params: Promise<{ id: string }
                       <h3 style={{ marginBottom: "4px" }}>Purchase {product.name}</h3>
                       <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
                         {selectedOffer
-                          ? `${selectedOffer.variantLabel ? selectedOffer.variantLabel + " · " : ""}${selectedOffer.cityName ? selectedOffer.cityName + " / " : ""}${selectedOffer.areaName} — ${selectedOffer.stock} unit(s) available`
+                          ? `${selectedOffer.variantLabel ? selectedOffer.variantLabel + " · " : ""}${selectedOffer.cityName ? selectedOffer.cityName + " / " : ""}${selectedOffer.areaName} — In stock`
                           : selectedStock > 0
-                            ? `${selectedStock} unit(s) available${scopedAreaIds ? " in the selected location" : " in stock"}`
+                            ? (scopedAreaIds ? "In stock in the selected location" : "In stock")
                             : hasVariants && !selected
                               ? "Choose an option below"
                               : scopedAreaIds

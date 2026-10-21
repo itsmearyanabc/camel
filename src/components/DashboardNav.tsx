@@ -118,7 +118,7 @@ export default function DashboardNav({
               whiteSpace: "nowrap",
             }}
           >
-            <img src="/logo.png?v=2" alt="Camel971" style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
+            <img src="/logo-wordmark.png" alt="Camel971" className="brand-wordmark brand-wordmark-sm" />
             {username}
           </Link>
         </div>
