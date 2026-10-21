@@ -50,12 +50,40 @@
     z-index: 5;
 }
 
-.mountainLeft, .mountainRight {
-    z-index: 3;
-}
-
 .cloud1, .cloud2 {
     z-index: 4;
+}
+
+/* Stage curtains: tied back at the sides, parting as the page scrolls. */
+.curtain {
+    position: absolute;
+    top: 0;
+    width: 34%;
+    height: 100%;
+    z-index: 6;
+    pointer-events: none;
+    will-change: transform;
+}
+
+.curtainLeft {
+    left: 0;
+    filter: drop-shadow(14px 0 22px rgba(0,0,0,0.65));
+}
+
+.curtainRight {
+    right: 0;
+    filter: drop-shadow(-14px 0 22px rgba(0,0,0,0.65));
+}
+
+.valance {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 110px;
+    z-index: 7;
+    pointer-events: none;
+    filter: drop-shadow(0 10px 16px rgba(0,0,0,0.6));
 }
 
 .parallaxText {
@@ -128,6 +156,13 @@
     }
     .parallaxImg {
         object-position: center bottom;
+    }
+    /* Slimmer curtains so RELAX and the figure stay clear on a phone. */
+    .curtain {
+        width: 21%;
+    }
+    .valance {
+        height: 64px;
     }
     .man {
         height: 60vh !important;
